@@ -24,7 +24,15 @@ class User(Base, TenantMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        SAEnum(UserRole, name="user_role"),
+        # values_callable: instrui SA a usar os VALUES do enum ('owner') em vez
+        # dos NAMES ('OWNER') — bate com os valores literais criados na
+        # migration via postgresql.ENUM(...). Sem isso, INSERT falha em PG real
+        # com "invalid input value for enum user_role: OWNER".
+        SAEnum(
+            UserRole,
+            name="user_role",
+            values_callable=lambda enum: [m.value for m in enum],
+        ),
         nullable=False,
         default=UserRole.STAFF,
     )

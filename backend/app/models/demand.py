@@ -29,7 +29,12 @@ class Demand(Base, TenantMixin, TimestampMixin):
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     status: Mapped[DemandStatus] = mapped_column(
-        SAEnum(DemandStatus, name="demand_status"),
+        # Ver nota em user.py sobre values_callable — sem isso PG rejeita.
+        SAEnum(
+            DemandStatus,
+            name="demand_status",
+            values_callable=lambda enum: [m.value for m in enum],
+        ),
         nullable=False,
         default=DemandStatus.OPEN,
     )

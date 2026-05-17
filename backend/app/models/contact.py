@@ -46,7 +46,12 @@ class Contact(Base, TenantMixin, TimestampMixin):
 
     # Classificacao
     type: Mapped[ContactType] = mapped_column(
-        SAEnum(ContactType, name="contact_type"),
+        # Ver nota em user.py sobre values_callable — sem isso PG rejeita.
+        SAEnum(
+            ContactType,
+            name="contact_type",
+            values_callable=lambda enum: [m.value for m in enum],
+        ),
         nullable=False,
         default=ContactType.VOTER,
     )
