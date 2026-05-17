@@ -52,6 +52,10 @@ class Contact(Base, TenantMixin, TimestampMixin):
     )
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
+    # Soft delete: DELETE da API vira UPDATE is_active=False.
+    # Mantem integridade referencial (interactions, demands continuam validos).
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
     __table_args__ = (
         # Indice composto para queries multi-tenant (sempre filtram por tenant_id)
         Index("ix_contacts_tenant_id_id", "tenant_id", "id"),

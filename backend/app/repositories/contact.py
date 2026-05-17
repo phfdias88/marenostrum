@@ -4,12 +4,20 @@ Repository de contatos.
 REGRA INVIOLAVEL: TODA query (insert/select/update/delete/count) filtra por
 tenant_id. Metodos nunca aceitam payload "cru" — recebem dict ja validado
 pelo Service e tenant_id explicito.
+
+SOFT DELETE (Fase 10):
+- delete() faz UPDATE is_active=False (preserva integridade referencial)
+- Queries de LEITURA HUMANA filtram is_active=true por padrao:
+  get_by_id, list_paginated, count, find_by_phone, list_with_coords, search
+- Queries de VALIDACAO incluem inactive (alinhadas com a unique constraint
+  do DB que e' global): exists_by_phone, find_existing_phones
+  Razao: phone de contact soft-deleted ainda ocupa o slot unique.
 """
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from app.models.contact import Contact
@@ -22,8 +30,6 @@ class ContactRepository:
     # -------------------------------------------------------------- Create
 
     def create(self, *, tenant_id: UUID, data: dict) -> Contact:
-        # Defesa em profundidade: mesmo que `data` traga tenant_id por engano,
-        # forcamos o valor recebido no parametro.
         data.pop("tenant_id", None)
         contact = Contact(tenant_id=tenant_id, **data)
         self._db.add(contact)
@@ -33,11 +39,19 @@ class ContactRepository:
 
     # ---------------------------------------------------------------- Read
 
-    def get_by_id(self, *, tenant_id: UUID, contact_id: UUID) -> Contact | None:
+    def get_by_id(
+        self,
+        *,
+        tenant_id: UUID,
+        contact_id: UUID,
+        include_inactive: bool = False,
+    ) -> Contact | None:
         stmt = select(Contact).where(
             Contact.id == contact_id,
             Contact.tenant_id == tenant_id,
         )
+        if not include_inactive:
+            stmt = stmt.where(Contact.is_active.is_(True))
         return self._db.execute(stmt).scalar_one_or_none()
 
     def find_by_phone(
@@ -46,10 +60,14 @@ class ContactRepository:
         tenant_id: UUID,
         phone: str,
     ) -> Contact | None:
-        """Retorna contato com este telefone neste tenant, ou None."""
+        """
+        Busca contato ATIVO por telefone. Usado pelo webhook — soft-deleted
+        nao deve linkar (webhook nao 'ressuscita' contato apagado).
+        """
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
             Contact.phone == phone,
+            Contact.is_active.is_(True),
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
@@ -60,7 +78,10 @@ class ContactRepository:
         phone: str,
         exclude_id: UUID | None = None,
     ) -> bool:
-        """exclude_id permite usar o mesmo phone do proprio registro em updates."""
+        """
+        Verifica se phone existe (INCLUINDO inactive) — alinhado com a
+        unique constraint do DB. Usado pra prevenir conflito antes do INSERT.
+        """
         stmt = select(Contact.id).where(
             Contact.tenant_id == tenant_id,
             Contact.phone == phone,
@@ -75,7 +96,10 @@ class ContactRepository:
         tenant_id: UUID,
         search: str | None = None,
     ) -> int:
-        stmt = select(func.count(Contact.id)).where(Contact.tenant_id == tenant_id)
+        stmt = select(func.count(Contact.id)).where(
+            Contact.tenant_id == tenant_id,
+            Contact.is_active.is_(True),
+        )
         if search:
             stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
         return int(self._db.execute(stmt).scalar_one())
@@ -89,12 +113,13 @@ class ContactRepository:
         search: str | None = None,
     ) -> list[Contact]:
         """
-        Lista contatos do tenant. Se `search` for fornecido, aplica
-        ILIKE no nome — case-insensitive, busca parcial.
-        ILIKE usa indice quando a busca comeca com texto fixo; '%X%' faz seq scan.
-        Para tabelas grandes, considere `pg_trgm` no futuro.
+        Lista contatos ATIVOS do tenant.
+        ILIKE no nome se search fornecido; case-insensitive.
         """
-        stmt = select(Contact).where(Contact.tenant_id == tenant_id)
+        stmt = select(Contact).where(
+            Contact.tenant_id == tenant_id,
+            Contact.is_active.is_(True),
+        )
         if search:
             stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
         stmt = (
@@ -105,9 +130,10 @@ class ContactRepository:
         return list(self._db.execute(stmt).scalars().all())
 
     def list_with_coords(self, *, tenant_id: UUID) -> list[Contact]:
-        """Usado pelo mapa: so contatos com lat/lng preenchidos."""
+        """Mapa — so contatos ATIVOS com lat/lng preenchidos."""
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
+            Contact.is_active.is_(True),
             Contact.latitude.is_not(None),
             Contact.longitude.is_not(None),
         )
@@ -122,16 +148,19 @@ class ContactRepository:
         contact_id: UUID,
         data: dict,
     ) -> Contact | None:
-        # Bloqueia mudanca de tenant_id por payload corrompido
         data.pop("tenant_id", None)
         data.pop("id", None)
         if not data:
-            # Nada a atualizar — retorna o registro atual
             return self.get_by_id(tenant_id=tenant_id, contact_id=contact_id)
 
+        # Update so' atinge contatos ATIVOS — soft-deleted fica "congelado".
         stmt = (
             update(Contact)
-            .where(Contact.id == contact_id, Contact.tenant_id == tenant_id)
+            .where(
+                Contact.id == contact_id,
+                Contact.tenant_id == tenant_id,
+                Contact.is_active.is_(True),
+            )
             .values(**data)
             .returning(Contact)
         )
@@ -148,7 +177,10 @@ class ContactRepository:
         tenant_id: UUID,
         phones: list[str],
     ) -> set[str]:
-        """Retorna o subconjunto de `phones` que ja existe no tenant."""
+        """
+        Retorna telefones que JA EXISTEM (incluindo inactive — alinhado
+        com a unique constraint do DB).
+        """
         if not phones:
             return set()
         stmt = select(Contact.phone).where(
@@ -163,17 +195,8 @@ class ContactRepository:
         tenant_id: UUID,
         rows: list[dict[str, Any]],
     ) -> int:
-        """
-        Insert em lote. UM INSERT VALUES (...), (...), (...) — milhares de
-        registros em uma viagem ao banco.
-
-        NOTA: o default `uuid4` definido no model so dispara via ORM `add()`.
-        Em Core `insert()` precisamos pre-gerar IDs e timestamps. Tambem
-        forcamos tenant_id (defesa contra payload corrompido).
-        """
         if not rows:
             return 0
-
         now = datetime.now(timezone.utc)
         payloads = []
         for row in rows:
@@ -187,16 +210,29 @@ class ContactRepository:
                     **row,
                 }
             )
-
         self._db.execute(insert(Contact), payloads)
         return len(payloads)
 
     # -------------------------------------------------------------- Delete
 
-    def delete(self, *, tenant_id: UUID, contact_id: UUID) -> bool:
-        stmt = delete(Contact).where(
-            Contact.id == contact_id,
-            Contact.tenant_id == tenant_id,
+    def soft_delete(self, *, tenant_id: UUID, contact_id: UUID) -> bool:
+        """
+        SOFT DELETE: marca is_active=False. Preserva interactions/demands
+        que referenciam este contato. Retorna False se ja estava inativo
+        (idempotente do ponto de vista do cliente).
+        """
+        stmt = (
+            update(Contact)
+            .where(
+                Contact.id == contact_id,
+                Contact.tenant_id == tenant_id,
+                Contact.is_active.is_(True),
+            )
+            .values(is_active=False)
         )
         result = self._db.execute(stmt)
         return (result.rowcount or 0) > 0
+
+    # Hard delete removido. Se um dia precisarmos (LGPD: direito ao
+    # esquecimento), criar metodo separado purge() que cascade
+    # explicitamente em interactions/demands.

@@ -9,7 +9,7 @@
  * Se qualquer um 404: contato nao existe ou pertence a outro tenant
  * (backend nao distingue por design — anti enumeration).
  */
-import { ArrowLeft, MapPin, Pencil, Phone, RefreshCw } from "lucide-react";
+import { ArrowLeft, ClipboardList, MapPin, Pencil, Phone, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -24,8 +24,16 @@ import {
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
 import { InteractionTimeline } from "@/components/contacts/InteractionTimeline";
+import { ContactDemandsList } from "@/components/demands/ContactDemandsList";
+import { Activity } from "lucide-react";
 
 export default function ContactDetailPage() {
   const params = useParams<{ id: string }>();
@@ -162,29 +170,47 @@ export default function ContactDetailPage() {
         )}
       </header>
 
-      {/* Timeline */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-lg font-semibold">Timeline</h2>
+      {/* Tabs: Timeline + Demandas */}
+      <Tabs defaultValue="timeline">
+        <TabsList>
+          <TabsTrigger value="timeline">
+            <Activity />
+            Timeline
+          </TabsTrigger>
+          <TabsTrigger value="demands">
+            <ClipboardList />
+            Demandas
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="timeline">
+          <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-muted-foreground">
               Eventos de WhatsApp recebidos do BotConversa
             </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadTimeline}
+              disabled={loadingTimeline}
+              aria-label="Atualizar timeline"
+            >
+              <RefreshCw className={loadingTimeline ? "animate-spin" : ""} />
+              Atualizar
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={loadTimeline}
-            disabled={loadingTimeline}
-            aria-label="Atualizar timeline"
-          >
-            <RefreshCw className={loadingTimeline ? "animate-spin" : ""} />
-            Atualizar
-          </Button>
-        </div>
+          <InteractionTimeline items={interactions} loading={loadingTimeline} />
+        </TabsContent>
 
-        <InteractionTimeline items={interactions} loading={loadingTimeline} />
-      </div>
+        <TabsContent value="demands">
+          {contact && (
+            <ContactDemandsList
+              contactId={contact.id}
+              contactName={contact.full_name}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Edit dialog */}
       <ContactFormDialog

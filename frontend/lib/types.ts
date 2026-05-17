@@ -45,6 +45,46 @@ export type ImportResult = {
   errors: ImportRowError[];
 };
 
+// ----------------------------------------------------------------- Demand
+
+
+export type DemandStatus = "aberta" | "em_andamento" | "resolvida" | "cancelada";
+
+export const DEMAND_STATUS_LABELS: Record<DemandStatus, string> = {
+  aberta: "Aberta",
+  em_andamento: "Em andamento",
+  resolvida: "Resolvida",
+  cancelada: "Cancelada",
+};
+
+/** Variantes de Badge por status (mapeia pra badgeVariants em components/ui/badge.tsx) */
+export const DEMAND_STATUS_BADGE: Record<
+  DemandStatus,
+  "amber" | "blue" | "emerald" | "slate"
+> = {
+  aberta: "amber",
+  em_andamento: "blue",
+  resolvida: "emerald",
+  cancelada: "slate",
+};
+
+export type DemandContactSummary = {
+  id: string;
+  full_name: string;
+};
+
+export type Demand = {
+  id: string;
+  contact: DemandContactSummary;
+  title: string;
+  description: string;
+  status: DemandStatus;
+  category: string;
+  created_at: string;
+  updated_at: string;
+};
+
+
 /** Interaction = webhook event vinculado (ou nao) a um Contact. */
 export type Interaction = {
   id: string;

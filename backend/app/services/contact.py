@@ -304,15 +304,21 @@ class ContactService:
     # ---------------------------------------------------------------- Delete
 
     def delete_contact(self, contact_id: UUID) -> None:
-        ok = self._repo.delete(
+        """
+        SOFT DELETE: marca is_active=False. Cliente ve' o mesmo comportamento
+        (some das listas, GET retorna 404), mas integridade referencial e'
+        preservada — interactions e demands continuam validas.
+        """
+        ok = self._repo.soft_delete(
             tenant_id=self._ctx.tenant_id,
             contact_id=contact_id,
         )
         if not ok:
+            # Nao existe OU ja' estava inativo: mesma resposta 404.
             raise NotFoundError("Contato nao encontrado.")
         self._ctx.db.commit()
         log.info(
-            "contact_deleted",
+            "contact_soft_deleted",
             tenant_id=str(self._ctx.tenant_id),
             contact_id=str(contact_id),
         )

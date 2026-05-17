@@ -7,7 +7,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BarChart3, Headset, LayoutDashboard, MapPinned, Users } from "lucide-react";
+import {
+  BarChart3,
+  ClipboardList,
+  Headset,
+  LayoutDashboard,
+  MapPinned,
+  Users,
+} from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import { clearAuth } from "@/lib/auth";
@@ -19,6 +26,7 @@ type Me = { full_name: string; tenant_name: string };
 const NAV = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
+  { href: "/dashboard/demandas", label: "Demandas", icon: ClipboardList },
   { href: "/dashboard/map", label: "Mapa", icon: MapPinned },
   { href: "/dashboard/analytics", label: "Análises", icon: BarChart3 },
   { href: "/dashboard/sonar", label: "Atendimentos", icon: Headset },
