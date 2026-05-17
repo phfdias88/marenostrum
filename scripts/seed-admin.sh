@@ -11,7 +11,9 @@ set -euo pipefail
 
 TENANT_SLUG="${TENANT_SLUG:-marenostrum-admin}"
 TENANT_NAME="${TENANT_NAME:-MareNostrum Admin}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-admin@marenostrum.local}"
+# NAO usar TLD .local — email-validator do Pydantic rejeita (RFC 6761).
+# Quando tiver dominio real (ex: marenostrum.com.br), troque aqui.
+ADMIN_EMAIL="${ADMIN_EMAIL:-admin@marenostrum.com.br}"
 ADMIN_NAME="${ADMIN_NAME:-Administrador}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-MudeEss@Senha123}"
 
