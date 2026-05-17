@@ -10,17 +10,18 @@ Decisoes:
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import DateTime, ForeignKey, Index, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 
 class Base(DeclarativeBase):
     """Base declarativa do SQLAlchemy 2.x (typed)."""
 
-    # PK padrao UUID v4 - melhor para multi-tenant (nao expoe contagem)
+    # PK padrao UUID v4 - melhor para multi-tenant (nao expoe contagem).
+    # sa.Uuid (cross-DB): em Postgres usa UUID nativo, em SQLite/MySQL usa CHAR.
+    # Migrations Alembic continuam usando postgresql.UUID (SQL especifico).
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
+        Uuid(as_uuid=True),
         primary_key=True,
         default=uuid4,
     )
@@ -52,7 +53,7 @@ class TenantMixin:
     @declared_attr
     def tenant_id(cls) -> Mapped[UUID]:  # noqa: N805
         return mapped_column(
-            PG_UUID(as_uuid=True),
+            Uuid(as_uuid=True),
             ForeignKey("tenants.id", ondelete="RESTRICT"),
             nullable=False,
             index=True,
