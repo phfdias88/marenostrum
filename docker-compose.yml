@@ -15,10 +15,10 @@ services:
     image: postgres:16-alpine
     container_name: mn_db
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-marenostrum}
-      POSTGRES_USER: ${POSTGRES_USER:-marenostrum}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    # Mesma fonte de credenciais que a api le — evita drift de password
+    # entre o que o Postgres GRAVA no volume e o que a API tenta usar.
+    env_file:
+      - ./backend/.env
     volumes:
       - pg_data:/var/lib/postgresql/data
     # Tuning leve para VPS pequena
