@@ -1,0 +1,30 @@
+# Padrao: deixar git auto-detectar
+* text=auto
+
+# Scripts/Dockerfiles SEMPRE LF (rodam em Linux, CRLF quebra shebang)
+*.sh           text eol=lf
+*.py           text eol=lf
+Dockerfile     text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.conf         text eol=lf
+.dockerignore  text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+.env*          text eol=lf
+
+# Arquivos do frontend: LF (rodam em container Linux)
+*.ts           text eol=lf
+*.tsx          text eol=lf
+*.js           text eol=lf
+*.json         text eol=lf
+*.css          text eol=lf
+*.mako         text eol=lf
+*.ini          text eol=lf
+
+# Binarios (nao tratar como texto)
+*.png  binary
+*.jpg  binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary

@@ -1,0 +1,137 @@
+# =============================================================================
+# MareNostrum App - Docker Compose
+# Ambiente: VPS Hostinger KVM 1 (~1 vCPU, ~4GB RAM)
+# Estratégia: Limites estritos por serviço para evitar OOM Killer.
+# Total alocado em "limits": ~3.4GB RAM (deixa folga ao SO/SSH/cron).
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - Banco de dados principal (multi-tenant lógico)
+  # tuning conservador: pequeno shared_buffers, conexoes limitadas
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: mn_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-marenostrum}
+      POSTGRES_USER: ${POSTGRES_USER:-marenostrum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    # Tuning leve para VPS pequena
+    command: >
+      postgres
+      -c max_connections=50
+      -c shared_buffers=256MB
+      -c effective_cache_size=512MB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marenostrum}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 1024M
+        reservations:
+          cpus: "0.20"
+          memory: 256M
+    networks:
+      - mn_net
+
+  # ---------------------------------------------------------------------------
+  # API FastAPI (backend) - Uvicorn single worker (VPS pequena)
+  # Em VPS de 1 vCPU, multiplos workers competem por CPU. 1 worker e suficiente.
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mn_api
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    # Comando vem do Dockerfile (CMD). O ENTRYPOINT roda migrations antes.
+    deploy:
+      resources:
+        limits:
+          cpus: "0.40"
+          memory: 768M
+        reservations:
+          cpus: "0.15"
+          memory: 256M
+    networks:
+      - mn_net
+
+  # ---------------------------------------------------------------------------
+  # Frontend Next.js - modo "standalone" (build pequeno, menos RAM)
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mn_web
+    restart: unless-stopped
+    env_file:
+      - ./frontend/.env
+    environment:
+      NODE_ENV: production
+      # Limita heap do V8 para nao explodir RAM
+      NODE_OPTIONS: "--max-old-space-size=512"
+    depends_on:
+      - api
+    deploy:
+      resources:
+        limits:
+          cpus: "0.40"
+          memory: 768M
+        reservations:
+          cpus: "0.15"
+          memory: 256M
+    networks:
+      - mn_net
+
+  # ---------------------------------------------------------------------------
+  # Nginx - Proxy reverso (TLS termination + roteamento /api -> api, / -> web)
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mn_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+      - web
+    deploy:
+      resources:
+        limits:
+          cpus: "0.20"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+    networks:
+      - mn_net
+
+volumes:
+  pg_data:
+    driver: local
+
+networks:
+  mn_net:
+    driver: bridge

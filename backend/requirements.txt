@@ -1,0 +1,15 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+# uvloop e Linux/macOS apenas — marker pula instalacao no Windows.
+# No container (Linux) e instalado normalmente e usado via --loop uvloop.
+uvloop==0.20.0; sys_platform != "win32"
+SQLAlchemy==2.0.49
+psycopg[binary]==3.2.13
+alembic==1.13.3
+pydantic==2.13.4
+pydantic-settings==2.14.1
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+python-multipart==0.0.12
+structlog==24.4.0
+email-validator==2.2.0

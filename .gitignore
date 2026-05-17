@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node / Next
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Env (NUNCA commitar)
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Backups
+*.sql.gz
+*.dump
+
+# Claude Code (preferencias locais por dev — settings.json pode ir, .local nao)
+.claude/settings.local.json
+.claude/*.local.json
