@@ -9,24 +9,14 @@ Foco:
 """
 import uuid
 
-import pytest
-
 from app.models.interaction import Interaction
 
 
 # ----------------------------------------------------- helpers/fixtures
 
-
+# Fixture `tenant_a_with_secret` mora em conftest.py (compartilhada com
+# os testes de multi_tenant da timeline).
 SECRET_A = "secret-tenant-alpha-1234567890"
-
-
-@pytest.fixture
-def tenant_a_with_secret(tenant_a, db_session):
-    """Tenant A com webhook_secret configurado."""
-    tenant, user, token = tenant_a
-    tenant.webhook_secret = SECRET_A
-    db_session.commit()
-    return tenant, user, token
 
 
 def _payload(phone: str | None = None, **extra) -> dict:

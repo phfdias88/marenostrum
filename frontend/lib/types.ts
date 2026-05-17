@@ -44,3 +44,16 @@ export type ImportResult = {
   total_rows: number;
   errors: ImportRowError[];
 };
+
+/** Interaction = webhook event vinculado (ou nao) a um Contact. */
+export type Interaction = {
+  id: string;
+  contact_id: string | null;
+  phone: string | null;
+  event_type: string | null;
+  channel: string;
+  external_event_id: string | null;
+  payload_data: Record<string, unknown>;
+  received_at: string; // ISO
+  created_at: string;  // ISO
+};

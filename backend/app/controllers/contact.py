@@ -20,6 +20,7 @@ from app.schemas.contact import (
     ImportResult,
     Page,
 )
+from app.schemas.interaction import InteractionRead
 from app.services.contact import ContactService
 
 # Limite defensivo de tamanho do upload (~5MB ~ 50k linhas).
@@ -97,6 +98,31 @@ def create_contact(
 ) -> ContactRead:
     contact = ContactService(ctx).create_contact(payload, background_tasks)
     return ContactRead.model_validate(contact)
+
+
+# --------------------------------------------------------- Interactions
+
+
+@router.get(
+    "/{contact_id}/interactions",
+    response_model=Page[InteractionRead],
+    summary="Timeline de interações do contato (webhooks recebidos)",
+)
+def list_contact_interactions(
+    contact_id: UUID,
+    ctx: CurrentTenant,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> Page[InteractionRead]:
+    items, total = ContactService(ctx).list_contact_interactions(
+        contact_id, limit=limit, offset=offset,
+    )
+    return Page[InteractionRead](
+        items=[InteractionRead.model_validate(i) for i in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 # ------------------------------------------------------------------ Update

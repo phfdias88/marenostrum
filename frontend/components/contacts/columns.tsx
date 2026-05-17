@@ -1,7 +1,8 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +21,9 @@ type Handlers = {
 };
 
 /**
- * Factory de colunas — funcao em vez de constante para fechar sobre
- * onEdit/onDelete, que vem da pagina (precisam mexer no estado dela).
+ * Colunas da DataTable de contatos.
+ * Factory function porque a coluna "actions" precisa fechar sobre
+ * setEditing/setDeleting do componente pai.
  */
 export function makeContactColumns({
   onEdit,
@@ -32,7 +34,13 @@ export function makeContactColumns({
       accessorKey: "full_name",
       header: "Nome",
       cell: ({ row }) => (
-        <span className="font-medium">{row.original.full_name}</span>
+        // Nome clicavel = atalho rapido pro perfil
+        <Link
+          href={`/dashboard/contacts/${row.original.id}`}
+          className="font-medium hover:text-primary hover:underline underline-offset-2"
+        >
+          {row.original.full_name}
+        </Link>
       ),
     },
     {
@@ -91,9 +99,15 @@ export function makeContactColumns({
                 <MoreHorizontal />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuLabel>Ações</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href={`/dashboard/contacts/${contact.id}`}>
+                  <ExternalLink />
+                  Ver perfil
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onEdit(contact)}>
                 <Pencil />
                 Editar

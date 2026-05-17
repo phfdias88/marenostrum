@@ -196,6 +196,66 @@ def test_import_csv_only_inserts_into_own_tenant(auth_a, auth_b):
     assert auth_b.get("/api/v1/contacts").json()["total"] == 1  # ainda so o dele
 
 
+def test_interactions_of_other_tenants_contact_returns_404(
+    auth_a, auth_b, tenant_a_with_secret, client,
+):
+    """
+    B nao pode listar a timeline de um contato do A — nem mesmo descobrir
+    se o contato existe (404, nao 403).
+    """
+    tenant_a_obj, _, _ = tenant_a_with_secret
+
+    # A cria contato e gera 1 interacao via webhook
+    created = auth_a.post("/api/v1/contacts", json={
+        "full_name": "Eleitor A",
+        "phone": "(32) 11111-1111",
+        "type": "voter",
+    }).json()
+    client.post(
+        f"/api/v1/webhooks/botconversa/{tenant_a_obj.id}",
+        json={"phone": "(32) 11111-1111", "event": "mensagem_recebida"},
+        headers={"X-Webhook-Secret": "secret-tenant-alpha-1234567890"},
+    )
+
+    # A consegue ver a timeline
+    ra = auth_a.get(f"/api/v1/contacts/{created['id']}/interactions").json()
+    assert ra["total"] == 1
+
+    # B tenta ver — 404 (contato nao existe pra ele)
+    rb = auth_b.get(f"/api/v1/contacts/{created['id']}/interactions")
+    assert rb.status_code == 404
+
+
+def test_interactions_list_returns_only_own_contact_events(
+    auth_a, tenant_a_with_secret, client, db_session,
+):
+    """
+    Interactions de OUTRO contato do MESMO tenant nao devem aparecer.
+    Filtro deve ser por (tenant_id AND contact_id), nao so' tenant_id.
+    """
+    tenant, _, _ = tenant_a_with_secret
+    c1 = auth_a.post("/api/v1/contacts", json={
+        "full_name": "Contato 1", "phone": "(32) 11111-1111", "type": "voter",
+    }).json()
+    c2 = auth_a.post("/api/v1/contacts", json={
+        "full_name": "Contato 2", "phone": "(32) 22222-2222", "type": "voter",
+    }).json()
+
+    # 2 webhooks pro c1, 1 pro c2
+    secret = {"X-Webhook-Secret": "secret-tenant-alpha-1234567890"}
+    url = f"/api/v1/webhooks/botconversa/{tenant.id}"
+    client.post(url, json={"phone": "(32) 11111-1111", "event": "ev1"}, headers=secret)
+    client.post(url, json={"phone": "(32) 11111-1111", "event": "ev2"}, headers=secret)
+    client.post(url, json={"phone": "(32) 22222-2222", "event": "ev3"}, headers=secret)
+
+    r1 = auth_a.get(f"/api/v1/contacts/{c1['id']}/interactions").json()
+    r2 = auth_a.get(f"/api/v1/contacts/{c2['id']}/interactions").json()
+    assert r1["total"] == 2
+    assert r2["total"] == 1
+    assert all(it["event_type"] in ("ev1", "ev2") for it in r1["items"])
+    assert r2["items"][0]["event_type"] == "ev3"
+
+
 def test_import_csv_rejects_phone_existing_in_same_tenant(auth_a):
     """Mas dentro do MESMO tenant, telefone duplicado e' pulado."""
     _make_contact(auth_a, phone="(32) 99999-8888", email="ja@example.com")

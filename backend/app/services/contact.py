@@ -16,7 +16,9 @@ from fastapi import BackgroundTasks
 from app.core.errors import ConflictError, NotFoundError
 from app.core.tenant_context import TenantContext
 from app.models.contact import Contact
+from app.models.interaction import Interaction
 from app.repositories.contact import ContactRepository
+from app.repositories.interaction import InteractionRepository
 from app.schemas.contact import (
     ContactCreate,
     ContactUpdate,
@@ -138,6 +140,38 @@ class ContactService:
 
     def list_for_map(self) -> list[Contact]:
         return self._repo.list_with_coords(tenant_id=self._ctx.tenant_id)
+
+    def list_contact_interactions(
+        self,
+        contact_id: UUID,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Interaction], int]:
+        """
+        Timeline de interacoes (webhooks) de um contato.
+
+        REUSO ESTRATEGICO: chamamos get_contact() primeiro — ele ja' levanta
+        NotFoundError se o contato nao pertence ao tenant. Sem duplicar
+        regra de validacao. Se get_contact passou, podemos confiar que o
+        contact_id e' do nosso tenant.
+        """
+        self.get_contact(contact_id)  # 404 se nao for nosso
+
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        repo = InteractionRepository(self._ctx.db)
+        items = repo.list_by_contact(
+            tenant_id=self._ctx.tenant_id,
+            contact_id=contact_id,
+            limit=limit,
+            offset=offset,
+        )
+        total = repo.count_by_contact(
+            tenant_id=self._ctx.tenant_id,
+            contact_id=contact_id,
+        )
+        return items, total
 
     # ---------------------------------------------------------------- Update
 

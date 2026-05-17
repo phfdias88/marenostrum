@@ -49,3 +49,41 @@ class InteractionRepository:
             Interaction.external_event_id == external_event_id,
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+    def list_by_contact(
+        self,
+        *,
+        tenant_id: UUID,
+        contact_id: UUID,
+        limit: int,
+        offset: int,
+    ) -> list[Interaction]:
+        """
+        Lista interacoes vinculadas a um contato, mais recentes primeiro.
+        Filtro DUPLO (tenant_id + contact_id) garante isolamento —
+        mesmo que contact_id seja "advinhado", outro tenant nao vaza.
+        """
+        stmt = (
+            select(Interaction)
+            .where(
+                Interaction.tenant_id == tenant_id,
+                Interaction.contact_id == contact_id,
+            )
+            .order_by(Interaction.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(self._db.execute(stmt).scalars().all())
+
+    def count_by_contact(
+        self,
+        *,
+        tenant_id: UUID,
+        contact_id: UUID,
+    ) -> int:
+        from sqlalchemy import func
+        stmt = select(func.count(Interaction.id)).where(
+            Interaction.tenant_id == tenant_id,
+            Interaction.contact_id == contact_id,
+        )
+        return int(self._db.execute(stmt).scalar_one())

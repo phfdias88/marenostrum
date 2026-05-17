@@ -169,6 +169,15 @@ def tenant_b(db_session) -> tuple[Tenant, User, str]:
 
 
 @pytest.fixture
+def tenant_a_with_secret(tenant_a, db_session):
+    """Tenant A com webhook_secret configurado (usado pelos testes de webhook)."""
+    tenant, user, token = tenant_a
+    tenant.webhook_secret = "secret-tenant-alpha-1234567890"
+    db_session.commit()
+    return tenant, user, token
+
+
+@pytest.fixture
 def auth_a(client, tenant_a):
     """Helper: client autenticado como tenant A. Retorna funcao request()."""
     _, _, token = tenant_a
