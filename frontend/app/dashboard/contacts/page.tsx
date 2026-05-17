@@ -6,7 +6,7 @@
  *  - paginacao server-side
  *  - acoes Editar (mesmo dialog) e Excluir (AlertDialog de confirmacao)
  */
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -27,6 +27,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
+import { ImportContactsDialog } from "@/components/contacts/ImportContactsDialog";
 import { makeContactColumns } from "@/components/contacts/columns";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -112,12 +113,20 @@ export default function ContactsPage() {
             CRM da campanha — eleitores, lideranças, apoiadores e doadores.
           </p>
         </div>
-        <ContactFormDialog mode="create" onSaved={refresh}>
-          <Button>
-            <Plus />
-            Novo contato
-          </Button>
-        </ContactFormDialog>
+        <div className="flex items-center gap-2">
+          <ImportContactsDialog onImported={refresh}>
+            <Button variant="outline">
+              <Upload />
+              Importar CSV
+            </Button>
+          </ImportContactsDialog>
+          <ContactFormDialog mode="create" onSaved={refresh}>
+            <Button>
+              <Plus />
+              Novo contato
+            </Button>
+          </ContactFormDialog>
+        </div>
       </header>
 
       {/* Barra de busca */}

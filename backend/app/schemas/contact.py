@@ -77,3 +77,20 @@ class Page(BaseModel, Generic[T]):
     total: int
     limit: int
     offset: int
+
+
+# ---------------------------------------------------------- CSV import
+
+
+class ImportRowError(BaseModel):
+    """Erro em uma linha especifica do CSV (1-indexed, header e linha 1)."""
+    row: int
+    message: str
+
+
+class ImportResult(BaseModel):
+    """Resposta de POST /contacts/import."""
+    imported: int           # quantos foram efetivamente inseridos
+    skipped: int            # quantos foram pulados (erros + duplicatas)
+    total_rows: int         # total de linhas do CSV (excluindo header)
+    errors: list[ImportRowError]  # truncado em 50 para nao explodir resposta

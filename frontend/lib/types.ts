@@ -34,3 +34,13 @@ export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
   donor: "Doador",
   other: "Outro",
 };
+
+/** Resposta de POST /contacts/import (espelha schema Pydantic do backend) */
+export type ImportRowError = { row: number; message: string };
+
+export type ImportResult = {
+  imported: number;
+  skipped: number;
+  total_rows: number;
+  errors: ImportRowError[];
+};

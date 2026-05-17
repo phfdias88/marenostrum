@@ -9,16 +9,23 @@ Responsabilidades:
 """
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, File, Query, Response, UploadFile, status
 
 from app.core.dependencies import CurrentTenant
+from app.core.errors import DomainError
 from app.schemas.contact import (
     ContactCreate,
     ContactRead,
     ContactUpdate,
+    ImportResult,
     Page,
 )
 from app.services.contact import ContactService
+
+# Limite defensivo de tamanho do upload (~5MB ~ 50k linhas).
+# Nginx tambem limita via client_max_body_size 10m, mas validamos aqui pra
+# devolver erro amigavel antes de carregar tudo na memoria.
+_MAX_CSV_BYTES = 5 * 1024 * 1024
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
 
@@ -108,6 +115,43 @@ def update_contact(
 ) -> ContactRead:
     contact = ContactService(ctx).update_contact(contact_id, payload, background_tasks)
     return ContactRead.model_validate(contact)
+
+
+# ------------------------------------------------------------------ Import
+
+
+class _PayloadTooLargeError(DomainError):
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+    code = "payload_too_large"
+
+
+class _BadCsvError(DomainError):
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "bad_csv"
+
+
+@router.post(
+    "/import",
+    response_model=ImportResult,
+    summary="Importar contatos em lote via CSV (sem geocoding)",
+)
+async def import_contacts(
+    ctx: CurrentTenant,
+    file: UploadFile = File(..., description="Arquivo .csv com cabecalhos"),
+) -> ImportResult:
+    # Validacao basica do upload
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".csv"):
+        raise _BadCsvError("O arquivo precisa ser .csv")
+
+    # Le bytes — checa tamanho conforme le pra nao explodir RAM em VPS pequena
+    content = await file.read()
+    if len(content) > _MAX_CSV_BYTES:
+        raise _PayloadTooLargeError(
+            f"Arquivo maior que {_MAX_CSV_BYTES // (1024 * 1024)}MB"
+        )
+
+    return ContactService(ctx).import_csv_contacts(content)
 
 
 # ------------------------------------------------------------------ Delete

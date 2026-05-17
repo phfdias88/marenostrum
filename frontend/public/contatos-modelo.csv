@@ -1,0 +1,4 @@
+Nome;Telefone;Email;Endereço;Bairro;Cidade;UF;Nascimento;Tipo;Observações
+João da Silva;(32) 99999-0001;joao@exemplo.com;Rua das Flores, 100;Centro;Juiz de Fora;MG;15/03/1980;Eleitor;Liderança comunitária
+Maria Souza;(32) 99999-0002;maria@exemplo.com;Av. Brasil, 2000;São Mateus;Juiz de Fora;MG;22/07/1985;Apoiador;Doadora regular
+Carlos Lima;(32) 99999-0003;;Rua A, 50;Bom Pastor;Juiz de Fora;MG;;Liderança;

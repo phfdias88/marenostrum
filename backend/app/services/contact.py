@@ -17,7 +17,13 @@ from app.core.errors import ConflictError, NotFoundError
 from app.core.tenant_context import TenantContext
 from app.models.contact import Contact
 from app.repositories.contact import ContactRepository
-from app.schemas.contact import ContactCreate, ContactUpdate
+from app.schemas.contact import (
+    ContactCreate,
+    ContactUpdate,
+    ImportResult,
+    ImportRowError,
+)
+from app.utils.csv_import import parse_csv
 from app.utils.geocoding import geocode_and_persist_contact
 
 log = structlog.get_logger("marenostrum.services.contact")
@@ -182,6 +188,84 @@ class ContactService:
             _schedule_geocoding(background_tasks, updated)
 
         return updated
+
+    # ---------------------------------------------------------------- Import
+
+    # Limite maximo de erros que retornamos ao cliente (truncado)
+    _MAX_ERRORS_RETURNED = 50
+
+    def import_csv_contacts(self, file_bytes: bytes) -> ImportResult:
+        """
+        Import bulk via CSV.
+
+        Estrategia (ver csv_import.py para parser + normalizacao):
+        1. Parse + validacao linha-a-linha
+        2. Dedup intra-arquivo por telefone (rejeita duplicatas dentro do CSV)
+        3. Query unica buscando telefones ja existentes no tenant (rejeita)
+        4. Bulk insert do que sobrou (UM INSERT VALUES (...))
+        5. SEM geocoding — seria 1 req/s no Nominatim e travaria 1000 contatos
+           em ~17 min. Geocoding em lote sera job futuro.
+        """
+        rows, errors = parse_csv(file_bytes)
+        total_rows = len(rows) + len(errors)
+
+        # --- 2. Dedup intra-arquivo por telefone --------------------------
+        seen_phones: set[str] = set()
+        candidates: list[tuple[int, dict]] = []
+        for idx, row in enumerate(rows, start=2):  # linha 2 = primeira de dados
+            phone = row.get("phone")
+            if phone and phone in seen_phones:
+                errors.append(
+                    ImportRowError(
+                        row=idx,
+                        message=f"Telefone duplicado no proprio CSV: {phone}",
+                    )
+                )
+                continue
+            if phone:
+                seen_phones.add(phone)
+            candidates.append((idx, row))
+
+        # --- 3. Telefones ja existentes no tenant (1 query) ---------------
+        existing_phones = self._repo.find_existing_phones(
+            tenant_id=self._ctx.tenant_id,
+            phones=list(seen_phones),
+        )
+        to_insert: list[dict] = []
+        for idx, row in candidates:
+            phone = row.get("phone")
+            if phone and phone in existing_phones:
+                errors.append(
+                    ImportRowError(
+                        row=idx,
+                        message=f"Telefone ja cadastrado: {phone}",
+                    )
+                )
+                continue
+            to_insert.append(row)
+
+        # --- 4. Bulk insert ------------------------------------------------
+        inserted = self._repo.bulk_create(
+            tenant_id=self._ctx.tenant_id,
+            rows=to_insert,
+        )
+        self._ctx.db.commit()
+
+        log.info(
+            "contacts_imported",
+            tenant_id=str(self._ctx.tenant_id),
+            user_id=str(self._ctx.user_id),
+            total_rows=total_rows,
+            imported=inserted,
+            skipped=len(errors),
+        )
+
+        return ImportResult(
+            imported=inserted,
+            skipped=len(errors),
+            total_rows=total_rows,
+            errors=errors[: self._MAX_ERRORS_RETURNED],
+        )
 
     # ---------------------------------------------------------------- Delete
 

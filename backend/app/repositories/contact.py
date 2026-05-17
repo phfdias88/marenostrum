@@ -5,9 +5,11 @@ REGRA INVIOLAVEL: TODA query (insert/select/update/delete/count) filtra por
 tenant_id. Metodos nunca aceitam payload "cru" — recebem dict ja validado
 pelo Service e tenant_id explicito.
 """
-from uuid import UUID
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from app.models.contact import Contact
@@ -124,6 +126,57 @@ class ContactRepository:
         if row is not None:
             self._db.refresh(row)
         return row
+
+    # ----------------------------------------------------------- Bulk import
+
+    def find_existing_phones(
+        self,
+        *,
+        tenant_id: UUID,
+        phones: list[str],
+    ) -> set[str]:
+        """Retorna o subconjunto de `phones` que ja existe no tenant."""
+        if not phones:
+            return set()
+        stmt = select(Contact.phone).where(
+            Contact.tenant_id == tenant_id,
+            Contact.phone.in_(phones),
+        )
+        return {row[0] for row in self._db.execute(stmt).all() if row[0]}
+
+    def bulk_create(
+        self,
+        *,
+        tenant_id: UUID,
+        rows: list[dict[str, Any]],
+    ) -> int:
+        """
+        Insert em lote. UM INSERT VALUES (...), (...), (...) — milhares de
+        registros em uma viagem ao banco.
+
+        NOTA: o default `uuid4` definido no model so dispara via ORM `add()`.
+        Em Core `insert()` precisamos pre-gerar IDs e timestamps. Tambem
+        forcamos tenant_id (defesa contra payload corrompido).
+        """
+        if not rows:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        payloads = []
+        for row in rows:
+            row = {k: v for k, v in row.items() if k not in {"id", "tenant_id"}}
+            payloads.append(
+                {
+                    "id": uuid4(),
+                    "tenant_id": tenant_id,
+                    "created_at": now,
+                    "updated_at": now,
+                    **row,
+                }
+            )
+
+        self._db.execute(insert(Contact), payloads)
+        return len(payloads)
 
     # -------------------------------------------------------------- Delete
 
