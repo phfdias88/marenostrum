@@ -79,10 +79,15 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      # CRITICO: NEXT_PUBLIC_* sao inlinados em BUILD TIME (nao runtime).
+      # Pegamos do .env DA RAIZ do projeto (docker compose le automaticamente).
+      # Pra mudar URLs em prod: edite .env da raiz e re-builde: docker compose up -d --build web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_ANALYTICS_URL: ${NEXT_PUBLIC_ANALYTICS_URL:-https://example.com/analytics}
+        NEXT_PUBLIC_SONAR_URL: ${NEXT_PUBLIC_SONAR_URL:-https://example.com/sonar}
     container_name: mn_web
     restart: unless-stopped
-    env_file:
-      - ./frontend/.env
     environment:
       NODE_ENV: production
       # Limita heap do V8 para nao explodir RAM

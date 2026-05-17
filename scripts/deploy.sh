@@ -13,7 +13,14 @@ echo "==> [1/5] Conferindo pre-requisitos..."
 command -v docker >/dev/null || { echo "ERRO: docker nao instalado"; exit 1; }
 docker compose version >/dev/null || { echo "ERRO: docker compose v2 nao instalado"; exit 1; }
 
-echo "==> [2/5] Validando .env do backend..."
+echo "==> [2/5] Validando .env files..."
+# .env da raiz: vars de build do Next.js (NEXT_PUBLIC_*)
+if [[ ! -f .env ]]; then
+    echo "ERRO: .env (raiz) nao existe. Copie de .env.example e ajuste."
+    echo "      cp .env.example .env && nano .env"
+    exit 1
+fi
+# .env do backend: secrets de runtime (JWT, Postgres)
 if [[ ! -f backend/.env ]]; then
     echo "ERRO: backend/.env nao existe. Copie de backend/.env.example e edite."
     exit 1
