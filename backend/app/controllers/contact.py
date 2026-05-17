@@ -4,12 +4,12 @@ Controller (router FastAPI) de contatos.
 Responsabilidades:
 - Mapear HTTP <-> Schemas Pydantic
 - Resolver `CurrentTenant` (JWT + sessao + tenant_id)
-- Delegar para o Service
-NUNCA contem regra de negocio nem fala com o ORM direto.
+- Injetar `BackgroundTasks` quando endpoint pode disparar geocoding
+- Delegar pro Service. NUNCA contem regra de negocio nem fala com ORM.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Query, Response, status
 
 from app.core.dependencies import CurrentTenant
 from app.schemas.contact import (
@@ -29,14 +29,21 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 @router.get(
     "",
     response_model=Page[ContactRead],
-    summary="Listar contatos (paginado, filtrado por tenant)",
+    summary="Listar contatos (paginado, busca por nome opcional)",
 )
 def list_contacts(
     ctx: CurrentTenant,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(
+        None,
+        max_length=120,
+        description="Filtro ILIKE no nome (case-insensitive, busca parcial)",
+    ),
 ) -> Page[ContactRead]:
-    items, total = ContactService(ctx).list_contacts(limit=limit, offset=offset)
+    items, total = ContactService(ctx).list_contacts(
+        limit=limit, offset=offset, search=search,
+    )
     return Page[ContactRead](
         items=[ContactRead.model_validate(c) for c in items],
         total=total,
@@ -74,10 +81,14 @@ def get_contact(contact_id: UUID, ctx: CurrentTenant) -> ContactRead:
     "",
     response_model=ContactRead,
     status_code=status.HTTP_201_CREATED,
-    summary="Criar contato no CRM",
+    summary="Criar contato (geocoda em background se faltar lat/lng)",
 )
-def create_contact(payload: ContactCreate, ctx: CurrentTenant) -> ContactRead:
-    contact = ContactService(ctx).create_contact(payload)
+def create_contact(
+    payload: ContactCreate,
+    ctx: CurrentTenant,
+    background_tasks: BackgroundTasks,
+) -> ContactRead:
+    contact = ContactService(ctx).create_contact(payload, background_tasks)
     return ContactRead.model_validate(contact)
 
 
@@ -87,14 +98,15 @@ def create_contact(payload: ContactCreate, ctx: CurrentTenant) -> ContactRead:
 @router.put(
     "/{contact_id}",
     response_model=ContactRead,
-    summary="Atualizar contato (partial update)",
+    summary="Atualizar contato (re-geocoda se endereço mudou e sem coords)",
 )
 def update_contact(
     contact_id: UUID,
     payload: ContactUpdate,
     ctx: CurrentTenant,
+    background_tasks: BackgroundTasks,
 ) -> ContactRead:
-    contact = ContactService(ctx).update_contact(contact_id, payload)
+    contact = ContactService(ctx).update_contact(contact_id, payload, background_tasks)
     return ContactRead.model_validate(contact)
 
 

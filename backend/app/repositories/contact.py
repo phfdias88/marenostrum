@@ -54,8 +54,15 @@ class ContactRepository:
             stmt = stmt.where(Contact.id != exclude_id)
         return self._db.execute(stmt.limit(1)).first() is not None
 
-    def count(self, *, tenant_id: UUID) -> int:
+    def count(
+        self,
+        *,
+        tenant_id: UUID,
+        search: str | None = None,
+    ) -> int:
         stmt = select(func.count(Contact.id)).where(Contact.tenant_id == tenant_id)
+        if search:
+            stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
         return int(self._db.execute(stmt).scalar_one())
 
     def list_paginated(
@@ -64,11 +71,19 @@ class ContactRepository:
         tenant_id: UUID,
         limit: int,
         offset: int,
+        search: str | None = None,
     ) -> list[Contact]:
+        """
+        Lista contatos do tenant. Se `search` for fornecido, aplica
+        ILIKE no nome — case-insensitive, busca parcial.
+        ILIKE usa indice quando a busca comeca com texto fixo; '%X%' faz seq scan.
+        Para tabelas grandes, considere `pg_trgm` no futuro.
+        """
+        stmt = select(Contact).where(Contact.tenant_id == tenant_id)
+        if search:
+            stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
         stmt = (
-            select(Contact)
-            .where(Contact.tenant_id == tenant_id)
-            .order_by(Contact.created_at.desc())
+            stmt.order_by(Contact.created_at.desc())
             .limit(limit)
             .offset(offset)
         )

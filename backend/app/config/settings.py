@@ -34,6 +34,15 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
+    # Geocoding (Nominatim/OpenStreetMap)
+    # User-Agent obrigatorio pela politica de uso do Nominatim.
+    # Use o email do projeto para contato em caso de uso abusivo.
+    NOMINATIM_USER_AGENT: str = "MareNostrum/0.1 (admin@marenostrum.local)"
+    NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
+    # Cidade/UF default usada quando o contato nao informar — base do MVP
+    GEOCODING_DEFAULT_CITY: str = "Juiz de Fora"
+    GEOCODING_DEFAULT_STATE: str = "MG"
+
     @property
     def database_url(self) -> str:
         # psycopg v3 driver
