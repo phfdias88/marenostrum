@@ -9,10 +9,11 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.core.errors import UnauthorizedError
+from app.core.errors import NotFoundError, UnauthorizedError
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.tenant_context import TenantContext
 from app.repositories.user import UserRepository
-from app.schemas.auth import LoginRequest, TokenResponse
+from app.schemas.auth import LoginRequest, MeResponse, TokenResponse
 
 log = structlog.get_logger("marenostrum.services.auth")
 
@@ -65,4 +66,23 @@ class AuthService:
             user_id=user.id,
             tenant_id=user.tenant_id,
             role=user.role.value,
+        )
+
+    @staticmethod
+    def me(ctx: TenantContext) -> MeResponse:
+        """Dados do usuario logado + tenant. Prova end-to-end do JWT."""
+        repo = UserRepository(ctx.db)
+        row = repo.get_with_tenant(user_id=ctx.user_id, tenant_id=ctx.tenant_id)
+        if row is None:
+            # Caso raro: token valido mas user/tenant deletado entre auth e /me
+            raise NotFoundError("Usuario nao encontrado")
+        user, tenant = row
+        return MeResponse(
+            user_id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role.value,
+            tenant_id=tenant.id,
+            tenant_slug=tenant.slug,
+            tenant_name=tenant.name,
         )

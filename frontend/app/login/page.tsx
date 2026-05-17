@@ -19,7 +19,7 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const nextUrl = search.get("next") ?? "/contatos";
+  const nextUrl = search.get("next") ?? "/dashboard";
 
   const [tenantSlug, setTenantSlug] = useState("");
   const [email, setEmail] = useState("");

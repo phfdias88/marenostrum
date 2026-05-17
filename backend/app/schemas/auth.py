@@ -21,3 +21,19 @@ class TokenResponse(BaseModel):
     user_id: UUID
     tenant_id: UUID
     role: str
+
+
+class MeResponse(BaseModel):
+    """
+    Dados do usuario logado. Usado pelo frontend para:
+    (a) provar que o JWT foi aceito,
+    (b) confirmar que o tenant_id do token bate com a sessao,
+    (c) exibir nome/avatar/role no header.
+    """
+    user_id: UUID
+    email: str
+    full_name: str
+    role: str
+    tenant_id: UUID
+    tenant_slug: str
+    tenant_name: str

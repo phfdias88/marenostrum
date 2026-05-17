@@ -5,7 +5,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_PATHS = ["/contatos"];
+const PROTECTED_PATHS = ["/dashboard", "/contatos"];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -25,5 +25,5 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   // Aplica apenas onde for necessario (perf no Edge)
-  matcher: ["/contatos/:path*"],
+  matcher: ["/dashboard/:path*", "/contatos/:path*"],
 };

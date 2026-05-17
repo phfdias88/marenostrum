@@ -1,4 +1,6 @@
 """Repository de usuarios (somente queries usadas pelo modulo auth por enquanto)."""
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,3 +33,25 @@ class UserRepository:
             )
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+    def get_with_tenant(
+        self,
+        *,
+        user_id: UUID,
+        tenant_id: UUID,
+    ) -> tuple[User, Tenant] | None:
+        """
+        Carrega user + tenant em uma query so. Usado pelo endpoint /me.
+        Filtra duplo (user_id E tenant_id) — garante que o tenant_id do JWT
+        bate com o do registro, mesmo apos cache/desincronizacao.
+        """
+        stmt = (
+            select(User, Tenant)
+            .join(Tenant, User.tenant_id == Tenant.id)
+            .where(
+                User.id == user_id,
+                User.tenant_id == tenant_id,
+            )
+        )
+        row = self._db.execute(stmt).first()
+        return (row[0], row[1]) if row else None
