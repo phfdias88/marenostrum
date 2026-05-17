@@ -34,6 +34,11 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
+    # Webhook fallback global. Usado quando o tenant NAO tem webhook_secret
+    # proprio (typicamente em dev/staging). Em producao, prefira sempre
+    # secret per-tenant — vazamento do global = todos os tenants caem.
+    WEBHOOK_GLOBAL_SECRET: str | None = None
+
     # Geocoding (Nominatim/OpenStreetMap)
     # User-Agent obrigatorio pela politica de uso do Nominatim.
     # Use o email do projeto para contato em caso de uso abusivo.

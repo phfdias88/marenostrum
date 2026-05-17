@@ -40,6 +40,19 @@ class ContactRepository:
         )
         return self._db.execute(stmt).scalar_one_or_none()
 
+    def find_by_phone(
+        self,
+        *,
+        tenant_id: UUID,
+        phone: str,
+    ) -> Contact | None:
+        """Retorna contato com este telefone neste tenant, ou None."""
+        stmt = select(Contact).where(
+            Contact.tenant_id == tenant_id,
+            Contact.phone == phone,
+        )
+        return self._db.execute(stmt).scalar_one_or_none()
+
     def exists_by_phone(
         self,
         *,

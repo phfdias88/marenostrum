@@ -14,3 +14,7 @@ class Tenant(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     slug: Mapped[str] = mapped_column(String(60), unique=True, nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Secret usado por integrações de webhook (BotConversa, etc).
+    # Nullable: tenant pode ainda não ter webhook configurado.
+    # Comparação SEMPRE via hmac.compare_digest (constant-time).
+    webhook_secret: Mapped[str | None] = mapped_column(String(128), nullable=True)
