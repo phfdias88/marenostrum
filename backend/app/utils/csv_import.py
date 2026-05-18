@@ -37,6 +37,7 @@ HEADER_MAP: dict[str, str] = {
     "endereco": "address",
     "bairro": "neighborhood",
     "cidade": "city",
+    "municipio": "city",
     "uf": "state",
     "estado": "state",
     "nascimento": "birth_date",
@@ -45,6 +46,13 @@ HEADER_MAP: dict[str, str] = {
     "tipo": "type",
     "observacoes": "notes",
     "obs": "notes",
+    # Coordenadas — opcionais. Se vierem no CSV, pulam geocoding (Nominatim).
+    "latitude": "latitude",
+    "lat": "latitude",
+    "longitude": "longitude",
+    "lng": "longitude",
+    "lon": "longitude",
+    "long": "longitude",
 }
 
 # Tipos aceitos no CSV (PT-BR ou EN) -> enum interno.
@@ -195,6 +203,18 @@ def _normalize_row(
             if len(cleaned) != 2:
                 raise ValueError(f"UF deve ter 2 letras: '{cleaned}'")
             data["state"] = cleaned.upper()
+        elif field in ("latitude", "longitude"):
+            # Aceita virgula ou ponto decimal (CSVs pt-BR variam)
+            try:
+                val = float(cleaned.replace(",", "."))
+            except ValueError:
+                raise ValueError(f"{field} invalido: '{cleaned}' (numero esperado)")
+            # Sanity check do range
+            if field == "latitude" and not (-90 <= val <= 90):
+                raise ValueError(f"latitude fora do range: {val}")
+            if field == "longitude" and not (-180 <= val <= 180):
+                raise ValueError(f"longitude fora do range: {val}")
+            data[field] = val
         else:
             data[field] = cleaned
 
