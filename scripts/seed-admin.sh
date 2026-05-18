@@ -9,6 +9,9 @@
 # =============================================================================
 set -euo pipefail
 
+# cd pro project dir — permite chamar o script de qualquer lugar (CI, /tmp, etc)
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 TENANT_SLUG="${TENANT_SLUG:-marenostrum-admin}"
 TENANT_NAME="${TENANT_NAME:-MareNostrum Admin}"
 # NAO usar TLD .local — email-validator do Pydantic rejeita (RFC 6761).
