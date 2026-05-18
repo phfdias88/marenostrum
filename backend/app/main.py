@@ -173,13 +173,10 @@ def create_app() -> FastAPI:
             "contact": "phfdias88@gmail.com",
         }
 
-    @app.get(
-        "/api",
-        response_class=HTMLResponse,
-        include_in_schema=False,
-        summary="Landing page da API",
-    )
+    @app.get("/api", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/api/", response_class=HTMLResponse, include_in_schema=False)
     def api_landing():
+        """Landing page HTML — funciona com ou sem trailing slash."""
         return _LANDING_HTML
 
     return app
