@@ -22,10 +22,28 @@ class DemandContactSummary(BaseModel):
 
 class DemandCreate(BaseModel):
     """POST /demands. contact_id obrigatorio (toda demanda nasce de alguem)."""
-    contact_id: UUID
-    title: str = Field(..., min_length=3, max_length=180)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "contact_id": "8a7b6c5d-1234-5678-9abc-def012345678",
+                "title": "Buraco na Rua das Flores, 200",
+                "description": "Buraco grande há 2 semanas. Acumula água quando chove. "
+                               "Já caíram 2 motos.",
+                "category": "Infraestrutura",
+                "status": "aberta",
+            }
+        }
+    )
+
+    contact_id: UUID = Field(
+        ..., description="UUID de um contato ATIVO do seu tenant",
+    )
+    title: str = Field(..., min_length=3, max_length=180, examples=["Buraco na Rua X"])
     description: str = Field(..., min_length=1, max_length=10_000)
-    category: str = Field(..., min_length=1, max_length=80)
+    category: str = Field(
+        ..., min_length=1, max_length=80,
+        examples=["Saúde", "Infraestrutura", "Educação", "Segurança"],
+    )
     status: DemandStatus = DemandStatus.OPEN
 
 

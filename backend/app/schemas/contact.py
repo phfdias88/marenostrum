@@ -35,6 +35,22 @@ class ContactBase(BaseModel):
 
 class ContactCreate(ContactBase):
     """POST /contacts. tenant_id NUNCA vem do cliente — vem do JWT."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "full_name": "João da Silva",
+                "phone": "(32) 99999-1234",
+                "email": "joao@exemplo.com",
+                "address": "Rua das Flores, 100",
+                "neighborhood": "Centro",
+                "city": "Juiz de Fora",
+                "state": "MG",
+                "birth_date": "1980-03-15",
+                "type": "voter",
+                "notes": "Liderança comunitária do bairro",
+            }
+        }
+    )
 
 
 class ContactUpdate(BaseModel):
