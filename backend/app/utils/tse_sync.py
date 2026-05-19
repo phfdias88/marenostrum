@@ -184,8 +184,19 @@ def run_sync_job(job_id: UUID) -> None:
 
 
 def _fail(db: Session, job: TseSyncJob, message: str) -> None:
+    """
+    Marca o job como FAILED.
+
+    IMPORTANTE: a session pode estar em estado de transação abortada
+    (caso o erro tenha ocorrido dentro de um db.execute(...)). Antes de
+    persistir o estado FAILED, fazemos rollback + re-fetch do job, senão
+    o commit final estoura "current transaction is aborted".
+    """
+    db.rollback()
+    # Re-fetch porque o rollback pode ter desreferenciado o objeto
+    job = db.get(TseSyncJob, job.id) or job
     job.status = SyncJobStatus.FAILED
-    job.error_message = message
+    job.error_message = message[:4000]  # protege contra mensagens gigantes
     job.completed_at = datetime.now(timezone.utc)
     db.commit()
 

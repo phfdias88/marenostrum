@@ -197,11 +197,9 @@ def list_candidates(
     election_id: UUID | None = Query(None),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
-    # Query base com joinedload pra montar nested (party, election) sem N+1
-    stmt = select(Candidate).options(
-        joinedload(Candidate.party) if False else joinedload  # placeholder
-    )
-    # Nota: como models nao tem relationships definidos, vou fazer manualmente:
+    # Models TSE nao tem relationships ORM definidos (decisao consciente —
+    # evita o overhead de carregar tudo). Em vez disso, montamos os nested
+    # (party, election) com batch fetch via mapas, mais abaixo.
     stmt = select(Candidate)
     if state:
         stmt = stmt.where(Candidate.state == state.upper())
