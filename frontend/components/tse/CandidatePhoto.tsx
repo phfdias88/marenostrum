@@ -84,29 +84,36 @@ export function CandidatePhoto({
   className = "",
 }: Props) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const dim = SIZE_PX[size];
   const url = `${API_BASE}/v1/tse/candidates/${candidateId}/photo`;
   const color = PARTY_COLORS[partyNumber] ?? "bg-slate-600";
 
-  if (failed) {
-    return (
+  // Renderiza fallback + img sobrepostos. A img comeca invisivel (opacity-0)
+  // e fica visivel quando onLoad dispara — assim nao tem flicker de
+  // "broken image" e o fallback ja aparece preenchendo o circulo enquanto
+  // a foto carrega da rede.
+  return (
+    <div
+      className={`relative shrink-0 ${dim} rounded-full ${className}`}
+      title={name}
+    >
       <div
-        className={`shrink-0 ${dim} rounded-full ${color} grid place-items-center font-bold text-white ${className}`}
-        title={name}
+        className={`absolute inset-0 rounded-full ${color} grid place-items-center font-bold text-white`}
       >
         {initials(name)}
       </div>
-    );
-  }
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt={name}
-      onError={() => setFailed(true)}
-      loading="lazy"
-      className={`shrink-0 ${dim} rounded-full object-cover bg-card border border-border ${className}`}
-    />
+      {!failed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={name}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          loading="lazy"
+          className={`absolute inset-0 w-full h-full rounded-full object-cover border border-border transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+        />
+      )}
+    </div>
   );
 }

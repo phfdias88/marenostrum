@@ -48,35 +48,60 @@ VALID_UFS = {
 
 # --------------------------------------------------------- handle cache
 
-# Cache de RemoteZip por UF: {uf: (handle, criado_em_epoch)}
+# RemoteZip herda de zipfile.ZipFile, que NAO e thread-safe (mantem posicao
+# interna do file pointer). Sob carga concorrente, duas threads lendo do mesmo
+# handle causa urllib3.ProtocolError "IncompleteRead". Por isso:
+# - Um lock POR UF (permite paralelismo entre estados diferentes).
+# - Lock cobre TODA a operacao de read, nao so o lookup do handle.
+# - Em caso de erro de rede, reseta o handle e tenta de novo.
 _handles: dict[str, tuple[RemoteZip, float]] = {}
-_handles_lock = threading.Lock()
+_handle_locks: dict[str, threading.Lock] = {}
+_dict_lock = threading.Lock()  # protege _handles e _handle_locks
 
 
 def _zip_url(uf: str) -> str:
     return f"{CDN_BASE}/foto_cand2024_{uf}_div.zip"
 
 
-def _get_handle(uf: str) -> RemoteZip:
-    """Devolve RemoteZip pro UF (recria se expirado)."""
+def _get_lock(uf: str) -> threading.Lock:
+    with _dict_lock:
+        lock = _handle_locks.get(uf)
+        if lock is None:
+            lock = threading.Lock()
+            _handle_locks[uf] = lock
+        return lock
+
+
+def _get_handle(uf: str, *, force_new: bool = False) -> RemoteZip:
+    """
+    Devolve RemoteZip pro UF (recria se expirado ou se force_new=True).
+    DEVE ser chamado com o lock do UF ja adquirido.
+    """
     now = time.monotonic()
-    with _handles_lock:
+    with _dict_lock:
         cached = _handles.get(uf)
-        if cached is not None:
+        if cached is not None and not force_new:
             handle, created = cached
             if now - created < _HANDLE_TTL_S:
                 return handle
-            # expirou — fecha e remove
+        # expirou ou force_new — fecha e recria
+        if cached is not None:
             try:
-                handle.close()
+                cached[0].close()
             except Exception:
                 pass
-            del _handles[uf]
+            _handles.pop(uf, None)
 
-        log.info("tse_photos_open_zip", uf=uf, url=_zip_url(uf))
-        handle = RemoteZip(_zip_url(uf))
+    log.info(
+        "tse_photos_open_zip",
+        uf=uf,
+        url=_zip_url(uf),
+        force_new=force_new,
+    )
+    handle = RemoteZip(_zip_url(uf))
+    with _dict_lock:
         _handles[uf] = (handle, now)
-        return handle
+    return handle
 
 
 # --------------------------------------------------------- API publica
@@ -101,22 +126,45 @@ def get_candidate_photo(uf: str, sq_candidato: int) -> bytes:
     if cache_path.is_file():
         return cache_path.read_bytes()
 
-    # Miss — busca no CDN
+    # Miss — busca no CDN. Lock por UF garante que so 1 thread fala com o
+    # handle compartilhado por vez (zipfile.ZipFile nao e thread-safe).
     log.info("tse_photos_fetch", uf=uf, sq=sq_candidato)
-    handle = _get_handle(uf)
     target = f"F{uf}{sq_candidato}_div.jpg"
+    lock = _get_lock(uf)
 
-    try:
-        data = handle.read(target)
-    except KeyError:
-        # KeyError = arquivo nao existe no zip
-        raise PhotoNotFound(
-            f"Foto nao encontrada no zip {uf}: esperava {target}"
-        ) from None
+    with lock:
+        # Recheck cache dentro do lock — outra thread pode ter buscado a
+        # mesma foto enquanto esperavamos.
+        if cache_path.is_file():
+            return cache_path.read_bytes()
 
-    # Persiste no cache
+        handle = _get_handle(uf)
+        try:
+            data = handle.read(target)
+        except KeyError:
+            raise PhotoNotFound(
+                f"Foto nao encontrada no zip {uf}: esperava {target}"
+            ) from None
+        except Exception as exc:
+            # Erro de rede (ProtocolError, IncompleteRead, etc) — handle TCP
+            # pode estar corrompido. Recria e tenta uma unica vez.
+            log.warning(
+                "tse_photos_retry",
+                uf=uf,
+                sq=sq_candidato,
+                error=type(exc).__name__,
+                msg=str(exc)[:200],
+            )
+            handle = _get_handle(uf, force_new=True)
+            try:
+                data = handle.read(target)
+            except KeyError:
+                raise PhotoNotFound(
+                    f"Foto nao encontrada no zip {uf}: esperava {target}"
+                ) from None
+
+    # Persiste no cache (fora do lock — apenas IO local)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    # Escrita atomica: tmp + rename
     tmp = cache_path.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.rename(cache_path)
