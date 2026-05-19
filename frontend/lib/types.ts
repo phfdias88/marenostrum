@@ -85,6 +85,43 @@ export type Demand = {
 };
 
 
+// --------------------------------------------------------- VotingPlace
+
+
+export type VotingPlace = {
+  id: string;
+  name: string;
+  address: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  votes: number;
+  total_voters: number | null;
+  election_year: number | null;
+  tse_code: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type HeatmapPoint = {
+  lat: number;
+  lng: number;
+  intensity: number; // 0..1
+  votes: number;
+  name: string;
+};
+
+export type HeatmapResponse = {
+  points: HeatmapPoint[];
+  total_places: number;
+  total_votes: number;
+  max_votes: number;
+};
+
+
 /** Interaction = webhook event vinculado (ou nao) a um Contact. */
 export type Interaction = {
   id: string;
