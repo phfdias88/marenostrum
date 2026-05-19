@@ -28,10 +28,13 @@ from app.schemas.tse import (
     CandidateRead,
     CandidateResultsResponse,
     ElectionRead,
+    ElectionStatsResponse,
     MunicipalityRead,
+    MunicipalityResultsResponse,
     PartyRead,
     SyncJobCreated,
     SyncJobRead,
+    TopCandidateInMunicipality,
     VoteResultByMunicipality,
 )
 from app.utils.tse_sync import DATASETS, run_sync_job
@@ -309,4 +312,149 @@ def candidate_results(
         results=results,
         total_votes=total,
         municipalities_with_votes=len(results),
+    )
+
+
+# ============================================================ MUNICIPALITIES
+
+
+@router.get(
+    "/municipalities",
+    response_model=Page[MunicipalityRead],
+    summary="Listar municipios (paginado, busca por nome/UF)",
+)
+def list_municipalities(
+    ctx: CurrentTenant,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    state: str | None = Query(None, min_length=2, max_length=2),
+    search: str | None = Query(None, description="ILIKE no nome do municipio"),
+    db: Session = Depends(get_db),
+) -> Page[MunicipalityRead]:
+    stmt = select(Municipality)
+    if state:
+        stmt = stmt.where(Municipality.state == state.upper())
+    if search:
+        stmt = stmt.where(Municipality.name.ilike(f"%{search}%"))
+
+    total = int(
+        db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    )
+
+    rows = db.execute(
+        stmt.order_by(Municipality.state, Municipality.name).limit(limit).offset(offset)
+    ).scalars().all()
+
+    items = [MunicipalityRead.model_validate(m) for m in rows]
+    return Page[MunicipalityRead](items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    "/municipalities/{municipality_id}/top-candidates",
+    response_model=MunicipalityResultsResponse,
+    summary="Top candidatos num municipio (ordenado por votos desc)",
+    description="""\
+Retorna os candidatos mais votados em um municipio.
+Aceita filtro opcional por `office_code` (11=prefeito, 13=vereador, etc).
+""",
+)
+def municipality_top_candidates(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    limit: int = Query(50, ge=1, le=200),
+    office_code: int | None = Query(None, description="Filtra por cargo"),
+    db: Session = Depends(get_db),
+) -> MunicipalityResultsResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    stmt = (
+        select(VoteResult, Candidate)
+        .join(Candidate, VoteResult.candidate_id == Candidate.id)
+        .where(VoteResult.municipality_id == municipality_id)
+    )
+    if office_code is not None:
+        stmt = stmt.where(Candidate.office_code == office_code)
+    stmt = stmt.order_by(VoteResult.votes.desc()).limit(limit)
+    rows = db.execute(stmt).all()
+
+    # Batch fetch party + election pra hidratar nested
+    party_ids = {c.party_id for _, c in rows}
+    election_ids = {c.election_id for _, c in rows}
+    parties_map = {
+        p.id: p for p in db.execute(
+            select(Party).where(Party.id.in_(party_ids))
+        ).scalars()
+    } if party_ids else {}
+    elections_map = {
+        e.id: e for e in db.execute(
+            select(Election).where(Election.id.in_(election_ids))
+        ).scalars()
+    } if election_ids else {}
+
+    results = [
+        TopCandidateInMunicipality(
+            candidate=CandidateRead(
+                id=c.id,
+                number=c.number,
+                name=c.name,
+                urn_name=c.urn_name,
+                office_code=c.office_code,
+                office_name=c.office_name,
+                state=c.state,
+                situation=c.situation,
+                party=PartyRead.model_validate(parties_map[c.party_id]),
+                election=ElectionRead.model_validate(elections_map[c.election_id]),
+            ),
+            votes=vr.votes,
+        )
+        for vr, c in rows
+    ]
+    return MunicipalityResultsResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        results=results,
+        total_results=len(results),
+    )
+
+
+# ============================================================ ELECTIONS DRILL
+
+
+@router.get(
+    "/elections/{election_id}/stats",
+    response_model=ElectionStatsResponse,
+    summary="Sumario de uma eleicao (n candidatos, n municipios, total votos)",
+)
+def election_stats(
+    election_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> ElectionStatsResponse:
+    election = db.get(Election, election_id)
+    if election is None:
+        raise NotFoundError("Eleicao nao encontrada")
+
+    candidates_count = int(
+        db.execute(
+            select(func.count(Candidate.id)).where(Candidate.election_id == election_id)
+        ).scalar_one()
+    )
+    # Sum votos cruzando candidatos da eleicao com vote_results
+    candidate_ids_subq = select(Candidate.id).where(Candidate.election_id == election_id)
+    total_votes_q = select(func.coalesce(func.sum(VoteResult.votes), 0)).where(
+        VoteResult.candidate_id.in_(candidate_ids_subq)
+    )
+    total_votes = int(db.execute(total_votes_q).scalar_one())
+    # Distinct municipios com voto pra eleicao
+    munis_q = select(func.count(func.distinct(VoteResult.municipality_id))).where(
+        VoteResult.candidate_id.in_(candidate_ids_subq)
+    )
+    munis_count = int(db.execute(munis_q).scalar_one())
+
+    return ElectionStatsResponse(
+        election=ElectionRead.model_validate(election),
+        candidates_count=candidates_count,
+        municipalities_count=munis_count,
+        total_votes=total_votes,
     )

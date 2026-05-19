@@ -61,6 +61,27 @@ class CandidateResultsResponse(BaseModel):
     municipalities_with_votes: int
 
 
+class TopCandidateInMunicipality(BaseModel):
+    """Linha da tabela 'top candidatos no municipio X'."""
+    candidate: CandidateRead
+    votes: int
+
+
+class MunicipalityResultsResponse(BaseModel):
+    """GET /municipalities/{id}/top-candidates — top votados num municipio."""
+    municipality: MunicipalityRead
+    results: list[TopCandidateInMunicipality]
+    total_results: int
+
+
+class ElectionStatsResponse(BaseModel):
+    """GET /elections/{id}/stats — sumario de uma eleicao."""
+    election: ElectionRead
+    candidates_count: int
+    municipalities_count: int
+    total_votes: int
+
+
 class SyncJobRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID

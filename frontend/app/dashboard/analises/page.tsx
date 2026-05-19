@@ -91,21 +91,18 @@ const CARDS: Card[] = [
     label: "Municípios",
     icon: MapPin,
     description: "Top candidatos por município — 5.568 cidades importadas.",
-    disabled: true,
   },
   {
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
     description: "Eleições municipais 2024 (ordinárias e suplementares).",
-    disabled: true,
   },
   {
     href: "/dashboard/analises/comparar",
     label: "Comparar",
     icon: UsersRound,
     description: "Coloque candidatos lado a lado e compare cenários.",
-    disabled: true,
   },
   {
     href: "/dashboard/map",

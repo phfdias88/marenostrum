@@ -172,6 +172,24 @@ export type TseCandidateResults = {
   municipalities_with_votes: number;
 };
 
+export type TseTopCandidateInMunicipality = {
+  candidate: TseCandidate;
+  votes: number;
+};
+
+export type TseMunicipalityResults = {
+  municipality: TseMunicipality;
+  results: TseTopCandidateInMunicipality[];
+  total_results: number;
+};
+
+export type TseElectionStats = {
+  election: TseElection;
+  candidates_count: number;
+  municipalities_count: number;
+  total_votes: number;
+};
+
 export type TseSyncJob = {
   id: string;
   dataset: string;
