@@ -22,6 +22,7 @@ import type {
   TseCandidate,
   TseCandidateByNeighborhoodResponse,
   TseMunicipality,
+  TseMunicipalityResults,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
@@ -251,22 +252,34 @@ function CandidatePicker({
   office: string;
   onPick: (c: TseCandidate) => void;
 }) {
-  // Reusa o ranking do municipio (ja ordenado por votos) como lista de escolha
-  const [items, setItems] = useState<TseCandidate[] | null>(null);
+  // CRITICO: lista APENAS candidatos que concorreram NESTE municipio (ja
+  // ranqueados por votos). Antes usava /candidates?state=... que trazia o
+  // estado inteiro — permitia escolher alguem que nao concorreu na cidade.
+  const [all, setAll] = useState<TseCandidate[] | null>(null);
   const [search, setSearch] = useState("");
-  const debounced = useDebounce(search, 300);
 
   useEffect(() => {
-    const p = new URLSearchParams({
-      state: muni.state,
-      office_code: office,
-      limit: "30",
-    });
-    if (debounced.trim()) p.set("search", debounced.trim());
-    api<Page<TseCandidate>>(`/v1/tse/candidates?${p.toString()}`)
-      .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
-  }, [muni.state, office, debounced]);
+    setAll(null);
+    api<TseMunicipalityResults>(
+      `/v1/tse/municipalities/${muni.id}/top-candidates?office_code=${office}&limit=300`,
+    )
+      .then((r) => setAll(r.results.map((x) => x.candidate)))
+      .catch(() => setAll([]));
+  }, [muni.id, office]);
+
+  // Filtro client-side por nome/urna/numero
+  const q = search.trim().toLowerCase();
+  const items =
+    all === null
+      ? null
+      : q
+        ? all.filter(
+            (c) =>
+              c.urn_name.toLowerCase().includes(q) ||
+              c.name.toLowerCase().includes(q) ||
+              String(c.number).includes(q),
+          )
+        : all;
 
   return (
     <div>
