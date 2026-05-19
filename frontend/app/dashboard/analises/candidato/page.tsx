@@ -8,7 +8,7 @@
  *  - Lista paginada de candidatos
  *  - Clique abre painel lateral com votos por municipio (top + total)
  */
-import { ArrowLeft, Loader2, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, Map as MapIcon, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -21,6 +21,7 @@ import type {
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
+import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -48,6 +49,7 @@ export default function CandidatoAnalysisPage() {
   const [selected, setSelected] = useState<TseCandidate | null>(null);
   const [details, setDetails] = useState<TseCandidateResults | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   // Reset page quando filtros mudam
   useEffect(() => setPage(0), [state, office, debouncedSearch]);
@@ -247,11 +249,20 @@ export default function CandidatoAnalysisPage() {
               candidate={selected}
               details={details}
               loading={detailsLoading}
+              onOpenMap={() => setShowMap(true)}
               onClose={() => setSelected(null)}
             />
           )}
         </aside>
       </section>
+
+      {/* Modal mapa */}
+      {showMap && details && (
+        <CandidateMapModal
+          results={details}
+          onClose={() => setShowMap(false)}
+        />
+      )}
     </div>
   );
 }
@@ -263,11 +274,13 @@ function CandidateDetail({
   details,
   loading,
   onClose,
+  onOpenMap,
 }: {
   candidate: TseCandidate;
   details: TseCandidateResults | null;
   loading: boolean;
   onClose: () => void;
+  onOpenMap: () => void;
 }) {
   return (
     <div className="rounded-lg border bg-card p-5 sticky top-6 space-y-4">
@@ -336,6 +349,22 @@ function CandidateDetail({
               <p className="text-xs text-muted-foreground">Municípios</p>
             </div>
           </div>
+
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={onOpenMap}
+            disabled={
+              !details.results.some(
+                (r) =>
+                  r.municipality.latitude != null &&
+                  r.municipality.longitude != null,
+              )
+            }
+          >
+            <MapIcon className="w-4 h-4" />
+            Ver no mapa
+          </Button>
 
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">

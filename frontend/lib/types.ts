@@ -145,6 +145,8 @@ export type TseMunicipality = {
   tse_code: number;
   name: string;
   state: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 export type TseCandidate = {

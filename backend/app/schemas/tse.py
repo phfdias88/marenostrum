@@ -31,6 +31,8 @@ class MunicipalityRead(BaseModel):
     tse_code: int
     name: str
     state: str
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class CandidateRead(BaseModel):

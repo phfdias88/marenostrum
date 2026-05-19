@@ -1,5 +1,5 @@
 """Município (TSE). Inclui código TSE e (futuramente) IBGE."""
-from sqlalchemy import Index, Integer, String
+from sqlalchemy import Float, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -14,6 +14,11 @@ class Municipality(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     # UF (SG_UF) — 2 letras
     state: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
+
+    # Centroide do municipio (populado one-shot via dataset publico).
+    # Permite renderizar markers/heatmap por municipio no mapa.
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
         # Unique composto: TSE pode ter mesmo NOME em UFs diferentes
