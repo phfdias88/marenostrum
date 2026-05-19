@@ -76,6 +76,25 @@ class MunicipalityResultsResponse(BaseModel):
     total_results: int
 
 
+class CandidateByNeighborhoodItem(BaseModel):
+    """Linha de votos por bairro: nome + total + locais agregados + centroide."""
+    neighborhood: str
+    votes: int
+    places_count: int
+    electors_total: int
+    # Centroide aprox dos locais (media simples)
+    avg_lat: float | None
+    avg_lng: float | None
+
+
+class CandidateByNeighborhoodResponse(BaseModel):
+    candidate: CandidateRead
+    municipality: MunicipalityRead | None  # filtrado por municipio especifico
+    items: list[CandidateByNeighborhoodItem]
+    total_votes: int
+    total_neighborhoods: int
+
+
 class ElectionStatsResponse(BaseModel):
     """GET /elections/{id}/stats — sumario de uma eleicao."""
     election: ElectionRead

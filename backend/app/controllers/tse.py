@@ -20,11 +20,15 @@ from app.models.tse import (
     Municipality,
     Party,
     SyncJobStatus,
+    TseSectionVote,
     TseSyncJob,
+    TseVotingPlace,
     VoteResult,
 )
 from app.schemas.contact import Page
 from app.schemas.tse import (
+    CandidateByNeighborhoodItem,
+    CandidateByNeighborhoodResponse,
     CandidateRead,
     CandidateResultsResponse,
     ElectionRead,
@@ -458,6 +462,98 @@ def election_stats(
         candidates_count=candidates_count,
         municipalities_count=munis_count,
         total_votes=total_votes,
+    )
+
+
+# ============================================================ BY NEIGHBORHOOD
+
+
+@router.get(
+    "/candidates/{candidate_id}/by-neighborhood",
+    response_model=CandidateByNeighborhoodResponse,
+    summary="Votos do candidato agregados por bairro",
+    description="""\
+Agrega votos do candidato por bairro do local de votacao.
+
+Pre-requisito: rodar os syncs `locais_votacao_2024` (Brasil inteiro)
+e `votacao_secao_2024_<UF>` (do UF do candidato). Sem isso, retorna
+lista vazia.
+
+Filtros:
+- `municipality_id` (opcional) — restringe ao municipio (util pra
+  prefeitos/vereadores; pra deputados ajuda focar capital ou cidade).
+""",
+)
+def candidate_by_neighborhood(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    municipality_id: UUID | None = Query(None),
+    db: Session = Depends(get_db),
+) -> CandidateByNeighborhoodResponse:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+    party = db.get(Party, candidate.party_id)
+    election = db.get(Election, candidate.election_id)
+
+    municipality = None
+    if municipality_id is not None:
+        municipality = db.get(Municipality, municipality_id)
+        if municipality is None:
+            raise NotFoundError("Municipio nao encontrado")
+
+    # Agregacao SQL: JOIN section_votes × voting_places, group by bairro
+    stmt = (
+        select(
+            func.coalesce(
+                func.nullif(func.trim(TseVotingPlace.neighborhood), ""),
+                "(Sem bairro)",
+            ).label("neighborhood"),
+            func.sum(TseSectionVote.votes).label("votes"),
+            func.count(TseVotingPlace.id).label("places_count"),
+            func.coalesce(func.sum(TseVotingPlace.electors_total), 0).label(
+                "electors_total",
+            ),
+            func.avg(TseVotingPlace.latitude).label("avg_lat"),
+            func.avg(TseVotingPlace.longitude).label("avg_lng"),
+        )
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .where(TseSectionVote.candidate_id == candidate_id)
+    )
+    if municipality_id is not None:
+        stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
+    stmt = stmt.group_by("neighborhood").order_by(func.sum(TseSectionVote.votes).desc())
+
+    rows = db.execute(stmt).all()
+    items = [
+        CandidateByNeighborhoodItem(
+            neighborhood=r.neighborhood,
+            votes=int(r.votes),
+            places_count=int(r.places_count),
+            electors_total=int(r.electors_total),
+            avg_lat=float(r.avg_lat) if r.avg_lat is not None else None,
+            avg_lng=float(r.avg_lng) if r.avg_lng is not None else None,
+        )
+        for r in rows
+    ]
+
+    return CandidateByNeighborhoodResponse(
+        candidate=CandidateRead(
+            id=candidate.id,
+            number=candidate.number,
+            name=candidate.name,
+            urn_name=candidate.urn_name,
+            office_code=candidate.office_code,
+            office_name=candidate.office_name,
+            state=candidate.state,
+            situation=candidate.situation,
+            party=PartyRead.model_validate(party),
+            election=ElectionRead.model_validate(election),
+        ),
+        municipality=MunicipalityRead.model_validate(municipality) if municipality else None,
+        items=items,
+        total_votes=sum(i.votes for i in items),
+        total_neighborhoods=len(items),
     )
 
 

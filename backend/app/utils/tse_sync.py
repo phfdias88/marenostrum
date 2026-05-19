@@ -39,9 +39,18 @@ from app.models.tse import (
     Municipality,
     Party,
     SyncJobStatus,
+    TseSectionVote,
     TseSyncJob,
+    TseVotingPlace,
     VoteResult,
 )
+
+# UFs do Brasil — usado pra gerar entries no DATASETS dict
+ALL_UFS = [
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+    "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+    "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+]
 
 log = structlog.get_logger("marenostrum.tse_sync")
 
@@ -50,17 +59,33 @@ log = structlog.get_logger("marenostrum.tse_sync")
 TSE_BASE_URL = "https://cdn.tse.jus.br/estatistica/sead/odsele"
 
 # Datasets suportados — chave usada em /api/v1/tse/sync?dataset=<key>
-DATASETS = {
+# 'processor': nome da funcao que parseia este dataset (despachada via _PROCESSORS)
+DATASETS: dict[str, dict] = {
     "candidato_munzona_2024": {
         "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2024.zip",
         "year": 2024,
+        "processor": "candidato_munzona",
+    },
+    "locais_votacao_2024": {
+        "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_2024.zip",
+        "year": 2024,
+        "processor": "locais_votacao",
     },
 }
 
+# Gera entries votacao_secao_2024_<UF> automaticamente — 27 UFs
+for _uf in ALL_UFS:
+    DATASETS[f"votacao_secao_2024_{_uf}"] = {
+        "url": f"{TSE_BASE_URL}/votacao_secao/votacao_secao_2024_{_uf}.zip",
+        "year": 2024,
+        "processor": "votacao_secao",
+        "uf": _uf,
+    }
+
 CACHE_DIR = Path("/tmp/tse_cache")
-MAX_ZIP_MB = 200
+MAX_ZIP_MB = 600  # SP secao tem 453MB — folga generosa
 CHUNK_SIZE = 5_000  # linhas por bulk insert
-DOWNLOAD_TIMEOUT_S = 600  # 10min — TSE pode ser lento
+DOWNLOAD_TIMEOUT_S = 1200  # 20min — SP secao e' pesado
 
 
 # ---------------------------- low-level ------------------------------
@@ -166,7 +191,19 @@ def run_sync_job(job_id: UUID) -> None:
             else:
                 log.info("tse_zip_from_cache", path=str(zip_path))
 
-            _process_candidato_munzona(db, job, zip_path)
+            # Despacha pro processor adequado
+            processor = dataset_meta.get("processor", "candidato_munzona")
+            if processor == "candidato_munzona":
+                _process_candidato_munzona(db, job, zip_path)
+            elif processor == "locais_votacao":
+                _process_locais_votacao(db, job, zip_path)
+            elif processor == "votacao_secao":
+                _process_votacao_secao(
+                    db, job, zip_path, uf=dataset_meta["uf"],
+                )
+            else:
+                _fail(db, job, f"Processor desconhecido: {processor}")
+                return
 
             job.status = SyncJobStatus.COMPLETED
             job.completed_at = datetime.now(timezone.utc)
@@ -400,3 +437,233 @@ def _flush_vote_results(
             inserted=job.vote_results_imported,
             total=len(rows),
         )
+
+
+# ====================================================================
+# Processor: locais_votacao (eleitorado_local_votacao_2024.zip)
+# ====================================================================
+
+
+def _process_locais_votacao(
+    db: Session, job: TseSyncJob, zip_path: Path,
+) -> None:
+    """
+    Parseia eleitorado_local_votacao_2024.csv.
+    Cada linha = uma SECAO. Agregamos por (municipio, local_code) — bairro
+    e endereco sao do local, nao da secao. electors_total = SUM secoes.
+
+    Esquema das colunas relevantes:
+      CD_MUNICIPIO, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
+      NM_BAIRRO, NR_LATITUDE, NR_LONGITUDE, QT_ELEITOR_SECAO
+    """
+    # Cache: tse_code → municipality_id
+    munis_by_tse: dict[int, UUID] = {
+        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
+    }
+
+    # Cache em memoria: (municipality_id, local_code) → dict do local
+    places_acc: dict[tuple[UUID, int], dict] = {}
+    rows_processed = 0
+
+    for _, row in iter_csv_rows(zip_path):
+        rows_processed += 1
+        muni_code = _i(row.get("CD_MUNICIPIO"))
+        local_code = _i(row.get("NR_LOCAL_VOTACAO"))
+        if not muni_code or not local_code:
+            continue
+        muni_id = munis_by_tse.get(muni_code)
+        if muni_id is None:
+            continue  # municipio nao importado ainda
+
+        key = (muni_id, local_code)
+        electors = _i(row.get("QT_ELEITOR_SECAO"))
+
+        if key in places_acc:
+            places_acc[key]["electors_total"] += electors
+            continue
+
+        lat = _to_float(row.get("NR_LATITUDE"))
+        lng = _to_float(row.get("NR_LONGITUDE"))
+        places_acc[key] = {
+            "id": uuid4(),
+            "local_code": local_code,
+            "municipality_id": muni_id,
+            "name": _s(row.get("NM_LOCAL_VOTACAO"), 200),
+            "address": _s(row.get("DS_ENDERECO"), 300) or None,
+            "neighborhood": _s(row.get("NM_BAIRRO"), 120) or None,
+            "latitude": lat,
+            "longitude": lng,
+            "electors_total": electors,
+        }
+
+        if rows_processed % 20000 == 0:
+            job.rows_processed = rows_processed
+            db.commit()
+            log.info(
+                "tse_locais_progress",
+                rows=rows_processed,
+                unique_places=len(places_acc),
+            )
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {**v, "created_at": now, "updated_at": now} for v in places_acc.values()
+    ]
+    log.info("tse_locais_inserting", total_places=len(rows))
+
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        db.execute(insert(TseVotingPlace), chunk)
+        db.commit()
+        # Reusa campos do job pra reportar progresso (apesar do nome)
+        job.municipalities_imported = len(rows[: i + len(chunk)])
+        db.commit()
+
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info("tse_locais_done", places=len(rows), rows=rows_processed)
+
+
+def _to_float(value) -> float | None:
+    try:
+        v = float(str(value).strip().replace(",", "."))
+        if -90 <= v <= 90 or -180 <= v <= 180:
+            return v
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return None
+
+
+# ====================================================================
+# Processor: votacao_secao_<UF> (votacao_secao_2024_<UF>.zip)
+# ====================================================================
+
+
+def _process_votacao_secao(
+    db: Session, job: TseSyncJob, zip_path: Path, *, uf: str,
+) -> None:
+    """
+    Parseia votacao_secao_2024_<UF>.csv. Cada linha = (candidato, secao, votos).
+    Agregamos por (candidate_id, voting_place_id) → SUM(votos).
+
+    Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_LOCAL_VOTACAO, QT_VOTOS
+
+    Pre-condicao: locais_votacao_2024 ja sincronizado (precisamos do mapping
+    (muni, local_code) → voting_place_id) E candidatos do UF ja sincronizados.
+    """
+    # Cache 1: SQ_CANDIDATO → candidate_id (pre-filtrado por UF pra economizar RAM)
+    candidates_by_sq: dict[int, UUID] = {
+        c.sq_candidato: c.id
+        for c in db.execute(
+            select(Candidate).where(Candidate.state == uf)
+        ).scalars()
+    }
+    log.info("tse_secao_candidates_loaded", uf=uf, count=len(candidates_by_sq))
+
+    # Cache 2: (municipality_id, local_code) → voting_place_id (so do UF)
+    munis_by_tse: dict[int, UUID] = {
+        m.tse_code: m.id for m in db.execute(
+            select(Municipality).where(Municipality.state == uf)
+        ).scalars()
+    }
+    voting_places_lookup: dict[tuple[UUID, int], UUID] = {}
+    for vp in db.execute(
+        select(TseVotingPlace).where(
+            TseVotingPlace.municipality_id.in_(list(munis_by_tse.values()))
+        )
+    ).scalars():
+        voting_places_lookup[(vp.municipality_id, vp.local_code)] = vp.id
+    log.info(
+        "tse_secao_places_loaded", uf=uf, count=len(voting_places_lookup),
+    )
+
+    if not voting_places_lookup:
+        raise RuntimeError(
+            f"Nenhum tse_voting_places pra UF={uf}. Rode locais_votacao_2024 antes."
+        )
+
+    # Agregacao em memoria: (candidate_id, voting_place_id) → votes
+    # Estimativa MG: ~8k locais × ~150 candidates = ~1.2M entries. Cabe.
+    votes_acc: dict[tuple[UUID, UUID], int] = {}
+    rows_processed = 0
+    skipped = 0
+
+    for _, row in iter_csv_rows(zip_path):
+        rows_processed += 1
+        sq = _i(row.get("SQ_CANDIDATO"))
+        muni_code = _i(row.get("CD_MUNICIPIO"))
+        local_code = _i(row.get("NR_LOCAL_VOTACAO"))
+        votes = _i(row.get("QT_VOTOS"))
+
+        cand_id = candidates_by_sq.get(sq)
+        muni_id = munis_by_tse.get(muni_code)
+        if cand_id is None or muni_id is None or not local_code:
+            skipped += 1
+            continue
+        vp_id = voting_places_lookup.get((muni_id, local_code))
+        if vp_id is None:
+            skipped += 1
+            continue
+
+        key = (cand_id, vp_id)
+        votes_acc[key] = votes_acc.get(key, 0) + votes
+
+        if rows_processed % 100_000 == 0:
+            log.info(
+                "tse_secao_progress",
+                uf=uf,
+                rows=rows_processed,
+                aggregated=len(votes_acc),
+                skipped=skipped,
+            )
+            job.rows_processed = rows_processed
+            db.commit()
+
+    log.info(
+        "tse_secao_parsed",
+        uf=uf,
+        rows=rows_processed,
+        aggregated=len(votes_acc),
+        skipped=skipped,
+    )
+
+    # Insercao em chunks. Como pode rodar 2x (re-import), usamos
+    # ON CONFLICT DO UPDATE pra ser idempotente.
+    now = datetime.now(timezone.utc)
+    rows_out = [
+        {
+            "id": uuid4(),
+            "candidate_id": cid,
+            "voting_place_id": vp,
+            "votes": v,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for (cid, vp), v in votes_acc.items()
+    ]
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    for i in range(0, len(rows_out), CHUNK_SIZE):
+        chunk = rows_out[i : i + CHUNK_SIZE]
+        stmt = pg_insert(TseSectionVote.__table__).values(chunk)
+        # Upsert: re-rodar a UF sobrescreve votos (caso TSE atualize dataset)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["candidate_id", "voting_place_id"],
+            set_={"votes": stmt.excluded.votes, "updated_at": now},
+        )
+        db.execute(stmt)
+        db.commit()
+        job.vote_results_imported = i + len(chunk)
+        db.commit()
+        if (i // CHUNK_SIZE) % 5 == 0:
+            log.info(
+                "tse_secao_inserted",
+                uf=uf,
+                inserted=job.vote_results_imported,
+                total=len(rows_out),
+            )
+
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info("tse_secao_done", uf=uf, total=len(rows_out))
