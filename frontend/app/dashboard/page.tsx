@@ -118,7 +118,7 @@ export default function DashboardPage() {
       <header className="space-y-1">
         {me ? (
           <>
-            <p className="text-sm font-medium text-brand-700">
+            <p className="text-sm font-medium text-primary">
               {me.tenant_name}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight text-foreground">
@@ -297,7 +297,7 @@ function KpiCard({
   href?: string;
 }) {
   const TONE = {
-    brand:   { bg: "bg-brand-50",   text: "text-brand-700",   icon: "bg-brand-500" },
+    brand:   { bg: "bg-primary/10",   text: "text-primary",   icon: "bg-primary" },
     amber:   { bg: "bg-amber-50",   text: "text-amber-700",   icon: "bg-amber-500" },
     blue:    { bg: "bg-blue-50",    text: "text-blue-700",    icon: "bg-blue-500" },
     emerald: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "bg-emerald-500" },
@@ -355,10 +355,10 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="group rounded-xl border bg-card p-5 transition-all hover:border-brand-500 hover:shadow-sm flex flex-col"
+      className="group rounded-xl border bg-card p-5 transition-all hover:border-primary hover:shadow-sm flex flex-col"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700 group-hover:bg-brand-500 group-hover:text-white transition-colors">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
@@ -367,7 +367,7 @@ function QuickAction({
             {description}
           </p>
         </div>
-        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-brand-500 group-hover:translate-x-0.5 transition-all" />
+        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
       </div>
     </Link>
   );
@@ -383,7 +383,7 @@ function StatBlock({
   tone: "brand" | "amber" | "emerald";
 }) {
   const color = {
-    brand: "text-brand-700",
+    brand: "text-primary",
     amber: "text-amber-700",
     emerald: "text-emerald-700",
   }[tone];

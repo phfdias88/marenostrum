@@ -3,46 +3,83 @@
 @tailwind utilities;
 
 /*
- * Tema MareNostrum — paleta slate + azul "mar" (210 80% 50%).
+ * Tema MareNostrum — DARK estilo Politique.
+ *
+ * Paleta azul-naval inspirada no nome MareNostrum (Mar Nostro).
  * Valores HSL puros (sem hsl(...)) — Tailwind aplica via var().
- * Mudar dark mode aqui no futuro = trocar paleta sem mexer em componente.
+ *
+ * Pra adicionar light mode futuramente:
+ *   .light { --background: 210 30% 98%; ...etc }
+ *   E adicionar toggle no header com `next-themes`.
  */
 @layer base {
   :root {
-    --background: 210 30% 98%;
-    --foreground: 222 30% 12%;
+    /* Fundo: azul muito escuro, quase preto */
+    --background: 222 47% 7%;
+    --foreground: 210 40% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 30% 12%;
+    /* Cards: ligeiramente mais claros que o bg */
+    --card: 222 45% 10%;
+    --card-foreground: 210 40% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 30% 12%;
+    --popover: 222 47% 9%;
+    --popover-foreground: 210 40% 96%;
 
-    --primary: 212 76% 48%;
-    --primary-foreground: 0 0% 100%;
+    /* Primary: azul vivo (botões, links, focus) */
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 7%;
 
-    --secondary: 210 20% 96%;
-    --secondary-foreground: 222 30% 18%;
+    /* Secondary/Accent: tons azul-escuros pra hover */
+    --secondary: 217 32% 17%;
+    --secondary-foreground: 210 40% 96%;
 
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 16% 47%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
 
-    --accent: 210 30% 94%;
-    --accent-foreground: 222 30% 18%;
+    --accent: 217 33% 16%;
+    --accent-foreground: 210 40% 96%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 25% 90%;
-    --input: 214 25% 90%;
-    --ring: 212 76% 48%;
+    /* Bordas sutis — não-óbvias mas separam blocos */
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
 
     --radius: 0.625rem;
   }
 }
 
 @layer base {
-  * { @apply border-border; }
-  html, body { height: 100%; }
-  body { @apply bg-background text-foreground antialiased; }
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Gradient sutil de fundo (mais escuro nos cantos) — feeling "premium" */
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(217 50% 14% / 0.6), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 50% 110%, hsl(217 50% 12% / 0.4), transparent 60%);
+  }
+
+  /* Scrollbar discreta dark */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
 }

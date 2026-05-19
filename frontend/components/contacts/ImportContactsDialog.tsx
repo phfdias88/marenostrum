@@ -110,7 +110,7 @@ export function ImportContactsDialog({ onImported, children }: Props) {
             download
             className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-border hover:bg-accent transition-colors text-sm"
           >
-            <FileSpreadsheet className="h-5 w-5 text-brand-500" />
+            <FileSpreadsheet className="h-5 w-5 text-primary" />
             <div className="flex-1">
               <p className="font-medium">Baixar planilha modelo</p>
               <p className="text-xs text-muted-foreground">

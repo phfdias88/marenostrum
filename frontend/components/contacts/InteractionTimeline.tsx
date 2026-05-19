@@ -127,7 +127,7 @@ function summarize(it: Interaction): Summary {
 const TONE_CLASSES: Record<Summary["tone"], string> = {
   default: "bg-card text-foreground border-border",
   success: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  info: "bg-brand-50 text-brand-700 border-brand-100",
+  info: "bg-primary/10 text-primary border-primary/15",
   muted: "bg-muted text-muted-foreground border-border",
 };
 

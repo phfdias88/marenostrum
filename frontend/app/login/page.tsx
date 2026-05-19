@@ -51,11 +51,11 @@ function LoginForm() {
     <main className="min-h-screen grid place-items-center px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-5"
+        className="w-full max-w-sm bg-card rounded-2xl shadow-lg border p-8 space-y-5"
       >
         <div>
-          <h1 className="text-2xl font-semibold text-brand-900">MareNostrum</h1>
-          <p className="text-sm text-slate-500">Entre na sua campanha</p>
+          <h1 className="text-2xl font-semibold text-foreground">MareNostrum</h1>
+          <p className="text-sm text-muted-foreground">Entre na sua campanha</p>
         </div>
 
         <Field
@@ -92,7 +92,7 @@ function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white font-medium py-2.5 transition"
+          className="w-full rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium py-2.5 transition"
         >
           {loading ? "Entrando..." : "Entrar"}
         </button>
@@ -115,12 +115,12 @@ function Field({
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+      <span className="text-sm font-medium text-foreground">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none"
+        className="mt-1 w-full rounded-lg border border-border px-3 py-2 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
         {...rest}
       />
     </label>

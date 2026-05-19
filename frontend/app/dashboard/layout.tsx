@@ -62,7 +62,7 @@ export default function DashboardLayout({
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/dashboard" className="font-semibold text-brand-900">
+            <Link href="/dashboard" className="font-semibold text-foreground">
               MareNostrum
             </Link>
             <nav className="flex items-center gap-1">
