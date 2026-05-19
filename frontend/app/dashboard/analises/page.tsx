@@ -117,7 +117,7 @@ const CARDS: Card[] = [
     label: "Bairros",
     icon: MapIcon,
     description:
-      "Votos da sua campanha por bairro, com ranking e mapa de calor integrado.",
+      "Escolha um candidato e veja os votos dele bairro a bairro (ranking + mapa).",
   },
   {
     href: "/dashboard/analises/zona",
