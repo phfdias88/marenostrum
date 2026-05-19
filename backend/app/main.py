@@ -50,6 +50,15 @@ _TAGS_METADATA = [
         ),
     },
     {
+        "name": "voting-places",
+        "description": (
+            "**Inteligência eleitoral.** Locais de votação com votos "
+            "agregados pro candidato + heatmap normalizado. Import CSV em "
+            "lote (formato Politique/TSE). Endpoint `/heatmap` retorna "
+            "pontos prontos pro Leaflet.heat."
+        ),
+    },
+    {
         "name": "webhooks",
         "description": (
             "**Integrações externas.** Endpoints PÚBLICOS autenticados por "
