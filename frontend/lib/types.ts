@@ -185,6 +185,23 @@ export type TseMunicipalityResults = {
   total_results: number;
 };
 
+export type TseCandidateByNeighborhoodItem = {
+  neighborhood: string;
+  votes: number;
+  places_count: number;
+  electors_total: number;
+  avg_lat: number | null;
+  avg_lng: number | null;
+};
+
+export type TseCandidateByNeighborhoodResponse = {
+  candidate: TseCandidate;
+  municipality: TseMunicipality | null;
+  items: TseCandidateByNeighborhoodItem[];
+  total_votes: number;
+  total_neighborhoods: number;
+};
+
 export type TseElectionStats = {
   election: TseElection;
   candidates_count: number;
