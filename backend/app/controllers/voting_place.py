@@ -13,6 +13,7 @@ from app.core.errors import DomainError
 from app.schemas.contact import Page
 from app.schemas.voting_place import (
     HeatmapResponse,
+    NeighborhoodStatsResponse,
     VotingImportResult,
     VotingPlaceRead,
 )
@@ -79,6 +80,23 @@ def heatmap(
     election_year: int | None = Query(None, ge=1900, le=2100),
 ) -> HeatmapResponse:
     return VotingPlaceService(ctx).heatmap(election_year=election_year)
+
+
+@router.get(
+    "/by-neighborhood",
+    response_model=NeighborhoodStatsResponse,
+    summary="Agrega votos por bairro (centroide medio das coords)",
+    description=(
+        "Agrupa todos os locais de votacao do tenant por bairro. Bairro nulo "
+        "ou vazio vira '(Sem bairro)' pra nao perder dados. Centroide "
+        "(avg_lat/lng) e util pra centralizar o mapa quando clicar."
+    ),
+)
+def by_neighborhood(
+    ctx: CurrentTenant,
+    election_year: int | None = Query(None, ge=1900, le=2100),
+) -> NeighborhoodStatsResponse:
+    return VotingPlaceService(ctx).by_neighborhood(election_year=election_year)
 
 
 @router.post(

@@ -62,6 +62,57 @@ class VotingPlaceRepository:
             stmt = stmt.where(VotingPlace.election_year == election_year)
         return list(self._db.execute(stmt).scalars().all())
 
+    def aggregate_by_neighborhood(
+        self,
+        *,
+        tenant_id: UUID,
+        election_year: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Agrupa votos por bairro. Linhas com bairro NULO ou vazio sao agrupadas
+        sob '(Sem bairro)' pra nao perder dados na visualizacao.
+
+        Retorna lista ordenada por total_votes desc:
+          [{neighborhood, total_votes, total_places, total_voters,
+            avg_lat, avg_lng}, ...]
+        """
+        # Coalesce trata NULL como "(Sem bairro)" no agrupamento
+        nb = func.coalesce(
+            func.nullif(func.trim(VotingPlace.neighborhood), ""),
+            "(Sem bairro)",
+        ).label("neighborhood")
+
+        stmt = (
+            select(
+                nb,
+                func.count(VotingPlace.id).label("total_places"),
+                func.coalesce(func.sum(VotingPlace.votes), 0).label("total_votes"),
+                func.coalesce(func.sum(VotingPlace.total_voters), 0).label(
+                    "total_voters",
+                ),
+                func.avg(VotingPlace.latitude).label("avg_lat"),
+                func.avg(VotingPlace.longitude).label("avg_lng"),
+            )
+            .where(VotingPlace.tenant_id == tenant_id)
+            .group_by(nb)
+            .order_by(func.coalesce(func.sum(VotingPlace.votes), 0).desc())
+        )
+        if election_year is not None:
+            stmt = stmt.where(VotingPlace.election_year == election_year)
+
+        rows = self._db.execute(stmt).all()
+        return [
+            {
+                "neighborhood": r.neighborhood,
+                "total_places": int(r.total_places),
+                "total_votes": int(r.total_votes),
+                "total_voters": int(r.total_voters) if r.total_voters else None,
+                "avg_lat": float(r.avg_lat) if r.avg_lat is not None else None,
+                "avg_lng": float(r.avg_lng) if r.avg_lng is not None else None,
+            }
+            for r in rows
+        ]
+
     def aggregate_stats(
         self,
         *,

@@ -7,6 +7,8 @@ from app.repositories.voting_place import VotingPlaceRepository
 from app.schemas.voting_place import (
     HeatmapPoint,
     HeatmapResponse,
+    NeighborhoodStats,
+    NeighborhoodStatsResponse,
     VotingImportResult,
 )
 from app.utils.voting_import import parse_voting_csv
@@ -77,6 +79,22 @@ class VotingPlaceService:
             total_places=total_places,
             total_votes=total_votes,
             max_votes=max_votes,
+        )
+
+    def by_neighborhood(
+        self,
+        *,
+        election_year: int | None = None,
+    ) -> NeighborhoodStatsResponse:
+        rows = self._repo.aggregate_by_neighborhood(
+            tenant_id=self._ctx.tenant_id,
+            election_year=election_year,
+        )
+        items = [NeighborhoodStats(**r) for r in rows]
+        return NeighborhoodStatsResponse(
+            items=items,
+            total_neighborhoods=len(items),
+            total_votes=sum(i.total_votes for i in items),
         )
 
     # --------------------------------------------------------------- Import

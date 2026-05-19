@@ -45,6 +45,23 @@ class HeatmapResponse(BaseModel):
     max_votes: int  # usado pro normalize
 
 
+class NeighborhoodStats(BaseModel):
+    """Linha da agregacao /by-neighborhood: total de votos+locais por bairro."""
+    neighborhood: str
+    total_places: int
+    total_votes: int
+    total_voters: int | None
+    # Centroide do bairro (media das coords dos locais) — pra centrar mapa
+    avg_lat: float | None
+    avg_lng: float | None
+
+
+class NeighborhoodStatsResponse(BaseModel):
+    items: list[NeighborhoodStats]
+    total_neighborhoods: int
+    total_votes: int
+
+
 class VotingImportResult(BaseModel):
     imported: int
     skipped: int

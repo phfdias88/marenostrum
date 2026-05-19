@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { Page, TseCandidate, TseParty } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
+import { PartyLogo } from "@/components/tse/PartyLogo";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -85,9 +86,11 @@ function PartyGrid({
             className="text-left rounded-lg border bg-card p-4 hover:border-primary/60 hover:bg-card/80 transition-all hover:-translate-y-0.5"
           >
             <div className="flex items-center gap-3">
-              <span className="grid place-items-center w-12 h-12 rounded-md bg-primary/15 text-primary font-bold">
-                {p.number}
-              </span>
+              <PartyLogo
+                number={p.number}
+                abbreviation={p.abbreviation}
+                size="md"
+              />
               <div className="min-w-0">
                 <p className="font-bold">{p.abbreviation}</p>
                 <p className="text-xs text-muted-foreground truncate">
@@ -151,9 +154,11 @@ function PartyDrillDown({
       </button>
 
       <div className="flex items-center gap-4 mb-6">
-        <span className="grid place-items-center w-16 h-16 rounded-lg bg-primary/15 text-primary font-bold text-xl">
-          {party.number}
-        </span>
+        <PartyLogo
+          number={party.number}
+          abbreviation={party.abbreviation}
+          size="lg"
+        />
         <div>
           <h2 className="text-2xl font-bold">{party.abbreviation}</h2>
           <p className="text-sm text-muted-foreground">{party.name}</p>

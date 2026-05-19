@@ -105,10 +105,11 @@ const CARDS: Card[] = [
     description: "Coloque candidatos lado a lado e compare cenários.",
   },
   {
-    href: "/dashboard/map",
-    label: "Bairros (heatmap)",
+    href: "/dashboard/analises/bairros",
+    label: "Bairros",
     icon: MapIcon,
-    description: "Use o mapa de votos próprios (locais de votação do tenant).",
+    description:
+      "Votos da sua campanha por bairro, com ranking e mapa de calor integrado.",
   },
   {
     href: "/dashboard/analises/zona",

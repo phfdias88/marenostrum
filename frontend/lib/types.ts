@@ -232,6 +232,24 @@ export const TSE_STATES = [
 export type TseState = (typeof TSE_STATES)[number];
 
 
+// --------------------------------------------------------- Neighborhoods
+
+export type NeighborhoodStats = {
+  neighborhood: string;
+  total_places: number;
+  total_votes: number;
+  total_voters: number | null;
+  avg_lat: number | null;
+  avg_lng: number | null;
+};
+
+export type NeighborhoodStatsResponse = {
+  items: NeighborhoodStats[];
+  total_neighborhoods: number;
+  total_votes: number;
+};
+
+
 /** Interaction = webhook event vinculado (ou nao) a um Contact. */
 export type Interaction = {
   id: string;
