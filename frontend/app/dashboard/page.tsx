@@ -176,6 +176,31 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Banner TSE — inteligencia eleitoral */}
+      <Link
+        href="/dashboard/analises"
+        className="group block relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/15 via-blue-600/10 to-transparent p-6"
+      >
+        <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-primary/10 blur-2xl" />
+        <div className="relative flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-primary font-semibold">
+              Inteligência eleitoral
+            </p>
+            <h2 className="text-xl font-bold mt-1">
+              Análise dos dados públicos do TSE 2024
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+              428 mil candidatos · 5.568 municípios · votos por bairro · quem foi
+              eleito. Tudo navegável.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium group-hover:gap-3 transition-all shrink-0">
+            Explorar Análises <ArrowRight className="w-4 h-4" />
+          </span>
+        </div>
+      </Link>
+
       {/* Ações rápidas */}
       <section>
         <div className="flex items-end justify-between mb-3">
@@ -297,10 +322,10 @@ function KpiCard({
   href?: string;
 }) {
   const TONE = {
-    brand:   { bg: "bg-primary/10",   text: "text-primary",   icon: "bg-primary" },
-    amber:   { bg: "bg-amber-50",   text: "text-amber-700",   icon: "bg-amber-500" },
-    blue:    { bg: "bg-blue-50",    text: "text-blue-700",    icon: "bg-blue-500" },
-    emerald: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "bg-emerald-500" },
+    brand:   { bg: "bg-primary/10",   text: "text-primary",     icon: "bg-primary" },
+    amber:   { bg: "bg-amber-500/10",   text: "text-amber-400",   icon: "bg-amber-500" },
+    blue:    { bg: "bg-blue-500/10",    text: "text-blue-400",    icon: "bg-blue-500" },
+    emerald: { bg: "bg-emerald-500/10", text: "text-emerald-400", icon: "bg-emerald-500" },
   }[tone];
 
   const content = (
@@ -384,8 +409,8 @@ function StatBlock({
 }) {
   const color = {
     brand: "text-primary",
-    amber: "text-amber-700",
-    emerald: "text-emerald-700",
+    amber: "text-amber-400",
+    emerald: "text-emerald-400",
   }[tone];
   return (
     <div>

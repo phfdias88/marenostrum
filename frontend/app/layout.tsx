@@ -3,8 +3,12 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MareNostrum App",
-  description: "Gestao de campanhas politicas e mandatos",
+  title: {
+    default: "MareNostrum — Inteligência política e eleitoral",
+    template: "%s · MareNostrum",
+  },
+  description:
+    "Gestão de campanhas, CRM eleitoral e análise de dados públicos do TSE.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
