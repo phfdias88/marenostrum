@@ -45,6 +45,9 @@ class CandidateRead(BaseModel):
     office_name: str
     state: str
     situation: str | None
+    # Resultado da eleicao: ELEITO, ELEITO POR QP/MÉDIA, NÃO ELEITO,
+    # SUPLENTE, 2º TURNO, etc. None se ainda nao backfilled.
+    result_status: str | None = None
     party: PartyRead
     election: ElectionRead
 

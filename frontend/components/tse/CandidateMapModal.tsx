@@ -16,6 +16,7 @@ import type {
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
 } from "@/lib/types";
+import { ResultBadge } from "@/components/tse/ResultBadge";
 
 const CandidateVoteMap = dynamic(
   () => import("@/components/map/CandidateVoteMap"),
@@ -81,12 +82,13 @@ export function CandidateMapModal({ results, onClose }: Props) {
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Distribuição de votos · {c.office_name} · {c.state}
             </p>
-            <h2 className="text-lg font-bold truncate">
-              {c.urn_name}{" "}
-              <span className="text-primary font-mono ml-2">{c.number}</span>{" "}
+            <h2 className="text-lg font-bold truncate flex items-center gap-2 flex-wrap">
+              <span>{c.urn_name}</span>
+              <span className="text-primary font-mono">{c.number}</span>
               <span className="text-muted-foreground text-sm font-normal">
                 {c.party.abbreviation}
               </span>
+              <ResultBadge status={c.result_status} />
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
               <strong className="text-foreground">

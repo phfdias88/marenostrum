@@ -25,6 +25,7 @@ import type {
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
+import { ResultBadge } from "@/components/tse/ResultBadge";
 
 const MAX_COMPARE = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -153,6 +154,9 @@ function CompareCard({
         <p className="text-xs font-mono text-primary mt-2">#{c.number}</p>
         <p className="font-bold truncate w-full">{c.urn_name}</p>
         <p className="text-xs text-muted-foreground truncate w-full">{c.name}</p>
+        <div className="mt-1.5 flex justify-center">
+          <ResultBadge status={c.result_status} size="sm" />
+        </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-1 text-center">

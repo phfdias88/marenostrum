@@ -346,6 +346,7 @@ def _process_candidato_munzona(
                 "office_name": _s(row.get("DS_CARGO"), 40),
                 "state": _s(row.get("SG_UF"), 2).upper(),
                 "situation": _s(row.get("DS_SITUACAO_CANDIDATURA"), 40),
+                "result_status": _s(row.get("DS_SIT_TOT_TURNO"), 40) or None,
                 "created_at": now,
                 "updated_at": now,
             })

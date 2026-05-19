@@ -158,8 +158,31 @@ export type TseCandidate = {
   office_name: string;
   state: string;
   situation: string | null;
+  result_status: string | null; // ELEITO, NÃO ELEITO, SUPLENTE, 2º TURNO...
   party: TseParty;
   election: TseElection;
+};
+
+/** Classifica o DS_SIT_TOT_TURNO do TSE numa categoria visual. */
+export type ElectionOutcome = "elected" | "runoff" | "alternate" | "not_elected" | "unknown";
+
+export function classifyResult(status: string | null): ElectionOutcome {
+  if (!status) return "unknown";
+  const s = status.toUpperCase();
+  if (s.includes("2º TURNO") || s.includes("2O TURNO") || s.includes("SEGUNDO TURNO"))
+    return "runoff";
+  if (s.includes("SUPLENTE")) return "alternate";
+  if (s.includes("NÃO ELEITO") || s.includes("NAO ELEITO")) return "not_elected";
+  if (s.includes("ELEITO")) return "elected"; // ELEITO, ELEITO POR QP, POR MÉDIA
+  return "unknown";
+}
+
+export const OUTCOME_LABEL: Record<ElectionOutcome, string> = {
+  elected: "Eleito",
+  runoff: "2º turno",
+  alternate: "Suplente",
+  not_elected: "Não eleito",
+  unknown: "—",
 };
 
 export type TseVoteResultByMunicipality = {

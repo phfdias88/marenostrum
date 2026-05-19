@@ -17,6 +17,7 @@ import type {
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
+import { ResultBadge } from "@/components/tse/ResultBadge";
 
 const PAGE_SIZE = 25;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -261,11 +262,12 @@ function MunicipalityDrill({
                 size="md"
               />
               <div className="flex-1 min-w-0">
-                <p className="font-semibold truncate">
-                  <span className="text-primary font-mono mr-2">
+                <p className="font-semibold truncate flex items-center gap-2">
+                  <span className="text-primary font-mono">
                     {r.candidate.number}
                   </span>
-                  {r.candidate.urn_name}
+                  <span className="truncate">{r.candidate.urn_name}</span>
+                  <ResultBadge status={r.candidate.result_status} size="sm" />
                 </p>
                 <p className="text-xs text-muted-foreground truncate">
                   {r.candidate.party.abbreviation} · {r.candidate.office_name}

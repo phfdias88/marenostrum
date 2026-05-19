@@ -42,6 +42,10 @@ class Candidate(Base, TimestampMixin):
     # Situação final (DS_SITUACAO_CANDIDATURA): DEFERIDO, INDEFERIDO, RENUNCIA
     situation: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
+    # Resultado da eleição (DS_SIT_TOT_TURNO): ELEITO, ELEITO POR QP,
+    # ELEITO POR MÉDIA, NÃO ELEITO, SUPLENTE, 2º TURNO, etc.
+    result_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
     __table_args__ = (
         Index("ix_tse_candidates_sq", "sq_candidato", unique=True),
         # Busca tipica: por eleicao + estado + cargo

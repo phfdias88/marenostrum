@@ -22,6 +22,7 @@ import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
+import { ResultBadge } from "@/components/tse/ResultBadge";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -196,9 +197,10 @@ export default function CandidatoAnalysisPage() {
                   size="md"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">
-                    <span className="text-primary font-mono mr-2">{c.number}</span>
-                    {c.urn_name}
+                  <p className="font-semibold truncate flex items-center gap-2">
+                    <span className="text-primary font-mono">{c.number}</span>
+                    <span className="truncate">{c.urn_name}</span>
+                    <ResultBadge status={c.result_status} size="sm" />
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
                     {c.name} · {c.party.abbreviation}
@@ -304,6 +306,9 @@ function CandidateDetail({
         </p>
         <h2 className="text-lg font-bold mt-0.5">{candidate.urn_name}</h2>
         <p className="text-xs text-muted-foreground">{candidate.name}</p>
+        <div className="mt-2">
+          <ResultBadge status={candidate.result_status} />
+        </div>
       </div>
 
       <div className="flex items-center justify-center gap-2 text-sm">
@@ -318,7 +323,7 @@ function CandidateDetail({
         </div>
       </div>
 
-      {candidate.situation && (
+      {candidate.situation && !candidate.situation.startsWith("#") && (
         <p className="text-xs">
           <span className="text-muted-foreground">Situação: </span>
           <span className="font-medium">{candidate.situation}</span>
