@@ -28,7 +28,7 @@ const NAV = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
   { href: "/dashboard/demandas", label: "Demandas", icon: ClipboardList },
-  { href: "/dashboard/map", label: "Mapa", icon: MapPinned },
+  { href: "/dashboard/map", label: "Mapa da Campanha", icon: MapPinned },
   { href: "/dashboard/analises", label: "Análises", icon: BarChart3 },
   { href: "/dashboard/analytics", label: "Insights", icon: LineChart },
   { href: "/dashboard/sonar", label: "Atendimentos", icon: Headset },
