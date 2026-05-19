@@ -210,10 +210,31 @@ export default function AnalisesHubPage() {
         <div className="h-24 rounded-lg bg-card/60 border border-border animate-pulse" />
       ) : (
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Stat label="Candidatos" value={stats?.candidates ?? 0} />
-          <Stat label="Municípios" value={5568} hint="todos do Brasil" />
-          <Stat label="Partidos" value={stats?.parties ?? 0} />
-          <Stat label="Eleições" value={stats?.elections ?? 0} />
+          <Stat
+            label="Candidatos"
+            value={stats?.candidates ?? 0}
+            gradient="from-blue-600/20 to-blue-500/5"
+            accent="text-blue-400"
+          />
+          <Stat
+            label="Municípios"
+            value={5568}
+            hint="todos do Brasil"
+            gradient="from-emerald-600/20 to-emerald-500/5"
+            accent="text-emerald-400"
+          />
+          <Stat
+            label="Partidos"
+            value={stats?.parties ?? 0}
+            gradient="from-fuchsia-600/20 to-fuchsia-500/5"
+            accent="text-fuchsia-400"
+          />
+          <Stat
+            label="Eleições"
+            value={stats?.elections ?? 0}
+            gradient="from-amber-600/20 to-amber-500/5"
+            accent="text-amber-400"
+          />
         </section>
       )}
 
@@ -292,17 +313,27 @@ function Stat({
   label,
   value,
   hint,
+  gradient,
+  accent,
 }: {
   label: string;
   value: number;
   hint?: string;
+  gradient?: string;
+  accent?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card/60 px-4 py-3">
+    <div
+      className={`rounded-xl border border-border px-4 py-3 ${
+        gradient ? `bg-gradient-to-br ${gradient}` : "bg-card/60"
+      }`}
+    >
       <p className="text-xs uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
-      <p className="text-2xl font-bold mt-1">{numberFmt.format(value)}</p>
+      <p className={`text-2xl font-bold mt-1 ${accent ?? ""}`}>
+        {numberFmt.format(value)}
+      </p>
       {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
     </div>
   );

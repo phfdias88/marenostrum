@@ -48,55 +48,74 @@ function LoginForm() {
   }
 
   return (
-    <main className="min-h-screen grid place-items-center px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-card rounded-2xl shadow-lg border p-8 space-y-5"
-      >
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">MareNostrum</h1>
-          <p className="text-sm text-muted-foreground">Entre na sua campanha</p>
+    <main className="min-h-screen grid place-items-center px-4 relative overflow-hidden">
+      {/* Fundo com gradiente + glow */}
+      <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-primary/5" />
+      <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
+
+      <div className="relative w-full max-w-sm">
+        {/* Marca */}
+        <div className="flex flex-col items-center mb-6">
+          <div className="grid place-items-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-blue-700 text-white font-extrabold text-2xl shadow-lg shadow-primary/30">
+            M
+          </div>
+          <h1 className="text-2xl font-bold text-foreground mt-3 tracking-tight">
+            MareNostrum
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Inteligência política e eleitoral
+          </p>
         </div>
 
-        <Field
-          label="Campanha (slug)"
-          value={tenantSlug}
-          onChange={setTenantSlug}
-          autoComplete="organization"
-          placeholder="ex: candidato-joao-2026"
-          required
-        />
-        <Field
-          label="Email"
-          type="email"
-          value={email}
-          onChange={setEmail}
-          autoComplete="username"
-          required
-        />
-        <Field
-          label="Senha"
-          type="password"
-          value={password}
-          onChange={setPassword}
-          autoComplete="current-password"
-          required
-        />
-
-        {error && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-2">
-            {error}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-60 text-white font-medium py-2.5 transition"
+        <form
+          onSubmit={onSubmit}
+          className="bg-card/80 backdrop-blur rounded-2xl shadow-xl border border-border p-8 space-y-5"
         >
-          {loading ? "Entrando..." : "Entrar"}
-        </button>
-      </form>
+          <Field
+            label="Campanha (slug)"
+            value={tenantSlug}
+            onChange={setTenantSlug}
+            autoComplete="organization"
+            placeholder="ex: candidato-joao-2026"
+            required
+          />
+          <Field
+            label="Email"
+            type="email"
+            value={email}
+            onChange={setEmail}
+            autoComplete="username"
+            required
+          />
+          <Field
+            label="Senha"
+            type="password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+            required
+          />
+
+          {error && (
+            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-lg bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold py-2.5 transition shadow-lg shadow-primary/20"
+          >
+            {loading ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
+
+        <p className="text-center text-xs text-muted-foreground mt-5">
+          Dados eleitorais públicos · Fonte: TSE
+        </p>
+      </div>
     </main>
   );
 }
@@ -120,7 +139,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-border px-3 py-2 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
+        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
         {...rest}
       />
     </label>

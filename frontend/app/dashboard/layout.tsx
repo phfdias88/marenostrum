@@ -10,7 +10,6 @@ import { useEffect, useState } from "react";
 import {
   BarChart3,
   ClipboardList,
-  Headset,
   LayoutDashboard,
   LineChart,
   MapPinned,
@@ -26,12 +25,11 @@ type Me = { full_name: string; tenant_name: string };
 
 const NAV = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
+  { href: "/dashboard/analises", label: "Análises", icon: BarChart3 },
+  { href: "/dashboard/analytics", label: "Painel", icon: LineChart },
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
   { href: "/dashboard/demandas", label: "Demandas", icon: ClipboardList },
   { href: "/dashboard/map", label: "Mapa da Campanha", icon: MapPinned },
-  { href: "/dashboard/analises", label: "Análises", icon: BarChart3 },
-  { href: "/dashboard/analytics", label: "Insights", icon: LineChart },
-  { href: "/dashboard/sonar", label: "Atendimentos", icon: Headset },
 ];
 
 export default function DashboardLayout({
