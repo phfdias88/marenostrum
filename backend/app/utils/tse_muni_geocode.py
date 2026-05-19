@@ -24,7 +24,7 @@ from typing import Iterable
 
 import httpx
 import structlog
-from sqlalchemy import update
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -66,14 +66,14 @@ def _download_csv() -> str:
     return r.text
 
 
-def _parse_csv(text: str) -> dict[tuple[str, str], tuple[float, float]]:
+def _parse_csv(csv_text: str) -> dict[tuple[str, str], tuple[float, float]]:
     """
     Retorna {(nome_normalizado, UF): (lat, lng)}.
     Colunas esperadas: codigo_ibge, nome, latitude, longitude, capital,
                        codigo_uf, siafi_id, ddd, fuso_horario
     """
     coords: dict[tuple[str, str], tuple[float, float]] = {}
-    reader = csv.DictReader(io.StringIO(text))
+    reader = csv.DictReader(io.StringIO(csv_text))
     for row in reader:
         try:
             uf_code = int(row["codigo_uf"])
@@ -95,8 +95,8 @@ def populate(db: Session, *, dry_run: bool = False) -> dict[str, int]:
     Popula tse_municipalities.latitude/longitude.
     Retorna {matched, unmatched, total}.
     """
-    text = _download_csv()
-    lookup = _parse_csv(text)
+    csv_text = _download_csv()
+    lookup = _parse_csv(csv_text)
 
     # Le todos os municipios TSE
     munis = db.query(Municipality).all()
@@ -129,30 +129,22 @@ def populate(db: Session, *, dry_run: bool = False) -> dict[str, int]:
     if dry_run:
         return {"matched": matched, "unmatched": total - matched, "total": total}
 
-    # Bulk update — 1 query so. SQLAlchemy 2.0 sintax.
+    # Bulk update via Core text SQL + executemany (mais simples e robusto que
+    # ORM bulk update, que estava com issue com UUID PK em SQLAlchemy 2.0).
     if updates:
-        # Em chunks pra nao estourar payload (max ~5000 por chunk)
         CHUNK = 2000
+        stmt = text(
+            "UPDATE tse_municipalities "
+            "SET latitude = :lat, longitude = :lng, updated_at = now() "
+            "WHERE id = :id"
+        )
         for i in range(0, len(updates), CHUNK):
             chunk = updates[i : i + CHUNK]
-            db.execute(
-                update(Municipality)
-                .where(Municipality.id == sa.bindparam("id_"))
-                .values(latitude=sa.bindparam("lat_"), longitude=sa.bindparam("lng_"))
-                .execution_options(synchronize_session=False),
-                [
-                    {"id_": u["id"], "lat_": u["lat"], "lng_": u["lng"]}
-                    for u in chunk
-                ],
-            )
+            db.execute(stmt, chunk)
             db.commit()
             log.info("muni_geocode_chunk_done", chunk_size=len(chunk))
 
     return {"matched": matched, "unmatched": total - matched, "total": total}
-
-
-# Import lateral pra evitar circular import no topo
-import sqlalchemy as sa  # noqa: E402
 
 
 def main() -> None:
