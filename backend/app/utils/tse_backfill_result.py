@@ -45,7 +45,7 @@ def populate(db: Session) -> dict[str, int]:
     # mas DS_SIT_TOT_TURNO e o mesmo pro candidato. Pega a primeira ocorrencia.
     result_by_sq: dict[int, str] = {}
     rows_read = 0
-    for _, row in iter_csv_rows(zip_path):
+    for _, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
         rows_read += 1
         sq = _i(row.get("SQ_CANDIDATO"))
         if not sq or sq in result_by_sq:

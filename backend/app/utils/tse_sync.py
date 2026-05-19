@@ -120,13 +120,23 @@ def download_zip(url: str, dest: Path) -> int:
     return bytes_downloaded
 
 
-def iter_csv_rows(zip_path: Path) -> Iterator[tuple[str, dict[str, str]]]:
+def iter_csv_rows(
+    zip_path: Path, *, name_contains: str | None = None,
+) -> Iterator[tuple[str, dict[str, str]]]:
     """
-    Iterador (filename, row_dict) sobre TODOS os CSVs dentro do ZIP.
+    Iterador (filename, row_dict) sobre os CSVs dentro do ZIP.
     Stream: não carrega o ZIP inteiro em memória.
+
+    `name_contains`: se informado, processa SO os CSVs cujo nome contem essa
+    substring (case-insensitive). CRITICO pro votacao_candidato_munzona, que
+    inclui tanto `_BRASIL.csv` quanto `_<UF>.csv` (mesmos dados duplicados) —
+    sem filtro, cada voto e contado 2x.
     """
     with zipfile.ZipFile(zip_path) as zf:
         csv_names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
+        if name_contains:
+            needle = name_contains.lower()
+            csv_names = [n for n in csv_names if needle in n.lower()]
         log.info("tse_csv_files_found", count=len(csv_names), names=csv_names[:5])
 
         for csv_name in csv_names:
@@ -282,7 +292,9 @@ def _process_candidato_munzona(
     now = datetime.now(timezone.utc)
     rows_processed = 0
 
-    for csv_name, row in iter_csv_rows(zip_path):
+    # CRITICO: so o arquivo _BRASIL.csv — o ZIP tambem tem 1 csv por UF com
+    # os MESMOS dados, o que duplicaria todos os votos (2x).
+    for csv_name, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
         rows_processed += 1
 
         # ---------- Election ----------
