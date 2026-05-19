@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { api, ApiError } from "@/lib/api";
 import { saveAuth, type AuthData } from "@/lib/auth";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 // Suspense wrapper exigido pelo Next 14 quando o filho usa useSearchParams.
 // Sem isso, `next build` falha em prerender.
@@ -57,13 +58,11 @@ function LoginForm() {
       <div className="relative w-full max-w-sm">
         {/* Marca */}
         <div className="flex flex-col items-center mb-6">
-          <div className="grid place-items-center w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-blue-700 text-white font-extrabold text-2xl shadow-lg shadow-primary/30">
-            M
-          </div>
-          <h1 className="text-2xl font-bold text-foreground mt-3 tracking-tight">
-            MareNostrum
+          <BrandMark className="w-16 h-16" />
+          <h1 className="text-2xl font-bold mt-3 tracking-[0.15em] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
+            MARENOSTRUM
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground tracking-wide">
             Inteligência política e eleitoral
           </p>
         </div>

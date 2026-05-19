@@ -14,11 +14,12 @@ export default function Icon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #1e6fd9, #0a4fa8)",
-          color: "white",
-          fontSize: 22,
+          background: "#1c1b1a",
+          color: "#d4af52",
+          fontSize: 24,
           fontWeight: 800,
           borderRadius: 7,
+          border: "1.5px solid #d4af52",
         }}
       >
         M

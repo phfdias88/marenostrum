@@ -3,49 +3,45 @@
 @tailwind utilities;
 
 /*
- * Tema MareNostrum — DARK estilo Politique.
+ * Tema MareNostrum — DARK dourado/carvão (paleta da marca).
  *
- * Paleta azul-naval inspirada no nome MareNostrum (Mar Nostro).
+ * Carvão quente (charcoal) + dourado (gold) + champanhe (cream).
  * Valores HSL puros (sem hsl(...)) — Tailwind aplica via var().
- *
- * Pra adicionar light mode futuramente:
- *   .light { --background: 210 30% 98%; ...etc }
- *   E adicionar toggle no header com `next-themes`.
  */
 @layer base {
   :root {
-    /* Fundo: azul muito escuro, quase preto */
-    --background: 222 47% 7%;
-    --foreground: 210 40% 96%;
+    /* Fundo: carvão quente, quase preto */
+    --background: 36 8% 8%;
+    --foreground: 45 30% 94%;
 
-    /* Cards: ligeiramente mais claros que o bg */
-    --card: 222 45% 10%;
-    --card-foreground: 210 40% 96%;
+    /* Cards: carvão um tom acima do bg */
+    --card: 36 7% 12%;
+    --card-foreground: 45 30% 94%;
 
-    --popover: 222 47% 9%;
-    --popover-foreground: 210 40% 96%;
+    --popover: 36 8% 10%;
+    --popover-foreground: 45 30% 94%;
 
-    /* Primary: azul vivo (botões, links, focus) */
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 7%;
+    /* Primary: dourado da marca (#C9A24B ~ 42 55% 54%) */
+    --primary: 42 58% 55%;
+    --primary-foreground: 36 30% 8%;
 
-    /* Secondary/Accent: tons azul-escuros pra hover */
-    --secondary: 217 32% 17%;
-    --secondary-foreground: 210 40% 96%;
+    /* Secondary/Accent: carvão pra hover */
+    --secondary: 38 8% 18%;
+    --secondary-foreground: 45 30% 94%;
 
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 38 7% 16%;
+    --muted-foreground: 42 10% 62%;
 
-    --accent: 217 33% 16%;
-    --accent-foreground: 210 40% 96%;
+    --accent: 40 10% 18%;
+    --accent-foreground: 45 30% 94%;
 
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Bordas sutis — não-óbvias mas separam blocos */
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 217 91% 60%;
+    /* Bordas: carvão com leve tom quente */
+    --border: 40 9% 20%;
+    --input: 40 9% 20%;
+    --ring: 42 58% 55%;
 
     --radius: 0.625rem;
   }
@@ -61,10 +57,10 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    /* Gradient sutil de fundo (mais escuro nos cantos) — feeling "premium" */
+    /* Gradient sutil de fundo com tom dourado — feeling "premium" */
     background-image:
-      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(217 50% 14% / 0.6), transparent 60%),
-      radial-gradient(ellipse 60% 40% at 50% 110%, hsl(217 50% 12% / 0.4), transparent 60%);
+      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(42 40% 16% / 0.5), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 50% 110%, hsl(40 30% 12% / 0.4), transparent 60%);
   }
 
   /* Scrollbar discreta dark */

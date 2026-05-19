@@ -20,6 +20,7 @@ import { api, ApiError } from "@/lib/api";
 import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 type Me = { full_name: string; tenant_name: string };
 
@@ -62,8 +63,11 @@ export default function DashboardLayout({
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/dashboard" className="font-semibold text-foreground">
-              MareNostrum
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <BrandMark className="w-7 h-7" />
+              <span className="font-bold tracking-[0.12em] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
+                MARENOSTRUM
+              </span>
             </Link>
             <nav className="flex items-center gap-1">
               {NAV.map(({ href, label, icon: Icon }) => {
