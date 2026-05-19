@@ -24,6 +24,7 @@ import type {
   TseCandidateResults,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
+import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 
 const MAX_COMPARE = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -142,12 +143,16 @@ function CompareCard({
         <X className="w-4 h-4" />
       </button>
 
-      <div className="text-center pt-2">
-        <span className="inline-grid place-items-center w-14 h-14 rounded-md bg-primary/15 text-primary font-bold text-lg">
-          {c.number}
-        </span>
-        <p className="font-bold mt-2 truncate">{c.urn_name}</p>
-        <p className="text-xs text-muted-foreground truncate">{c.name}</p>
+      <div className="text-center pt-2 flex flex-col items-center">
+        <CandidatePhoto
+          candidateId={c.id}
+          name={c.urn_name}
+          partyNumber={c.party.number}
+          size="lg"
+        />
+        <p className="text-xs font-mono text-primary mt-2">#{c.number}</p>
+        <p className="font-bold truncate w-full">{c.urn_name}</p>
+        <p className="text-xs text-muted-foreground truncate w-full">{c.name}</p>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-1 text-center">

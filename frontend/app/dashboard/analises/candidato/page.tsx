@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -186,11 +187,17 @@ export default function CandidatoAnalysisPage() {
                 className={`w-full text-left p-4 hover:bg-accent/50 transition-colors flex items-center gap-4
                             ${selected?.id === c.id ? "bg-accent/60" : ""}`}
               >
-                <span className="grid place-items-center w-10 h-10 rounded-md bg-primary/15 text-primary font-bold text-sm shrink-0">
-                  {c.number}
-                </span>
+                <CandidatePhoto
+                  candidateId={c.id}
+                  name={c.urn_name}
+                  partyNumber={c.party.number}
+                  size="md"
+                />
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{c.urn_name}</p>
+                  <p className="font-semibold truncate">
+                    <span className="text-primary font-mono mr-2">{c.number}</span>
+                    {c.urn_name}
+                  </p>
                   <p className="text-xs text-muted-foreground truncate">
                     {c.name} · {c.party.abbreviation}
                   </p>
@@ -264,28 +271,33 @@ function CandidateDetail({
 }) {
   return (
     <div className="rounded-lg border bg-card p-5 sticky top-6 space-y-4">
-      <header className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            {candidate.office_name} · {candidate.state}
-          </p>
-          <h2 className="text-lg font-bold mt-0.5 truncate">{candidate.urn_name}</h2>
-          <p className="text-xs text-muted-foreground truncate">{candidate.name}</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground p-1"
-          aria-label="Fechar"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </header>
+      <button
+        onClick={onClose}
+        className="absolute top-3 right-3 text-muted-foreground hover:text-foreground p-1 z-10"
+        aria-label="Fechar"
+      >
+        <X className="w-4 h-4" />
+      </button>
 
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex flex-col items-center text-center">
+        <CandidatePhoto
+          candidateId={candidate.id}
+          name={candidate.urn_name}
+          partyNumber={candidate.party.number}
+          size="xl"
+        />
+        <p className="text-xs uppercase tracking-wider text-muted-foreground mt-3">
+          {candidate.office_name} · {candidate.state}
+        </p>
+        <h2 className="text-lg font-bold mt-0.5">{candidate.urn_name}</h2>
+        <p className="text-xs text-muted-foreground">{candidate.name}</p>
+      </div>
+
+      <div className="flex items-center justify-center gap-2 text-sm">
         <span className="grid place-items-center w-9 h-9 rounded-md bg-primary/15 text-primary font-bold">
           {candidate.number}
         </span>
-        <div>
+        <div className="text-left">
           <p className="font-medium">{candidate.party.abbreviation}</p>
           <p className="text-xs text-muted-foreground truncate max-w-[180px]">
             {candidate.party.name}

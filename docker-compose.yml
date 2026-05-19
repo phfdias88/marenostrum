@@ -60,6 +60,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    volumes:
+      # Cache de fotos TSE — persiste entre rebuilds do container.
+      # Fotos pesam ~50KB cada; 428k candidatos = ~20GB no pior caso
+      # (mas so cacheamos as fotos efetivamente requisitadas pelos usuarios).
+      - tse_photos:/var/marenostrum/tse_photos
     # Comando vem do Dockerfile (CMD). O ENTRYPOINT roda migrations antes.
     deploy:
       resources:
@@ -135,6 +140,8 @@ services:
 
 volumes:
   pg_data:
+    driver: local
+  tse_photos:
     driver: local
 
 networks:

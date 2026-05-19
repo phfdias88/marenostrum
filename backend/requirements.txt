@@ -14,3 +14,6 @@ python-multipart==0.0.12
 structlog==24.4.0
 email-validator==2.2.0
 httpx==0.27.2
+# Extrai arquivos individuais de ZIPs remotos via HTTP Range — usado pra
+# fotos de candidatos TSE (zips estaduais de 2GB+, baixamos so 45KB por foto).
+remotezip==0.12.3

@@ -16,6 +16,7 @@ import type {
   TseMunicipalityResults,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
+import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 
 const PAGE_SIZE = 25;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -253,11 +254,17 @@ function MunicipalityDrill({
               <span className="grid place-items-center w-8 h-8 rounded-full bg-muted text-muted-foreground font-bold text-xs shrink-0">
                 {i + 1}
               </span>
-              <span className="grid place-items-center w-10 h-10 rounded-md bg-primary/15 text-primary font-bold text-sm shrink-0">
-                {r.candidate.number}
-              </span>
+              <CandidatePhoto
+                candidateId={r.candidate.id}
+                name={r.candidate.urn_name}
+                partyNumber={r.candidate.party.number}
+                size="md"
+              />
               <div className="flex-1 min-w-0">
                 <p className="font-semibold truncate">
+                  <span className="text-primary font-mono mr-2">
+                    {r.candidate.number}
+                  </span>
                   {r.candidate.urn_name}
                 </p>
                 <p className="text-xs text-muted-foreground truncate">

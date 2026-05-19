@@ -7,7 +7,7 @@ não há filtro de tenant porque dados TSE são públicos).
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -37,6 +37,7 @@ from app.schemas.tse import (
     TopCandidateInMunicipality,
     VoteResultByMunicipality,
 )
+from app.utils.tse_photos import PhotoNotFound, get_candidate_photo
 from app.utils.tse_sync import DATASETS, run_sync_job
 
 
@@ -457,4 +458,58 @@ def election_stats(
         candidates_count=candidates_count,
         municipalities_count=munis_count,
         total_votes=total_votes,
+    )
+
+
+# ============================================================ PHOTO
+
+
+@router.get(
+    "/candidates/{candidate_id}/photo",
+    summary="Foto oficial do candidato (TSE)",
+    description="""\
+Faz proxy da foto oficial publicada pelo TSE em
+`cdn.tse.jus.br/.../foto_cand2024_<UF>_div.zip`.
+
+**Tecnica**: extracao por HTTP Range — baixa so ~50KB por foto,
+nao o ZIP inteiro de ~2GB. Resultado cacheado em disco
+(`/var/marenostrum/tse_photos/{UF}/{sq}.jpg`) — primeira chamada custa
+~500ms-1s, repeticoes sao instantaneas.
+
+**Cache HTTP**: `Cache-Control: public, max-age=604800` (7 dias).
+
+Endpoint **publico** (sem JWT) pra permitir `<img src>` direto do navegador
+sem precisar enviar bearer token. Foto e dado publico do TSE de qualquer
+forma — autenticar so adiciona complicacao sem ganho de seguranca.
+""",
+    responses={
+        200: {
+            "content": {"image/jpeg": {}},
+            "description": "JPEG da foto",
+        },
+        404: {"description": "Candidato sem foto cadastrada no TSE"},
+    },
+    response_class=Response,
+    include_in_schema=True,
+)
+def candidate_photo(
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+) -> Response:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+
+    try:
+        data = get_candidate_photo(candidate.state, candidate.sq_candidato)
+    except PhotoNotFound:
+        raise NotFoundError("Foto nao disponivel no TSE para este candidato")
+
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=604800",  # 7 dias
+            "ETag": f'"tse-{candidate.sq_candidato}"',
+        },
     )
