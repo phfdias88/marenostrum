@@ -1,7 +1,7 @@
 """Candidato TSE (vinculado a uma Eleição e Partido)."""
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, Integer, String
+from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -10,8 +10,9 @@ from app.models.base import Base, TimestampMixin
 class Candidate(Base, TimestampMixin):
     __tablename__ = "tse_candidates"
 
-    # SQ_CANDIDATO no TSE — identificador único POR pleito
-    sq_candidato: Mapped[int] = mapped_column(Integer, nullable=False)
+    # SQ_CANDIDATO no TSE — identificador único POR pleito.
+    # TSE usa IDs de 12–13 dígitos (ex: 250001595870), excede PG INTEGER (32-bit).
+    sq_candidato: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     election_id: Mapped[UUID] = mapped_column(
         ForeignKey("tse_elections.id", ondelete="CASCADE"),
