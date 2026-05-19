@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Headset,
   LayoutDashboard,
+  LineChart,
   MapPinned,
   Users,
 } from "lucide-react";
@@ -28,7 +29,8 @@ const NAV = [
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
   { href: "/dashboard/demandas", label: "Demandas", icon: ClipboardList },
   { href: "/dashboard/map", label: "Mapa", icon: MapPinned },
-  { href: "/dashboard/analytics", label: "Análises", icon: BarChart3 },
+  { href: "/dashboard/analises", label: "Análises", icon: BarChart3 },
+  { href: "/dashboard/analytics", label: "Insights", icon: LineChart },
   { href: "/dashboard/sonar", label: "Atendimentos", icon: Headset },
 ];
 

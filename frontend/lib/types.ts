@@ -122,6 +122,98 @@ export type HeatmapResponse = {
 };
 
 
+// ----------------------------------------------------------------- TSE
+
+export type TseParty = {
+  id: string;
+  number: number;
+  abbreviation: string;
+  name: string;
+};
+
+export type TseElection = {
+  id: string;
+  tse_code: number;
+  year: number;
+  round: number;
+  name: string;
+  type_name: string | null;
+};
+
+export type TseMunicipality = {
+  id: string;
+  tse_code: number;
+  name: string;
+  state: string;
+};
+
+export type TseCandidate = {
+  id: string;
+  number: number;
+  name: string;
+  urn_name: string;
+  office_code: number;
+  office_name: string;
+  state: string;
+  situation: string | null;
+  party: TseParty;
+  election: TseElection;
+};
+
+export type TseVoteResultByMunicipality = {
+  municipality: TseMunicipality;
+  votes: number;
+};
+
+export type TseCandidateResults = {
+  candidate: TseCandidate;
+  results: TseVoteResultByMunicipality[];
+  total_votes: number;
+  municipalities_with_votes: number;
+};
+
+export type TseSyncJob = {
+  id: string;
+  dataset: string;
+  year: number;
+  status: "pending" | "running" | "completed" | "failed";
+  started_at: string | null;
+  completed_at: string | null;
+  rows_processed: number;
+  rows_total: number | null;
+  candidates_imported: number;
+  parties_imported: number;
+  municipalities_imported: number;
+  vote_results_imported: number;
+  error_message: string | null;
+  created_at: string;
+};
+
+/** Cargos TSE — codigos oficiais do CD_CARGO no dataset publico. */
+export const TSE_OFFICES: Record<number, string> = {
+  1: "Presidente",
+  2: "Vice-presidente",
+  3: "Governador",
+  4: "Vice-governador",
+  5: "Senador",
+  6: "Deputado federal",
+  7: "Deputado estadual",
+  8: "Deputado distrital",
+  9: "1º suplente",
+  10: "2º suplente",
+  11: "Prefeito",
+  12: "Vice-prefeito",
+  13: "Vereador",
+};
+
+export const TSE_STATES = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+  "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+  "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+] as const;
+export type TseState = (typeof TSE_STATES)[number];
+
+
 /** Interaction = webhook event vinculado (ou nao) a um Contact. */
 export type Interaction = {
   id: string;
