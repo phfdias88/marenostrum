@@ -419,10 +419,27 @@ def municipality_top_candidates(
         )
         for vr, c in rows
     ]
+
+    # Total de votos do cargo no municipio (denominador pra %) — soma TODOS
+    # os candidatos, nao so os top N retornados.
+    total_stmt = (
+        select(func.coalesce(func.sum(VoteResult.votes), 0))
+        .join(Candidate, VoteResult.candidate_id == Candidate.id)
+        .where(VoteResult.municipality_id == municipality_id)
+    )
+    if office_code is not None:
+        total_stmt = total_stmt.where(Candidate.office_code == office_code)
+    total_votes = int(db.execute(total_stmt).scalar_one())
+
+    office_name = results[0].candidate.office_name if results else None
+
     return MunicipalityResultsResponse(
         municipality=MunicipalityRead.model_validate(muni),
         results=results,
         total_results=len(results),
+        total_votes=total_votes,
+        office_code=office_code,
+        office_name=office_name,
     )
 
 

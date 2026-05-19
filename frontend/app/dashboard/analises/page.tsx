@@ -27,6 +27,7 @@ import {
   ScanSearch,
   Users,
   UsersRound,
+  Vote,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -74,6 +75,13 @@ type Card = {
 };
 
 const CARDS: Card[] = [
+  {
+    href: "/dashboard/analises/eleicao",
+    label: "Análise de Eleição",
+    icon: Vote,
+    description:
+      "Resultado por cidade e cargo: ranking com votos, % e quem foi eleito.",
+  },
   {
     href: "/dashboard/analises/candidato",
     label: "Candidatos",

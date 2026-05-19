@@ -206,6 +206,9 @@ export type TseMunicipalityResults = {
   municipality: TseMunicipality;
   results: TseTopCandidateInMunicipality[];
   total_results: number;
+  total_votes: number;
+  office_code: number | null;
+  office_name: string | null;
 };
 
 export type TseCandidateByNeighborhoodItem = {

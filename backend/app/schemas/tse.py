@@ -77,6 +77,11 @@ class MunicipalityResultsResponse(BaseModel):
     municipality: MunicipalityRead
     results: list[TopCandidateInMunicipality]
     total_results: int
+    # Soma de TODOS os votos nominais do cargo no municipio (denominador
+    # pra calcular % de cada candidato). 0 se nao houver filtro de cargo.
+    total_votes: int = 0
+    office_code: int | None = None
+    office_name: str | None = None
 
 
 class CandidateByNeighborhoodItem(BaseModel):
