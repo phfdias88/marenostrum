@@ -52,10 +52,19 @@ _TAGS_METADATA = [
     {
         "name": "voting-places",
         "description": (
-            "**Inteligência eleitoral.** Locais de votação com votos "
-            "agregados pro candidato + heatmap normalizado. Import CSV em "
-            "lote (formato Politique/TSE). Endpoint `/heatmap` retorna "
-            "pontos prontos pro Leaflet.heat."
+            "**Inteligência eleitoral (próprios).** Locais de votação com "
+            "votos agregados pro candidato do tenant + heatmap normalizado. "
+            "Import CSV em lote. `/heatmap` retorna pontos prontos pro "
+            "Leaflet.heat."
+        ),
+    },
+    {
+        "name": "tse",
+        "description": (
+            "**Dados públicos do TSE** (não-tenant). Sincronização "
+            "automática do portal `dadosabertos.tse.jus.br`. Busca de "
+            "candidatos por UF/cargo/partido + resultado de votos por "
+            "município. Base pras telas de Análise (estilo Politique)."
         ),
     },
     {
