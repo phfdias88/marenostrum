@@ -18,6 +18,7 @@ import type {
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import { StateFlag } from "@/components/tse/StateFlag";
 
 const PAGE_SIZE = 25;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -139,7 +140,7 @@ export default function MunicipiosAnalysisPage() {
                 onClick={() => setSelected(m)}
                 className="w-full text-left p-4 hover:bg-accent/50 transition-colors flex items-center gap-4"
               >
-                <MapPin className="w-5 h-5 text-primary shrink-0" />
+                <StateFlag uf={m.state} size="md" />
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold truncate">{m.name}</p>
                   <p className="text-xs text-muted-foreground">
@@ -214,9 +215,7 @@ function MunicipalityDrill({
       </button>
 
       <div className="flex items-center gap-4 mb-6">
-        <span className="grid place-items-center w-16 h-16 rounded-lg bg-primary/15 text-primary">
-          <MapPin className="w-7 h-7" />
-        </span>
+        <StateFlag uf={muni.state} size="lg" className="!w-16 !h-11 shadow" />
         <div>
           <h2 className="text-2xl font-bold">{muni.name}</h2>
           <p className="text-sm text-muted-foreground">

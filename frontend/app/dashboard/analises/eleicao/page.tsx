@@ -23,6 +23,7 @@ import type {
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import { StateFlag } from "@/components/tse/StateFlag";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", {
@@ -222,7 +223,10 @@ export default function EleicaoAnalysisPage() {
               }}
               className="w-full text-left p-3 hover:bg-accent/50 transition-colors flex items-center justify-between"
             >
-              <span className="font-medium">{m.name}</span>
+              <span className="font-medium flex items-center gap-2">
+                <StateFlag uf={m.state} size="sm" />
+                {m.name}
+              </span>
               <span className="text-xs text-muted-foreground">{m.state}</span>
             </button>
           ))}
@@ -301,18 +305,21 @@ function ResultsPanel({
   return (
     <div>
       {/* Header resultado */}
-      <div className="rounded-xl border bg-card p-4 mb-4">
-        <p className="text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-2">
-          <Vote className="w-4 h-4" /> Resultado da eleição
-        </p>
-        <h2 className="text-lg font-bold mt-1">
-          {year === "2022"
-            ? "Eleições Gerais 2022"
-            : "Eleições Municipais 2024"}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {officeName} · {muni.name}/{muni.state}
-        </p>
+      <div className="rounded-xl border bg-card p-4 mb-4 flex items-center gap-4">
+        <StateFlag uf={muni.state} size="lg" className="!w-14 !h-10 shadow shrink-0" />
+        <div>
+          <p className="text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-2">
+            <Vote className="w-4 h-4" /> Resultado da eleição
+          </p>
+          <h2 className="text-lg font-bold mt-1">
+            {year === "2022"
+              ? "Eleições Gerais 2022"
+              : "Eleições Municipais 2024"}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {officeName} · {muni.name}/{muni.state}
+          </p>
+        </div>
       </div>
 
       {/* Stats: total de votos válidos (nominais) */}
