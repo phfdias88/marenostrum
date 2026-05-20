@@ -39,17 +39,34 @@ function useDebounce<T>(v: T, ms: number): T {
   return d;
 }
 
-// Cargos mais relevantes pra eleicao municipal 2024
-const OFFICE_OPTIONS = [
-  { value: "11", label: "Prefeito" },
-  { value: "13", label: "Vereador" },
+// Cargos disponiveis por ano (2024 = municipal; 2022 = federal/estadual)
+const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2024": [
+    { value: "11", label: "Prefeito" },
+    { value: "13", label: "Vereador" },
+  ],
+  "2022": [
+    { value: "1", label: "Presidente" },
+    { value: "3", label: "Governador" },
+    { value: "5", label: "Senador" },
+    { value: "6", label: "Deputado Federal" },
+    { value: "7", label: "Deputado Estadual" },
+    { value: "8", label: "Deputado Distrital" },
+  ],
+};
+const YEAR_OPTIONS = [
+  { value: "2024", label: "2024 (Municipal)" },
+  { value: "2022", label: "2022 (Federal/Estadual)" },
 ];
 
 export default function EleicaoAnalysisPage() {
+  const [year, setYear] = useState("2024");
   const [state, setState] = useState("MG");
   const [office, setOffice] = useState("11");
   const [muniSearch, setMuniSearch] = useState("");
   const debounced = useDebounce(muniSearch, 300);
+
+  const officeOptions = OFFICES_BY_YEAR[year];
 
   const [munis, setMunis] = useState<TseMunicipality[]>([]);
   const [muniLoading, setMuniLoading] = useState(false);
@@ -82,7 +99,7 @@ export default function EleicaoAnalysisPage() {
       return;
     }
     setResultsLoading(true);
-    const params = new URLSearchParams({ limit: "200" });
+    const params = new URLSearchParams({ limit: "500", year });
     if (office) params.set("office_code", office);
     api<TseMunicipalityResults>(
       `/v1/tse/municipalities/${selectedMuni.id}/top-candidates?${params.toString()}`,
@@ -90,7 +107,7 @@ export default function EleicaoAnalysisPage() {
       .then(setResults)
       .catch(() => setResults(null))
       .finally(() => setResultsLoading(false));
-  }, [selectedMuni, office]);
+  }, [selectedMuni, office, year]);
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
@@ -108,13 +125,26 @@ export default function EleicaoAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise de Eleição</h1>
           <p className="text-sm text-muted-foreground">
-            Resultado por cidade e cargo — Eleições Municipais 2024.
+            Resultado por cidade e cargo — 2024 (municipal) e 2022 (federal/estadual).
           </p>
         </div>
       </header>
 
       {/* Seletores */}
       <section className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-6">
+        <Select
+          label="Ano"
+          value={year}
+          onChange={(v) => {
+            setYear(v);
+            // Reseta cargo pro primeiro do ano escolhido
+            setOffice(OFFICES_BY_YEAR[v][0].value);
+            setSelectedMuni(null);
+            setMuniSearch("");
+          }}
+          options={YEAR_OPTIONS}
+          className="md:col-span-3"
+        />
         <Select
           label="UF"
           value={state}
@@ -133,10 +163,10 @@ export default function EleicaoAnalysisPage() {
           label="Cargo"
           value={office}
           onChange={setOffice}
-          options={OFFICE_OPTIONS}
+          options={officeOptions}
           className="md:col-span-3"
         />
-        <div className="md:col-span-7">
+        <div className="md:col-span-4">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
             Município
           </label>
@@ -213,6 +243,7 @@ export default function EleicaoAnalysisPage() {
         <ResultsPanel
           muni={selectedMuni}
           office={office}
+          year={year}
           results={results}
           loading={resultsLoading}
         />
@@ -230,15 +261,23 @@ export default function EleicaoAnalysisPage() {
 function ResultsPanel({
   muni,
   office,
+  year,
   results,
   loading,
 }: {
   muni: TseMunicipality;
   office: string;
+  year: string;
   results: TseMunicipalityResults | null;
   loading: boolean;
 }) {
-  const officeName = OFFICE_OPTIONS.find((o) => o.value === office)?.label ?? "";
+  // Procura o label do cargo em qualquer ano (flat lookup)
+  const officeName =
+    results?.office_name ??
+    Object.values(OFFICES_BY_YEAR)
+      .flat()
+      .find((o) => o.value === office)?.label ??
+    "";
 
   if (loading) {
     return (
@@ -267,7 +306,9 @@ function ResultsPanel({
           <Vote className="w-4 h-4" /> Resultado da eleição
         </p>
         <h2 className="text-lg font-bold mt-1">
-          Eleições Municipais 2024 · 1º turno
+          {year === "2022"
+            ? "Eleições Gerais 2022"
+            : "Eleições Municipais 2024"}
         </h2>
         <p className="text-sm text-muted-foreground">
           {officeName} · {muni.name}/{muni.state}

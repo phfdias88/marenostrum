@@ -30,6 +30,7 @@ from uuid import UUID, uuid4
 import httpx
 import structlog
 from sqlalchemy import insert, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
@@ -66,6 +67,11 @@ DATASETS: dict[str, dict] = {
         "year": 2024,
         "processor": "candidato_munzona",
     },
+    "candidato_munzona_2022": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2022.zip",
+        "year": 2022,
+        "processor": "candidato_munzona",
+    },
     "locais_votacao_2024": {
         "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_2024.zip",
         "year": 2024,
@@ -83,9 +89,12 @@ for _uf in ALL_UFS:
     }
 
 CACHE_DIR = Path("/tmp/tse_cache")
-MAX_ZIP_MB = 600  # SP secao tem 453MB — folga generosa
+MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
-DOWNLOAD_TIMEOUT_S = 1200  # 20min — SP secao e' pesado
+# Flush parcial do vote_acc quando passar disso (evita OOM no container 768MB).
+# 800k chaves × ~80B ≈ 64MB no dict — folga confortavel.
+VOTE_ACC_MAX = 800_000
+DOWNLOAD_TIMEOUT_S = 1800  # 30min — 2022 e' grande
 
 
 # ---------------------------- low-level ------------------------------
@@ -376,14 +385,27 @@ def _process_candidato_munzona(
                 job, rows_processed,
             )
 
+        # Flush parcial do vote_acc quando crescer demais — CRITICO pra 2022
+        # (deputados x municipios geram milhoes de chaves; sem isso, OOM no
+        # container de 768MB). Usa upsert-add, entao agregacao parcial e segura.
+        if len(vote_acc) >= VOTE_ACC_MAX:
+            # garante que candidatos referenciados ja foram inseridos
+            _flush_dim_buffers(
+                db, elections_buf, parties_buf, munis_buf, candidates_buf,
+                job, rows_processed,
+            )
+            _flush_vote_results(db, vote_acc, job)
+            vote_acc.clear()
+
     # Flush final dos buffers
     _flush_dim_buffers(
         db, elections_buf, parties_buf, munis_buf, candidates_buf,
         job, rows_processed,
     )
 
-    # Flush vote results — todos de uma vez no fim (cabem em RAM como dict)
+    # Flush final do vote_acc remanescente
     _flush_vote_results(db, vote_acc, job)
+    vote_acc.clear()
 
 
 def _flush_dim_buffers(
@@ -425,7 +447,17 @@ def _flush_vote_results(
     vote_acc: dict[tuple[UUID, UUID], int],
     job: TseSyncJob,
 ) -> None:
-    """Insere agregação final de votos em chunks."""
+    """
+    Grava votos via UPSERT-ADD (votes = votes + excluded.votes).
+
+    Por que upsert-add: pra datasets grandes (2022) o vote_acc e' flushado
+    PARCIALMENTE varias vezes durante o parse. A mesma (candidate, municipio)
+    pode aparecer em flushes diferentes (zonas processadas em momentos
+    distintos) — o upsert-add soma corretamente. Pre-condicao: TRUNCATE
+    tse_vote_results antes de re-importar (senao soma sobre dado antigo).
+    """
+    if not vote_acc:
+        return
     now = datetime.now(timezone.utc)
     rows = [
         {
@@ -439,16 +471,23 @@ def _flush_vote_results(
         for (cid, mid), votes in vote_acc.items()
     ]
 
-    # Insere em chunks de 5k pra não estourar query size
     for i in range(0, len(rows), CHUNK_SIZE):
         chunk = rows[i : i + CHUNK_SIZE]
-        db.execute(insert(VoteResult), chunk)
+        stmt = pg_insert(VoteResult.__table__).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["candidate_id", "municipality_id"],
+            set_={
+                "votes": VoteResult.__table__.c.votes + stmt.excluded.votes,
+                "updated_at": now,
+            },
+        )
+        db.execute(stmt)
         job.vote_results_imported += len(chunk)
         db.commit()
         log.info(
             "tse_vote_results_flush",
             inserted=job.vote_results_imported,
-            total=len(rows),
+            chunk=len(chunk),
         )
 
 

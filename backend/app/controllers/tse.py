@@ -203,6 +203,7 @@ def list_candidates(
     party_number: int | None = Query(None, description="Número do partido (ex: 13 = PT)"),
     search: str | None = Query(None, description="Busca ILIKE no nome/urna"),
     election_id: UUID | None = Query(None),
+    year: int | None = Query(None, description="Ano da eleição (2024, 2022...)"),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
@@ -215,6 +216,12 @@ def list_candidates(
         stmt = stmt.where(Candidate.office_code == office_code)
     if election_id is not None:
         stmt = stmt.where(Candidate.election_id == election_id)
+    if year is not None:
+        stmt = stmt.where(
+            Candidate.election_id.in_(
+                select(Election.id).where(Election.year == year)
+            )
+        )
     if search:
         stmt = stmt.where(
             (Candidate.name.ilike(f"%{search}%"))
@@ -368,13 +375,18 @@ Aceita filtro opcional por `office_code` (11=prefeito, 13=vereador, etc).
 def municipality_top_candidates(
     municipality_id: UUID,
     ctx: CurrentTenant,
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=500),
     office_code: int | None = Query(None, description="Filtra por cargo"),
+    year: int | None = Query(None, description="Ano da eleição (2024, 2022...)"),
     db: Session = Depends(get_db),
 ) -> MunicipalityResultsResponse:
     muni = db.get(Municipality, municipality_id)
     if muni is None:
         raise NotFoundError("Municipio nao encontrado")
+
+    election_ids_subq = (
+        select(Election.id).where(Election.year == year) if year is not None else None
+    )
 
     stmt = (
         select(VoteResult, Candidate)
@@ -383,6 +395,8 @@ def municipality_top_candidates(
     )
     if office_code is not None:
         stmt = stmt.where(Candidate.office_code == office_code)
+    if election_ids_subq is not None:
+        stmt = stmt.where(Candidate.election_id.in_(election_ids_subq))
     stmt = stmt.order_by(VoteResult.votes.desc()).limit(limit)
     rows = db.execute(stmt).all()
 
@@ -429,6 +443,8 @@ def municipality_top_candidates(
     )
     if office_code is not None:
         total_stmt = total_stmt.where(Candidate.office_code == office_code)
+    if election_ids_subq is not None:
+        total_stmt = total_stmt.where(Candidate.election_id.in_(election_ids_subq))
     total_votes = int(db.execute(total_stmt).scalar_one())
 
     office_name = results[0].candidate.office_name if results else None
