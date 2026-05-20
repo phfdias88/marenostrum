@@ -237,10 +237,45 @@ export default function EleicaoAnalysisPage() {
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <Search className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground mt-3">
-            Escolha UF e cargo, depois busque um município pra ver o resultado.
+            Aqui você busca uma <strong>cidade</strong> e vê o resultado dela.
+            Ex: digite <span className="text-foreground">São Paulo</span>,{" "}
+            <span className="text-foreground">Juiz de Fora</span>…
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Procurando um candidato pelo nome? Use{" "}
+            <Link
+              href="/dashboard/analises/candidato"
+              className="text-primary hover:underline"
+            >
+              Análise de Candidato
+            </Link>
+            .
           </p>
         </div>
       )}
+
+      {/* Busca de cidade sem resultado */}
+      {!selectedMuni &&
+        !muniLoading &&
+        muniSearch.trim().length >= 2 &&
+        munis.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center bg-card/40">
+            <p className="text-sm text-foreground font-medium">
+              Nenhuma cidade chamada “{muniSearch}”.
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Esse campo busca <strong>cidades</strong>, não candidatos. Pra
+              ver um candidato específico (ex: Bolsonaro, Lula), use{" "}
+              <Link
+                href="/dashboard/analises/candidato"
+                className="text-primary hover:underline"
+              >
+                Análise de Candidato
+              </Link>
+              .
+            </p>
+          </div>
+        )}
 
       {/* Resultados */}
       {selectedMuni && (
