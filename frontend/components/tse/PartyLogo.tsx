@@ -1,16 +1,15 @@
 "use client";
 
 /**
- * Logo visual de partido brasileiro.
+ * Logo de partido brasileiro — 2 niveis:
+ *  1. /party-logos/{numero}.png  (logo OFICIAL, se o arquivo existir em public/)
+ *  2. SVG badge gerado (numero + sigla + cor da marca) — fallback consistente
  *
- * Decisao: gerar inline SVG com cor de marca do partido + numero grande
- * + sigla — em vez de depender de PNGs externos com licencas variaveis.
- * Resultado: 30 partidos com identidade visual consistente, zero bytes
- * extras na rede, escala perfeita em qualquer tamanho.
- *
- * Cores baseadas nas oficiais ou tradicionalmente associadas a cada partido.
+ * Logos oficiais sao copyrightados (sem CDN livre confiavel), entao o caminho
+ * recomendado e dropar os PNGs em frontend/public/party-logos/. Ate la, o badge
+ * cobre 100% dos partidos com visual limpo e legal.
  */
-import { useId } from "react";
+import { useId, useState } from "react";
 
 type Size = "sm" | "md" | "lg" | "xl";
 
@@ -80,6 +79,26 @@ export function PartyLogo({
   const { px, numFont, sigFont } = DIM[size];
   const theme = PARTY_THEME[number] ?? FALLBACK;
   const gradId = useId();
+  const [imgFailed, setImgFailed] = useState(false);
+
+  // Tier 1: logo oficial em public/party-logos/{numero}.png.
+  // Gateado por NEXT_PUBLIC_PARTY_LOGOS=1 (build arg) — sem isso, vai direto
+  // pro badge e evita 29x 404 por render enquanto os PNGs nao existem.
+  const logosEnabled = process.env.NEXT_PUBLIC_PARTY_LOGOS === "1";
+  if (logosEnabled && !imgFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/party-logos/${number}.png`}
+        alt={abbreviation}
+        title={`${abbreviation} (${number})`}
+        loading="lazy"
+        onError={() => setImgFailed(true)}
+        style={{ width: px, height: px }}
+        className={`shrink-0 object-contain rounded-md bg-white/95 p-1 ${className}`}
+      />
+    );
+  }
 
   // Trunca sigla muito longa (ex: REPUBLICANOS)
   const sigla =
