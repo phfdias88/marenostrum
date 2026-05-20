@@ -29,9 +29,8 @@ log = structlog.get_logger("marenostrum.tse_photos")
 
 # --------------------------------------------------------- constantes
 
-CDN_BASE = (
-    "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2024/fotos"
-)
+def _cdn_base(year: int) -> str:
+    return f"https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{year}/fotos"
 
 CACHE_DIR = Path("/var/marenostrum/tse_photos")
 
@@ -59,48 +58,43 @@ _handle_locks: dict[str, threading.Lock] = {}
 _dict_lock = threading.Lock()  # protege _handles e _handle_locks
 
 
-def _zip_url(uf: str) -> str:
-    return f"{CDN_BASE}/foto_cand2024_{uf}_div.zip"
+def _zip_url(uf: str, year: int) -> str:
+    return f"{_cdn_base(year)}/foto_cand{year}_{uf}_div.zip"
 
 
-def _get_lock(uf: str) -> threading.Lock:
+def _get_lock(key: str) -> threading.Lock:
     with _dict_lock:
-        lock = _handle_locks.get(uf)
+        lock = _handle_locks.get(key)
         if lock is None:
             lock = threading.Lock()
-            _handle_locks[uf] = lock
+            _handle_locks[key] = lock
         return lock
 
 
-def _get_handle(uf: str, *, force_new: bool = False) -> RemoteZip:
+def _get_handle(uf: str, year: int, *, force_new: bool = False) -> RemoteZip:
     """
-    Devolve RemoteZip pro UF (recria se expirado ou se force_new=True).
-    DEVE ser chamado com o lock do UF ja adquirido.
+    Devolve RemoteZip pro (year, uf). Cache keyed por 'year_uf'.
+    DEVE ser chamado com o lock ja adquirido.
     """
+    key = f"{year}_{uf}"
     now = time.monotonic()
     with _dict_lock:
-        cached = _handles.get(uf)
+        cached = _handles.get(key)
         if cached is not None and not force_new:
             handle, created = cached
             if now - created < _HANDLE_TTL_S:
                 return handle
-        # expirou ou force_new — fecha e recria
         if cached is not None:
             try:
                 cached[0].close()
             except Exception:
                 pass
-            _handles.pop(uf, None)
+            _handles.pop(key, None)
 
-    log.info(
-        "tse_photos_open_zip",
-        uf=uf,
-        url=_zip_url(uf),
-        force_new=force_new,
-    )
-    handle = RemoteZip(_zip_url(uf))
+    log.info("tse_photos_open_zip", key=key, url=_zip_url(uf, year), force_new=force_new)
+    handle = RemoteZip(_zip_url(uf, year))
     with _dict_lock:
-        _handles[uf] = (handle, now)
+        _handles[key] = (handle, now)
     return handle
 
 
@@ -111,56 +105,50 @@ class PhotoNotFound(Exception):
     """Candidato nao tem foto registrada no TSE pra esse UF."""
 
 
-def get_candidate_photo(uf: str, sq_candidato: int) -> bytes:
+def get_candidate_photo(uf: str, sq_candidato: int, year: int = 2024) -> bytes:
     """
     Retorna bytes JPEG da foto do candidato. Levanta PhotoNotFound se nao existir.
 
-    Cache em disco: se /var/marenostrum/tse_photos/{UF}/{SQ}.jpg ja existe,
-    le local. Caso contrario, faz Range fetch do CDN, salva no cache.
+    Cache em disco: /var/marenostrum/tse_photos/{year}/{UF}/{SQ}.jpg.
+    Caso contrario, faz Range fetch do zip do CDN do ano correto, salva.
     """
     uf = uf.upper().strip()
     if uf not in VALID_UFS:
         raise PhotoNotFound(f"UF invalida: {uf}")
 
-    cache_path = CACHE_DIR / uf / f"{sq_candidato}.jpg"
+    cache_path = CACHE_DIR / str(year) / uf / f"{sq_candidato}.jpg"
     if cache_path.is_file():
         return cache_path.read_bytes()
 
-    # Miss — busca no CDN. Lock por UF garante que so 1 thread fala com o
-    # handle compartilhado por vez (zipfile.ZipFile nao e thread-safe).
-    log.info("tse_photos_fetch", uf=uf, sq=sq_candidato)
+    # Miss — busca no CDN. Lock por (year,uf) garante que so 1 thread fala com
+    # o handle compartilhado por vez (zipfile.ZipFile nao e thread-safe).
+    log.info("tse_photos_fetch", uf=uf, sq=sq_candidato, year=year)
     target = f"F{uf}{sq_candidato}_div.jpg"
-    lock = _get_lock(uf)
+    lock = _get_lock(f"{year}_{uf}")
 
     with lock:
-        # Recheck cache dentro do lock — outra thread pode ter buscado a
-        # mesma foto enquanto esperavamos.
         if cache_path.is_file():
             return cache_path.read_bytes()
 
-        handle = _get_handle(uf)
+        handle = _get_handle(uf, year)
         try:
             data = handle.read(target)
         except KeyError:
             raise PhotoNotFound(
-                f"Foto nao encontrada no zip {uf}: esperava {target}"
+                f"Foto nao encontrada no zip {year}/{uf}: esperava {target}"
             ) from None
         except Exception as exc:
-            # Erro de rede (ProtocolError, IncompleteRead, etc) — handle TCP
-            # pode estar corrompido. Recria e tenta uma unica vez.
             log.warning(
                 "tse_photos_retry",
-                uf=uf,
-                sq=sq_candidato,
-                error=type(exc).__name__,
-                msg=str(exc)[:200],
+                uf=uf, sq=sq_candidato, year=year,
+                error=type(exc).__name__, msg=str(exc)[:200],
             )
-            handle = _get_handle(uf, force_new=True)
+            handle = _get_handle(uf, year, force_new=True)
             try:
                 data = handle.read(target)
             except KeyError:
                 raise PhotoNotFound(
-                    f"Foto nao encontrada no zip {uf}: esperava {target}"
+                    f"Foto nao encontrada no zip {year}/{uf}: esperava {target}"
                 ) from None
 
     # Persiste no cache (fora do lock — apenas IO local)
@@ -168,6 +156,6 @@ def get_candidate_photo(uf: str, sq_candidato: int) -> bytes:
     tmp = cache_path.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.rename(cache_path)
-    log.info("tse_photos_cached", uf=uf, sq=sq_candidato, bytes=len(data))
+    log.info("tse_photos_cached", uf=uf, sq=sq_candidato, year=year, bytes=len(data))
 
     return data

@@ -232,9 +232,12 @@ def list_candidates(
         party_id_subq = select(Party.id).where(Party.number == party_number)
         stmt = stmt.where(Candidate.party_id.in_(party_id_subq))
 
-    # Count total
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total = int(db.execute(count_stmt).scalar_one())
+    # Count total com CAP: contar exato todos os "silva" (77k) e' lento e
+    # inutil pra UI. Limitamos a contagem em COUNT_CAP+1 — se passar, a UI
+    # mostra "5000+". A subquery com LIMIT faz o Postgres parar cedo.
+    COUNT_CAP = 5000
+    capped_subq = stmt.with_only_columns(Candidate.id).limit(COUNT_CAP + 1).subquery()
+    total = int(db.execute(select(func.count()).select_from(capped_subq)).scalar_one())
 
     # Paginação
     rows = db.execute(
@@ -633,8 +636,12 @@ def candidate_photo(
     if candidate is None:
         raise NotFoundError("Candidato nao encontrado")
 
+    # Ano da eleicao define qual zip de fotos do TSE usar (2022 vs 2024).
+    election = db.get(Election, candidate.election_id)
+    year = election.year if election else 2024
+
     try:
-        data = get_candidate_photo(candidate.state, candidate.sq_candidato)
+        data = get_candidate_photo(candidate.state, candidate.sq_candidato, year)
     except PhotoNotFound:
         raise NotFoundError("Foto nao disponivel no TSE para este candidato")
 
@@ -643,6 +650,6 @@ def candidate_photo(
         media_type="image/jpeg",
         headers={
             "Cache-Control": "public, max-age=604800",  # 7 dias
-            "ETag": f'"tse-{candidate.sq_candidato}"',
+            "ETag": f'"tse-{year}-{candidate.sq_candidato}"',
         },
     )
