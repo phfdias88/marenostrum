@@ -404,11 +404,26 @@ function NeighborhoodResult({
       ) : !data || data.items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <p className="text-lg font-semibold">Dados de bairro indisponíveis</p>
-          <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-            A votação por seção de <strong>{muni.state}</strong> ainda não foi
-            sincronizada. Por enquanto só MG está disponível; os demais estados
-            estão sendo importados.
-          </p>
+          {candidate.election?.year === 2022 ? (
+            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+              A análise <strong>por bairro</strong> existe apenas para a eleição
+              <strong> municipal de 2024</strong> (Prefeito/Vereador). Para os
+              cargos de 2022 (Presidente, Governador, etc.) o TSE só publica
+              votação até o nível de <strong>município</strong> — use o botão
+              “Ver no mapa” na Análise de Candidato.
+            </p>
+          ) : muni.state === "BA" || muni.state === "SP" ? (
+            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+              A votação por seção de <strong>{muni.state}</strong> ainda está
+              sendo importada (estado grande). Os demais 24 estados já estão
+              disponíveis.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+              Não há votação por seção registrada para este candidato em{" "}
+              {muni.name}.
+            </p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
