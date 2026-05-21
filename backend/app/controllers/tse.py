@@ -640,8 +640,12 @@ def candidate_photo(
     election = db.get(Election, candidate.election_id)
     year = election.year if election else 2024
 
+    # Presidente (cargo 1) e candidato NACIONAL: foto fica no zip 'BR', mas o
+    # state gravado veio de um municipio (quirk do munzona). Forca BR.
+    uf = "BR" if candidate.office_code == 1 else candidate.state
+
     try:
-        data = get_candidate_photo(candidate.state, candidate.sq_candidato, year)
+        data = get_candidate_photo(uf, candidate.sq_candidato, year)
     except PhotoNotFound:
         raise NotFoundError("Foto nao disponivel no TSE para este candidato")
 
