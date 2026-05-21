@@ -39,10 +39,11 @@ CACHE_DIR = Path("/var/marenostrum/tse_photos")
 _HANDLE_TTL_S = 3600  # 1h
 
 # UFs validas (defensivo — evita SSRF caso state malformado chegue)
+# BR = candidatos nacionais (presidente 2022).
 VALID_UFS = {
     "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
     "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
-    "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+    "RS", "RO", "RR", "SC", "SP", "SE", "TO", "BR",
 }
 
 # --------------------------------------------------------- handle cache
