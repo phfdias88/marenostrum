@@ -124,8 +124,17 @@ def get_candidate_photo(uf: str, sq_candidato: int, year: int = 2024) -> bytes:
     # Miss — busca no CDN. Lock por (year,uf) garante que so 1 thread fala com
     # o handle compartilhado por vez (zipfile.ZipFile nao e thread-safe).
     log.info("tse_photos_fetch", uf=uf, sq=sq_candidato, year=year)
-    target = f"F{uf}{sq_candidato}_div.jpg"
+    # TSE mistura .jpg e .jpeg dentro do mesmo zip (ex: 2022) — tenta ambos.
+    targets = [f"F{uf}{sq_candidato}_div.jpg", f"F{uf}{sq_candidato}_div.jpeg"]
     lock = _get_lock(f"{year}_{uf}")
+
+    def _read_any(handle: RemoteZip) -> bytes | None:
+        for t in targets:
+            try:
+                return handle.read(t)
+            except KeyError:
+                continue
+        return None
 
     with lock:
         if cache_path.is_file():
@@ -133,11 +142,7 @@ def get_candidate_photo(uf: str, sq_candidato: int, year: int = 2024) -> bytes:
 
         handle = _get_handle(uf, year)
         try:
-            data = handle.read(target)
-        except KeyError:
-            raise PhotoNotFound(
-                f"Foto nao encontrada no zip {year}/{uf}: esperava {target}"
-            ) from None
+            data = _read_any(handle)
         except Exception as exc:
             log.warning(
                 "tse_photos_retry",
@@ -145,12 +150,12 @@ def get_candidate_photo(uf: str, sq_candidato: int, year: int = 2024) -> bytes:
                 error=type(exc).__name__, msg=str(exc)[:200],
             )
             handle = _get_handle(uf, year, force_new=True)
-            try:
-                data = handle.read(target)
-            except KeyError:
-                raise PhotoNotFound(
-                    f"Foto nao encontrada no zip {year}/{uf}: esperava {target}"
-                ) from None
+            data = _read_any(handle)
+
+        if data is None:
+            raise PhotoNotFound(
+                f"Foto nao encontrada no zip {year}/{uf}: {targets}"
+            )
 
     # Persiste no cache (fora do lock — apenas IO local)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
