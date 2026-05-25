@@ -48,6 +48,9 @@ class CandidateRead(BaseModel):
     # Resultado da eleicao: ELEITO, ELEITO POR QP/MÉDIA, NÃO ELEITO,
     # SUPLENTE, 2º TURNO, etc. None se ainda nao backfilled.
     result_status: str | None = None
+    # Enriquecimento (so preenchido no detalhe): patrimonio + redes sociais
+    assets_total: float | None = None
+    social_links: list[str] | None = None
     party: PartyRead
     election: ElectionRead
 

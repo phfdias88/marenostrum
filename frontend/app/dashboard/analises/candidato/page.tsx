@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import { CandidateProfile } from "@/components/tse/CandidateProfile";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -329,6 +330,11 @@ function CandidateDetail({
           <span className="font-medium">{candidate.situation}</span>
         </p>
       )}
+
+      <CandidateProfile
+        assetsTotal={candidate.assets_total}
+        socialLinks={candidate.social_links}
+      />
 
       <hr className="border-border" />
 

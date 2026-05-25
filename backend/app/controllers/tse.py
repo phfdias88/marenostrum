@@ -325,6 +325,8 @@ def candidate_results(
             state=candidate.state,
             situation=candidate.situation,
             result_status=candidate.result_status,
+            assets_total=candidate.assets_total,
+            social_links=candidate.social_links,
             party=PartyRead.model_validate(party),
             election=ElectionRead.model_validate(election),
         ),

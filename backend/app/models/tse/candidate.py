@@ -1,7 +1,7 @@
 """Candidato TSE (vinculado a uma Eleição e Partido)."""
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, BigInteger, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -45,6 +45,11 @@ class Candidate(Base, TimestampMixin):
     # Resultado da eleição (DS_SIT_TOT_TURNO): ELEITO, ELEITO POR QP,
     # ELEITO POR MÉDIA, NÃO ELEITO, SUPLENTE, 2º TURNO, etc.
     result_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    # Enriquecimento (datasets bem_candidato + rede_social_candidato).
+    # Patrimonio total declarado (R$) e lista de URLs de redes sociais.
+    assets_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    social_links: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (
         Index("ix_tse_candidates_sq", "sq_candidato", unique=True),
