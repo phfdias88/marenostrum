@@ -12,7 +12,7 @@
  */
 import { ArrowLeft, Loader2, Search, Vote, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import type {
@@ -24,6 +24,7 @@ import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
+import { ExportShare } from "@/components/tse/ExportShare";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", {
@@ -310,6 +311,7 @@ function ResultsPanel({
   results: TseMunicipalityResults | null;
   loading: boolean;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
   // Procura o label do cargo em qualquer ano (flat lookup)
   const officeName =
     results?.office_name ??
@@ -338,11 +340,11 @@ function ResultsPanel({
   const total = results.total_votes || 1;
 
   return (
-    <div>
+    <div ref={panelRef} className="bg-background rounded-xl p-1">
       {/* Header resultado */}
       <div className="rounded-xl border bg-card p-4 mb-4 flex items-center gap-4">
         <StateFlag uf={muni.state} size="lg" className="!w-14 !h-10 shadow shrink-0" />
-        <div>
+        <div className="flex-1">
           <p className="text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-2">
             <Vote className="w-4 h-4" /> Resultado da eleição
           </p>
@@ -354,6 +356,14 @@ function ResultsPanel({
           <p className="text-sm text-muted-foreground">
             {officeName} · {muni.name}/{muni.state}
           </p>
+        </div>
+        <div data-html2canvas-ignore>
+          <ExportShare
+            targetRef={panelRef}
+            filename={`eleicao-${muni.name}-${officeName}-${year}`
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")}
+          />
         </div>
       </div>
 
