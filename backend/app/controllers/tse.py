@@ -35,6 +35,8 @@ from app.schemas.tse import (
     ElectionStatsResponse,
     MunicipalityRead,
     MunicipalityResultsResponse,
+    PartyPerformanceItem,
+    PartyPerformanceResponse,
     PartyRead,
     SyncJobCreated,
     SyncJobRead,
@@ -501,6 +503,100 @@ def election_stats(
         candidates_count=candidates_count,
         municipalities_count=munis_count,
         total_votes=total_votes,
+    )
+
+
+# ============================================================ PARTY PERFORMANCE
+
+
+@router.get(
+    "/stats/party-performance",
+    response_model=PartyPerformanceResponse,
+    summary="Desempenho dos partidos: votos + eleitos por partido",
+    description="""\
+Ranking de partidos por votos e número de eleitos, numa eleição (ano).
+Filtros opcionais: `office_code` (cargo) e `state` (UF).
+Base para gráficos (eleitos por partido) e página de Partido.
+""",
+)
+def party_performance(
+    ctx: CurrentTenant,
+    year: int = Query(2024, description="Ano da eleição"),
+    office_code: int | None = Query(None),
+    state: str | None = Query(None, min_length=2, max_length=2),
+    db: Session = Depends(get_db),
+) -> PartyPerformanceResponse:
+    # Filtro base sobre candidatos (ano + cargo + UF)
+    election_ids = select(Election.id).where(Election.year == year)
+
+    cand_filters = [Candidate.election_id.in_(election_ids)]
+    if office_code is not None:
+        cand_filters.append(Candidate.office_code == office_code)
+    if state is not None:
+        cand_filters.append(Candidate.state == state.upper())
+
+    # 1) Votos por partido (soma vote_results dos candidatos filtrados)
+    votes_rows = db.execute(
+        select(
+            Candidate.party_id,
+            func.coalesce(func.sum(VoteResult.votes), 0),
+        )
+        .join(VoteResult, VoteResult.candidate_id == Candidate.id)
+        .where(*cand_filters)
+        .group_by(Candidate.party_id)
+    ).all()
+    votes_by_party = {pid: int(v) for pid, v in votes_rows}
+
+    # 2) Contagem de candidatos + eleitos por partido
+    counts_rows = db.execute(
+        select(
+            Candidate.party_id,
+            func.count(Candidate.id),
+            func.count(Candidate.id).filter(
+                Candidate.result_status.like("ELEITO%")
+            ),
+        )
+        .where(*cand_filters)
+        .group_by(Candidate.party_id)
+    ).all()
+
+    party_ids = [pid for pid, _, _ in counts_rows]
+    parties_map = {
+        p.id: p
+        for p in db.execute(select(Party).where(Party.id.in_(party_ids))).scalars()
+    }
+
+    items = []
+    for pid, n_cand, n_elected in counts_rows:
+        p = parties_map.get(pid)
+        if p is None:
+            continue
+        items.append(
+            PartyPerformanceItem(
+                party=PartyRead.model_validate(p),
+                total_votes=votes_by_party.get(pid, 0),
+                elected_count=int(n_elected or 0),
+                candidates_count=int(n_cand),
+            )
+        )
+    # Ordena por eleitos desc, depois votos desc
+    items.sort(key=lambda i: (i.elected_count, i.total_votes), reverse=True)
+
+    office_name = None
+    if office_code is not None:
+        row = db.execute(
+            select(Candidate.office_name).where(*cand_filters).limit(1)
+        ).first()
+        office_name = row[0] if row else None
+
+    return PartyPerformanceResponse(
+        year=year,
+        office_code=office_code,
+        office_name=office_name,
+        state=state.upper() if state else None,
+        items=items,
+        total_votes=sum(i.total_votes for i in items),
+        total_elected=sum(i.elected_count for i in items),
     )
 
 

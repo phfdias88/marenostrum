@@ -111,6 +111,25 @@ class ElectionStatsResponse(BaseModel):
     total_votes: int
 
 
+class PartyPerformanceItem(BaseModel):
+    """Desempenho de um partido: votos + eleitos + candidatos."""
+    party: PartyRead
+    total_votes: int
+    elected_count: int
+    candidates_count: int
+
+
+class PartyPerformanceResponse(BaseModel):
+    """GET /stats/party-performance — ranking de partidos por votos/eleitos."""
+    year: int
+    office_code: int | None
+    office_name: str | None
+    state: str | None
+    items: list[PartyPerformanceItem]
+    total_votes: int
+    total_elected: int
+
+
 class SyncJobRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
