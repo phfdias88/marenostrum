@@ -20,7 +20,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { Page, TseCandidate, TseElection, TseParty } from "@/lib/types";
+import type {
+  Page,
+  TseCandidate,
+  TseElection,
+  TseParty,
+  TsePartyPerformanceResponse,
+} from "@/lib/types";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -68,8 +74,15 @@ async function load(): Promise<Data> {
 export default function PainelPage() {
   const [d, setD] = useState<Data | null>(null);
 
+  const [perf, setPerf] = useState<TsePartyPerformanceResponse | null>(null);
+
   useEffect(() => {
     load().then(setD);
+    api<TsePartyPerformanceResponse>(
+      "/v1/tse/stats/party-performance?year=2024&office_code=11",
+    )
+      .then(setPerf)
+      .catch(() => setPerf(null));
   }, []);
 
   return (
@@ -140,6 +153,17 @@ export default function PainelPage() {
         )}
       </section>
 
+      {/* Gráfico: prefeitos eleitos por partido 2024 */}
+      <section>
+        <SectionTitle icon={Landmark} title="Prefeituras conquistadas por partido (2024)" />
+        <PartyBarChart data={perf} />
+        <div className="mt-2 text-right">
+          <Link href="/dashboard/analises/partidos" className="text-sm text-primary hover:underline">
+            Ver análise completa por partido →
+          </Link>
+        </div>
+      </section>
+
       {/* CRM */}
       <section>
         <SectionTitle icon={Users} title="Sua campanha (CRM)" />
@@ -190,6 +214,38 @@ export default function PainelPage() {
 }
 
 // ----------------------------------------------------------------- pieces
+
+function PartyBarChart({ data }: { data: TsePartyPerformanceResponse | null }) {
+  if (!data) {
+    return <div className="h-48 rounded-xl border border-border bg-card/40 animate-pulse" />;
+  }
+  const top = data.items.filter((i) => i.elected_count > 0).slice(0, 10);
+  const max = Math.max(1, ...top.map((i) => i.elected_count));
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-2.5">
+      {top.map((i) => (
+        <div key={i.party.id} className="flex items-center gap-3">
+          <span className="w-16 shrink-0 text-sm font-bold text-right">
+            {i.party.abbreviation}
+          </span>
+          <div className="flex-1 h-6 rounded-md bg-muted overflow-hidden relative">
+            <div
+              className="h-full bg-gradient-to-r from-primary to-amber-500 flex items-center justify-end pr-2"
+              style={{ width: `${(i.elected_count / max) * 100}%` }}
+            >
+              <span className="text-xs font-bold text-primary-foreground">
+                {numberFmt.format(i.elected_count)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground pt-1">
+        {numberFmt.format(data.total_elected)} prefeitos eleitos no Brasil · top 10 partidos
+      </p>
+    </div>
+  );
+}
 
 function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
