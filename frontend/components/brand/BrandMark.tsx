@@ -1,30 +1,12 @@
-"use client";
-
 /**
  * Marca MareNostrum (monograma "M" dourado).
  *
- * Usa /logo-mark.png se existir em public/ (logo oficial enviado pelo
- * usuario). Enquanto nao existir, cai num SVG aproximado em dourado.
- * Assim que o arquivo for adicionado, aparece automaticamente.
+ * Renderiza um SVG inline — instantâneo, sem requisição de rede e sem flicker.
+ * (Antes tentava /logo-mark.png, que nunca foi adicionado: 404 → ícone
+ * quebrado piscava antes do fallback a cada navegação SPA.)
  */
-import { useState } from "react";
-
 export function BrandMark({ className = "w-10 h-10" }: { className?: string }) {
-  const [useImg, setUseImg] = useState(true);
-
-  if (useImg) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src="/logo-mark.png"
-        alt="MareNostrum"
-        className={`${className} object-contain`}
-        onError={() => setUseImg(false)}
-      />
-    );
-  }
-
-  // Fallback SVG: M angular dourado com triangulo interno (estilo monograma)
+  // M angular dourado com triangulo interno (estilo monograma)
   return (
     <svg
       viewBox="0 0 100 116"
