@@ -4,7 +4,7 @@
  * Ranking nacional — candidatos mais votados (por ano/cargo/UF).
  * Usa /tse/stats/top-candidates (ordena por total_votes pré-computado).
  */
-import { ArrowLeft, Loader2, Trophy } from "lucide-react";
+import { ArrowLeft, SearchX, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -14,6 +14,8 @@ import { TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
+import { CandidateListSkeleton } from "@/components/tse/Skeletons";
+import { EmptyState } from "@/components/tse/EmptyState";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -118,13 +120,15 @@ export default function RankingPage() {
       </section>
 
       {loading ? (
-        <div className="py-16 text-center">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
-        </div>
+        <CandidateListSkeleton rows={8} />
       ) : !data || data.items.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-10">
-          Sem dados para esse filtro.
-        </p>
+        <div className="rounded-lg border bg-card">
+          <EmptyState
+            icon={SearchX}
+            title="Sem dados para esse filtro"
+            hint="Tente outro ano, cargo ou UF."
+          />
+        </div>
       ) : (
         <ol className="rounded-lg border bg-card divide-y divide-border">
           {data.items.map((r, i) => {

@@ -5,7 +5,7 @@
  * URL compartilhável com tudo: foto, resultado, perfil (patrimônio/finanças/
  * redes), votos por município, mapa, favoritar, exportar.
  */
-import { ArrowLeft, Loader2, Map as MapIcon } from "lucide-react";
+import { ArrowLeft, Map as MapIcon, UserX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -19,6 +19,8 @@ import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
+import { CandidateDetailSkeleton } from "@/components/tse/Skeletons";
+import { EmptyState } from "@/components/tse/EmptyState";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -43,18 +45,25 @@ export default function CandidateDetailPage() {
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-        <Loader2 className="w-7 h-7 animate-spin mx-auto text-muted-foreground" />
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <div className="h-5 w-40 mb-4 rounded bg-muted animate-pulse" />
+        <CandidateDetailSkeleton />
       </div>
     );
   }
   if (error || !data) {
     return (
-      <div className="max-w-4xl mx-auto px-6 py-16 text-center">
-        <p className="text-muted-foreground">Candidato não encontrado.</p>
-        <Link href="/dashboard/analises/candidato" className="text-primary hover:underline text-sm mt-3 inline-block">
-          ← Voltar à busca
-        </Link>
+      <div className="max-w-4xl mx-auto px-6 py-16">
+        <EmptyState
+          icon={UserX}
+          title="Candidato não encontrado"
+          hint="O candidato pode não existir ou os dados ainda não foram sincronizados."
+        />
+        <div className="text-center">
+          <Link href="/dashboard/analises/candidato" className="text-primary hover:underline text-sm">
+            ← Voltar à busca
+          </Link>
+        </div>
       </div>
     );
   }

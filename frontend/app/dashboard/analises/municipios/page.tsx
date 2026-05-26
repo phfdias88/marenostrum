@@ -5,7 +5,7 @@
  * - Busca + filtro UF -> lista paginada
  * - Clique no municipio -> top candidatos (com filtro cargo opcional)
  */
-import { ArrowLeft, Loader2, MapPin, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, MapPin, Search, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -20,6 +20,8 @@ import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
+import { CandidateListSkeleton } from "@/components/tse/Skeletons";
+import { EmptyState } from "@/components/tse/EmptyState";
 
 const PAGE_SIZE = 25;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -129,12 +131,18 @@ export default function MunicipiosAnalysisPage() {
             )}
           </div>
 
+          {loading && !data ? (
+            <CandidateListSkeleton rows={6} />
+          ) : data?.items.length === 0 ? (
+            <div className="rounded-lg border bg-card">
+              <EmptyState
+                icon={SearchX}
+                title="Nenhum município com esses filtros"
+                hint="Tente outra UF ou um nome diferente."
+              />
+            </div>
+          ) : (
           <div className="rounded-lg border bg-card divide-y divide-border">
-            {data?.items.length === 0 && !loading && (
-              <div className="p-10 text-center text-sm text-muted-foreground">
-                Nenhum município com esses filtros.
-              </div>
-            )}
             {data?.items.map((m) => (
               <button
                 key={m.id}
@@ -151,6 +159,7 @@ export default function MunicipiosAnalysisPage() {
               </button>
             ))}
           </div>
+          )}
 
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-3 text-sm">
@@ -251,13 +260,15 @@ function MunicipalityDrill({
       </div>
 
       {loading ? (
-        <div className="py-12 text-center">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
-        </div>
+        <CandidateListSkeleton rows={6} />
       ) : !data || data.results.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          Sem dados de votação pra esse filtro.
-        </p>
+        <div className="rounded-lg border bg-card">
+          <EmptyState
+            icon={SearchX}
+            title="Sem dados de votação pra esse filtro"
+            hint="Tente outro cargo neste município."
+          />
+        </div>
       ) : (
         <ol className="rounded-lg border bg-card divide-y divide-border">
           {data.results.map((r, i) => (

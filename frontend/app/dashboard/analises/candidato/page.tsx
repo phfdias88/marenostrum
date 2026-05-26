@@ -8,7 +8,7 @@
  *  - Lista paginada de candidatos
  *  - Clique abre painel lateral com votos por municipio (top + total)
  */
-import { ArrowLeft, Loader2, Map as MapIcon, Search, X } from "lucide-react";
+import { ArrowLeft, Loader2, Map as MapIcon, Search, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -25,6 +25,8 @@ import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
+import { CandidateListSkeleton } from "@/components/tse/Skeletons";
+import { EmptyState } from "@/components/tse/EmptyState";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -191,12 +193,18 @@ export default function CandidatoAnalysisPage() {
             )}
           </div>
 
+          {loading && !data ? (
+            <CandidateListSkeleton rows={6} />
+          ) : data?.items.length === 0 ? (
+            <div className="rounded-lg border bg-card">
+              <EmptyState
+                icon={SearchX}
+                title="Nenhum candidato com esses filtros"
+                hint="Tente outra UF, cargo ou termo de busca."
+              />
+            </div>
+          ) : (
           <div className="rounded-lg border bg-card divide-y divide-border">
-            {data?.items.length === 0 && !loading && (
-              <div className="p-10 text-center text-sm text-muted-foreground">
-                Nenhum candidato com esses filtros.
-              </div>
-            )}
             {data?.items.map((c) => (
               <button
                 key={c.id}
@@ -227,6 +235,7 @@ export default function CandidatoAnalysisPage() {
               </button>
             ))}
           </div>
+          )}
 
           {/* Paginação */}
           {totalPages > 1 && (
