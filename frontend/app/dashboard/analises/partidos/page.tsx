@@ -424,7 +424,7 @@ function PartyDrillDown({
         {data?.items.map((c) => (
           <Link
             key={c.id}
-            href={`/dashboard/analises/candidato?focus=${c.id}`}
+            href={`/dashboard/analises/candidato/${c.id}`}
             className="flex items-center gap-4 p-4 hover:bg-accent/50 transition-colors"
           >
             <span className="grid place-items-center w-10 h-10 rounded-md bg-primary/10 text-primary font-bold text-sm shrink-0">

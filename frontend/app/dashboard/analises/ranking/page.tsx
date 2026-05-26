@@ -131,7 +131,11 @@ export default function RankingPage() {
             const pct = (r.total_votes / max) * 100;
             const medal = i === 0 ? "text-amber-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-700" : "text-muted-foreground";
             return (
-              <li key={r.candidate.id} className="p-3 flex items-center gap-3">
+              <li key={r.candidate.id}>
+                <Link
+                  href={`/dashboard/analises/candidato/${r.candidate.id}`}
+                  className="p-3 flex items-center gap-3 hover:bg-accent/50 transition-colors"
+                >
                 <span className={`w-7 text-center font-bold ${medal}`}>{i + 1}</span>
                 <CandidatePhoto
                   candidateId={r.candidate.id}
@@ -155,6 +159,7 @@ export default function RankingPage() {
                 <span className="font-mono font-bold tabular-nums shrink-0">
                   {numberFmt.format(r.total_votes)}
                 </span>
+                </Link>
               </li>
             );
           })}

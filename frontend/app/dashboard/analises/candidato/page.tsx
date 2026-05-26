@@ -335,6 +335,12 @@ function CandidateDetail({
         <div className="mt-2">
           <ResultBadge status={candidate.result_status} />
         </div>
+        <Link
+          href={`/dashboard/analises/candidato/${candidate.id}`}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+        >
+          Abrir página completa →
+        </Link>
       </div>
 
       <div className="flex items-center justify-center gap-2 text-sm">

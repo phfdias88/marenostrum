@@ -21,6 +21,7 @@ import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand/BrandMark";
+import { GlobalSearch } from "@/components/tse/GlobalSearch";
 
 type Me = { full_name: string; tenant_name: string };
 
@@ -95,6 +96,11 @@ export default function DashboardLayout({
               })}
             </nav>
 
+            {/* Busca global — desktop */}
+            <div className="hidden md:block w-56 lg:w-64 ml-auto mr-2">
+              <GlobalSearch />
+            </div>
+
             <div className="flex items-center gap-2 text-sm shrink-0">
               {me && (
                 <span className="hidden md:inline text-muted-foreground max-w-[180px] truncate">
@@ -105,6 +111,11 @@ export default function DashboardLayout({
                 Sair
               </Button>
             </div>
+          </div>
+
+          {/* Busca global — mobile */}
+          <div className="md:hidden pb-2">
+            <GlobalSearch />
           </div>
 
           {/* Nav com scroll horizontal no mobile/tablet (até lg) */}

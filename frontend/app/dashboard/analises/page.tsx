@@ -335,7 +335,7 @@ function FavoritesSection() {
         {items.map((f) => {
           const href =
             f.kind === "candidate"
-              ? `/dashboard/analises/candidato?focus=${f.id}`
+              ? `/dashboard/analises/candidato/${f.id}`
               : "/dashboard/analises/municipios";
           return (
             <div
