@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 import type {
@@ -26,6 +26,7 @@ import type {
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import { ExportShare } from "@/components/tse/ExportShare";
 
 const MAX_COMPARE = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -42,6 +43,39 @@ function useDebounce<T>(v: T, ms: number): T {
 export default function CompararAnalysisPage() {
   const [pool, setPool] = useState<TseCandidateResults[]>([]);
   const [showSearch, setShowSearch] = useState(false);
+  const [hydrating, setHydrating] = useState(true);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Hidrata a comparação a partir da URL (?ids=id1,id2,...) — link compartilhável
+  useEffect(() => {
+    const ids = new URLSearchParams(window.location.search)
+      .get("ids")
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, MAX_COMPARE);
+    if (!ids || ids.length === 0) {
+      setHydrating(false);
+      return;
+    }
+    Promise.all(
+      ids.map((id) =>
+        api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`).catch(() => null),
+      ),
+    )
+      .then((rs) => setPool(rs.filter((r): r is TseCandidateResults => r !== null)))
+      .finally(() => setHydrating(false));
+  }, []);
+
+  // Mantém a URL em sincronia com a seleção (sem recarregar a página)
+  useEffect(() => {
+    if (hydrating) return;
+    const ids = pool.map((p) => p.candidate.id).join(",");
+    const url = new URL(window.location.href);
+    if (ids) url.searchParams.set("ids", ids);
+    else url.searchParams.delete("ids");
+    window.history.replaceState(null, "", url.toString());
+  }, [pool, hydrating]);
 
   function add(res: TseCandidateResults) {
     if (pool.find((p) => p.candidate.id === res.candidate.id)) return;
@@ -63,14 +97,25 @@ export default function CompararAnalysisPage() {
         <ArrowLeft className="w-4 h-4" /> Análises
       </Link>
 
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">Análise comparativa</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Compare até {MAX_COMPARE} candidatos lado a lado.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Análise comparativa</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Compare até {MAX_COMPARE} candidatos lado a lado.
+          </p>
+        </div>
+        {pool.length >= 2 && (
+          <div data-html2canvas-ignore>
+            <ExportShare targetRef={cardRef} filename="comparativo-marenostrum" />
+          </div>
+        )}
       </header>
 
-      {pool.length === 0 ? (
+      {hydrating ? (
+        <div className="py-16 text-center">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+        </div>
+      ) : pool.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40 mb-6">
           <Trophy className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-lg font-semibold mt-3">Nenhum candidato adicionado</p>
@@ -87,6 +132,7 @@ export default function CompararAnalysisPage() {
       ) : (
         <>
           <div
+            ref={cardRef}
             className={`grid gap-4 mb-6`}
             style={{
               gridTemplateColumns: `repeat(${Math.min(pool.length + 1, MAX_COMPARE + 1)}, minmax(0, 1fr))`,
@@ -103,6 +149,7 @@ export default function CompararAnalysisPage() {
             ))}
             {pool.length < MAX_COMPARE && (
               <button
+                data-html2canvas-ignore
                 onClick={() => setShowSearch(true)}
                 className="border border-dashed border-border rounded-xl flex flex-col items-center justify-center gap-2 hover:border-primary/60 hover:bg-card/40 transition min-h-[200px]"
               >
@@ -156,6 +203,7 @@ function CompareCard({
         </span>
       )}
       <button
+        data-html2canvas-ignore
         onClick={onRemove}
         className="absolute top-2 right-2 text-muted-foreground hover:text-foreground p-1"
       >
