@@ -25,6 +25,7 @@ import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { ExportShare } from "@/components/tse/ExportShare";
+import { FavoriteStar } from "@/components/tse/FavoriteStar";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", {
@@ -357,7 +358,16 @@ function ResultsPanel({
             {officeName} · {muni.name}/{muni.state}
           </p>
         </div>
-        <div data-html2canvas-ignore>
+        <div data-html2canvas-ignore className="flex items-center gap-3">
+          <FavoriteStar
+            fav={{
+              kind: "municipality",
+              id: muni.id,
+              label: muni.name,
+              sub: muni.state,
+              state: muni.state,
+            }}
+          />
           <ExportShare
             targetRef={panelRef}
             filename={`eleicao-${muni.name}-${officeName}-${year}`

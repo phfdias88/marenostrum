@@ -19,6 +19,7 @@ import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
+import { FavoriteStar } from "@/components/tse/FavoriteStar";
 
 const PAGE_SIZE = 25;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -216,12 +217,22 @@ function MunicipalityDrill({
 
       <div className="flex items-center gap-4 mb-6">
         <StateFlag uf={muni.state} size="lg" className="!w-16 !h-11 shadow" />
-        <div>
+        <div className="flex-1">
           <h2 className="text-2xl font-bold">{muni.name}</h2>
           <p className="text-sm text-muted-foreground">
             {muni.state} · TSE {muni.tse_code}
           </p>
         </div>
+        <FavoriteStar
+          fav={{
+            kind: "municipality",
+            id: muni.id,
+            label: muni.name,
+            sub: muni.state,
+            state: muni.state,
+          }}
+          size={22}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
