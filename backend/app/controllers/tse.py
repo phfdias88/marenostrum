@@ -536,6 +536,10 @@ def municipality_zones(
     top_per_zone: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
 ) -> MunicipalityZonesResponse:
+    _key = f"muni_zones:{municipality_id}:{office_code}:{year}:{top_per_zone}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
     muni = db.get(Municipality, municipality_id)
     if muni is None:
         raise NotFoundError("Município não encontrado")
@@ -588,12 +592,14 @@ def municipality_zones(
         )
         for zone, info in sorted(zones_map.items())
     ]
-    return MunicipalityZonesResponse(
+    _result = MunicipalityZonesResponse(
         municipality=MunicipalityRead.model_validate(muni),
         office_code=office_code,
         office_name=office_name,
         zones=zones,
     )
+    agg_set(_key, _result)
+    return _result
 
 
 # ============================================================ ELECTIONS DRILL
@@ -939,6 +945,10 @@ def candidate_by_zone(
     limit: int = Query(60, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> CandidateZoneVotesResponse:
+    _key = f"by_zone:{candidate_id}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
     if db.get(Candidate, candidate_id) is None:
         raise NotFoundError("Candidato não encontrado")
     rows = db.execute(
@@ -957,11 +967,13 @@ def candidate_by_zone(
         ZoneVoteItem(zone=z, municipality_name=mn, state=st, votes=int(v))
         for z, v, mn, st in rows
     ]
-    return CandidateZoneVotesResponse(
+    _result = CandidateZoneVotesResponse(
         candidate_id=candidate_id,
         total_votes=sum(i.votes for i in items),
         items=items,
     )
+    agg_set(_key, _result)
+    return _result
 
 
 # ============================================================ BY NEIGHBORHOOD
