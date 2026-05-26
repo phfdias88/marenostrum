@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET_KEY: str = Field(..., min_length=16)
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # 7 dias — ferramenta de campanha de uso diário; evita logout no meio do uso.
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080
 
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 

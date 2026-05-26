@@ -144,6 +144,12 @@ const CARDS: Card[] = [
     description: "Partidos lado a lado: eleitos, votos e candidatos por cargo.",
   },
   {
+    href: "/dashboard/analises/comparar-municipios",
+    label: "Comparar municípios",
+    icon: MapPin,
+    description: "Cidades lado a lado: prefeito eleito, votos e participação.",
+  },
+  {
     href: "/dashboard/analises/bairros",
     label: "Bairros",
     icon: MapIcon,
