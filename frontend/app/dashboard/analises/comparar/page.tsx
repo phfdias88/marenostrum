@@ -97,6 +97,7 @@ export default function CompararAnalysisPage() {
                 key={p.candidate.id}
                 result={p}
                 maxVotes={maxVotes}
+                isLeader={pool.length > 1 && p.total_votes === maxVotes}
                 onRemove={() => remove(p.candidate.id)}
               />
             ))}
@@ -124,19 +125,36 @@ export default function CompararAnalysisPage() {
 
 // ------------------------------------------------------ compare card
 
+const brl = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  maximumFractionDigits: 0,
+});
+
 function CompareCard({
   result,
   maxVotes,
+  isLeader,
   onRemove,
 }: {
   result: TseCandidateResults;
   maxVotes: number;
+  isLeader?: boolean;
   onRemove: () => void;
 }) {
   const c = result.candidate;
   const pct = (result.total_votes / maxVotes) * 100;
   return (
-    <div className="rounded-xl border bg-card p-4 relative">
+    <div
+      className={`rounded-xl border bg-card p-4 relative ${
+        isLeader ? "border-primary ring-1 ring-primary/40" : "border-border"
+      }`}
+    >
+      {isLeader && (
+        <span className="absolute -top-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+          <Trophy className="w-3 h-3" /> MAIS VOTADO
+        </span>
+      )}
       <button
         onClick={onRemove}
         className="absolute top-2 right-2 text-muted-foreground hover:text-foreground p-1"
@@ -197,6 +215,49 @@ function CompareCard({
           {numberFmt.format(result.municipalities_with_votes)} município(s)
         </p>
       </div>
+
+      {/* Dados ricos (patrimonio / financas) */}
+      {(c.assets_total || c.revenue_total || c.expense_total) && (
+        <>
+          <hr className="my-3 border-border" />
+          <dl className="space-y-1.5 text-xs">
+            {c.assets_total ? (
+              <CompareRow label="Patrimônio" value={brl.format(c.assets_total)} />
+            ) : null}
+            {c.revenue_total ? (
+              <CompareRow
+                label="Receita"
+                value={brl.format(c.revenue_total)}
+                tone="text-emerald-400"
+              />
+            ) : null}
+            {c.expense_total ? (
+              <CompareRow
+                label="Despesa"
+                value={brl.format(c.expense_total)}
+                tone="text-amber-400"
+              />
+            ) : null}
+          </dl>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CompareRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className={`font-semibold ${tone ?? ""}`}>{value}</dd>
     </div>
   );
 }
