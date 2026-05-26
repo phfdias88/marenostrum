@@ -229,6 +229,14 @@ def run_sync_job(job_id: UUID) -> None:
             job.status = SyncJobStatus.COMPLETED
             job.completed_at = datetime.now(timezone.utc)
             db.commit()
+
+            # Dados mudaram → invalida cache de agregações (party-perf, counts, etc)
+            try:
+                from app.utils.agg_cache import clear_agg_cache
+
+                clear_agg_cache()
+            except Exception:
+                pass
             log.info(
                 "tse_sync_completed",
                 job_id=str(job_id),

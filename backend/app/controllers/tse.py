@@ -11,6 +11,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, joinedload
 
+from app.utils.agg_cache import agg_get, agg_set
+
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
 from app.core.errors import DomainError, NotFoundError
@@ -541,6 +543,11 @@ def party_performance(
     state: str | None = Query(None, min_length=2, max_length=2),
     db: Session = Depends(get_db),
 ) -> PartyPerformanceResponse:
+    _key = f"party_perf:{year}:{office_code}:{(state or '').upper()}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     # Filtro base sobre candidatos (ano + cargo + UF)
     election_ids = select(Election.id).where(Election.year == year)
 
@@ -604,7 +611,7 @@ def party_performance(
         ).first()
         office_name = row[0] if row else None
 
-    return PartyPerformanceResponse(
+    _result = PartyPerformanceResponse(
         year=year,
         office_code=office_code,
         office_name=office_name,
@@ -613,6 +620,8 @@ def party_performance(
         total_votes=sum(i.total_votes for i in items),
         total_elected=sum(i.elected_count for i in items),
     )
+    agg_set(_key, _result)
+    return _result
 
 
 # ============================================================ MAPA VENCEDORES
@@ -634,6 +643,11 @@ def winners_map(
     office_code: int = Query(11, description="11=prefeito, 1=presidente, 3=governador"),
     db: Session = Depends(get_db),
 ) -> WinnersMapResponse:
+    _key = f"winners_map:{year}:{office_code}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     # DISTINCT ON (municipio) ordenado por votos desc → vencedor por municipio.
     sql = text(
         """
@@ -666,7 +680,9 @@ def winners_map(
         )
         for r in rows
     ]
-    return WinnersMapResponse(year=year, office_code=office_code, points=points)
+    _result = WinnersMapResponse(year=year, office_code=office_code, points=points)
+    agg_set(_key, _result)
+    return _result
 
 
 # ============================================================ RANKING NACIONAL
@@ -687,6 +703,11 @@ def top_candidates(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> TopCandidatesResponse:
+    _key = f"top_cand:{year}:{office_code}:{(state or '').upper()}:{party_number}:{elected_only}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     election_ids = select(Election.id).where(Election.year == year)
     stmt = select(Candidate).where(
         Candidate.election_id.in_(election_ids),
@@ -733,13 +754,15 @@ def top_candidates(
         for c in rows
     ]
     office_name = items[0].candidate.office_name if items else None
-    return TopCandidatesResponse(
+    _result = TopCandidatesResponse(
         year=year,
         office_code=office_code,
         office_name=office_name,
         state=state.upper() if state else None,
         items=items,
     )
+    agg_set(_key, _result)
+    return _result
 
 
 @router.get(
@@ -753,6 +776,11 @@ def stats_counts(
 ) -> dict:
     """Contagens EXATAS p/ stats — diferente de /candidates.total, que é capado
     em 5000 (otimização da busca). Agregações rápidas (count / group by)."""
+    _key = f"counts:{year}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     cand_q = select(func.count()).select_from(Candidate)
     office_q = select(Candidate.office_code, func.count()).group_by(Candidate.office_code)
     if year is not None:
@@ -771,13 +799,15 @@ def stats_counts(
     )
     parties = int(db.execute(select(func.count()).select_from(Party)).scalar_one())
     elections = int(db.execute(select(func.count()).select_from(Election)).scalar_one())
-    return {
+    _result = {
         "candidates": candidates,
         "by_office": by_office,
         "municipalities": municipalities,
         "parties": parties,
         "elections": elections,
     }
+    agg_set(_key, _result)
+    return _result
 
 
 # ============================================================ BY NEIGHBORHOOD
