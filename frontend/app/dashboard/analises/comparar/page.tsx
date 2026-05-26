@@ -240,7 +240,9 @@ function CompareCard({
         </div>
         <div className="text-xs">
           <p className="text-muted-foreground">Situação</p>
-          <p className="font-medium truncate">{c.situation ?? "-"}</p>
+          <p className="font-medium truncate">
+            {c.situation && !c.situation.startsWith("#") ? c.situation : "-"}
+          </p>
         </div>
       </div>
 
