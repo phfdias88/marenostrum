@@ -51,6 +51,9 @@ class CandidateRead(BaseModel):
     # Enriquecimento (so preenchido no detalhe): patrimonio + redes sociais
     assets_total: float | None = None
     social_links: list[str] | None = None
+    # Financas de campanha (prestacao de contas)
+    revenue_total: float | None = None
+    expense_total: float | None = None
     party: PartyRead
     election: ElectionRead
 

@@ -161,6 +161,8 @@ export type TseCandidate = {
   result_status: string | null; // ELEITO, NÃO ELEITO, SUPLENTE, 2º TURNO...
   assets_total: number | null; // patrimônio declarado (R$)
   social_links: string[] | null; // URLs de redes sociais
+  revenue_total: number | null; // receita de campanha (R$)
+  expense_total: number | null; // despesa de campanha (R$)
   party: TseParty;
   election: TseElection;
 };

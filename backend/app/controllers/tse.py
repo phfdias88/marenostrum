@@ -331,6 +331,8 @@ def candidate_results(
             result_status=candidate.result_status,
             assets_total=candidate.assets_total,
             social_links=candidate.social_links,
+            revenue_total=candidate.revenue_total,
+            expense_total=candidate.expense_total,
             party=PartyRead.model_validate(party),
             election=ElectionRead.model_validate(election),
         ),

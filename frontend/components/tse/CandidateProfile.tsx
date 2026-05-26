@@ -9,6 +9,8 @@ import {
   Globe,
   Instagram,
   Linkedin,
+  Receipt,
+  TrendingDown,
   Twitter,
   Wallet,
   Youtube,
@@ -44,13 +46,19 @@ function label(url: string) {
 export function CandidateProfile({
   assetsTotal,
   socialLinks,
+  revenueTotal,
+  expenseTotal,
 }: {
   assetsTotal: number | null;
   socialLinks: string[] | null;
+  revenueTotal?: number | null;
+  expenseTotal?: number | null;
 }) {
   const hasAssets = assetsTotal != null && assetsTotal > 0;
+  const hasRevenue = revenueTotal != null && revenueTotal > 0;
+  const hasExpense = expenseTotal != null && expenseTotal > 0;
   const links = (socialLinks ?? []).filter(Boolean);
-  if (!hasAssets && links.length === 0) return null;
+  if (!hasAssets && !hasRevenue && !hasExpense && links.length === 0) return null;
 
   return (
     <div className="space-y-3">
@@ -63,6 +71,31 @@ export function CandidateProfile({
             </p>
             <p className="font-bold text-primary">{brl.format(assetsTotal!)}</p>
           </div>
+        </div>
+      )}
+
+      {(hasRevenue || hasExpense) && (
+        <div className="grid grid-cols-2 gap-2">
+          {hasRevenue && (
+            <div className="rounded-md bg-card/60 border border-border p-3">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Receipt className="w-3 h-3" /> Receita
+              </p>
+              <p className="font-bold text-emerald-400 text-sm mt-0.5">
+                {brl.format(revenueTotal!)}
+              </p>
+            </div>
+          )}
+          {hasExpense && (
+            <div className="rounded-md bg-card/60 border border-border p-3">
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <TrendingDown className="w-3 h-3" /> Despesa
+              </p>
+              <p className="font-bold text-amber-400 text-sm mt-0.5">
+                {brl.format(expenseTotal!)}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

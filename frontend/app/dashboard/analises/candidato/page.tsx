@@ -356,10 +356,12 @@ function CandidateDetail({
         </p>
       )}
 
-      {/* Patrimonio + redes vem do /results (details), nao da lista */}
+      {/* Patrimonio + redes + financas vem do /results (details) */}
       <CandidateProfile
         assetsTotal={details?.candidate.assets_total ?? null}
         socialLinks={details?.candidate.social_links ?? null}
+        revenueTotal={details?.candidate.revenue_total ?? null}
+        expenseTotal={details?.candidate.expense_total ?? null}
       />
 
       <hr className="border-border" />

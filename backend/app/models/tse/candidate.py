@@ -54,6 +54,10 @@ class Candidate(Base, TimestampMixin):
     # Total de votos nominais (soma vote_results) — pre-computado pra ranking.
     total_votes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    # Financas de campanha (prestacao de contas): receita e despesa totais (R$).
+    revenue_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expense_total: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     __table_args__ = (
         Index("ix_tse_candidates_sq", "sq_candidato", unique=True),
         # Busca tipica: por eleicao + estado + cargo
