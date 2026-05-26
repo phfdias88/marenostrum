@@ -229,9 +229,12 @@ def list_candidates(
             )
         )
     if search:
+        # Busca acento-insensível: f_unaccent(coluna) ILIKE f_unaccent(termo).
+        # Indexes funcionais GIN trigram em f_unaccent(...) mantêm rápido.
+        term = func.f_unaccent(f"%{search}%")
         stmt = stmt.where(
-            (Candidate.name.ilike(f"%{search}%"))
-            | (Candidate.urn_name.ilike(f"%{search}%"))
+            func.f_unaccent(Candidate.name).ilike(term)
+            | func.f_unaccent(Candidate.urn_name).ilike(term)
         )
 
     if party_number is not None:
@@ -362,7 +365,9 @@ def list_municipalities(
     if state:
         stmt = stmt.where(Municipality.state == state.upper())
     if search:
-        stmt = stmt.where(Municipality.name.ilike(f"%{search}%"))
+        stmt = stmt.where(
+            func.f_unaccent(Municipality.name).ilike(func.f_unaccent(f"%{search}%"))
+        )
 
     total = int(
         db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
