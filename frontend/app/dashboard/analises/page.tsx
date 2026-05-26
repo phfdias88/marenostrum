@@ -138,6 +138,12 @@ const CARDS: Card[] = [
     description: "Coloque candidatos lado a lado e compare cenários.",
   },
   {
+    href: "/dashboard/analises/comparar-partidos",
+    label: "Comparar partidos",
+    icon: Building2,
+    description: "Partidos lado a lado: eleitos, votos e candidatos por cargo.",
+  },
+  {
     href: "/dashboard/analises/bairros",
     label: "Bairros",
     icon: MapIcon,
@@ -347,7 +353,7 @@ function FavoritesSection() {
               ? `/dashboard/analises/candidato/${f.id}`
               : f.kind === "party"
                 ? `/dashboard/analises/partido/${f.id}`
-                : "/dashboard/analises/municipios";
+                : `/dashboard/analises/municipio/${f.id}`;
           return (
             <div
               key={`${f.kind}-${f.id}`}

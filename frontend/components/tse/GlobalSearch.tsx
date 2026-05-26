@@ -197,7 +197,7 @@ export function GlobalSearch() {
                   {munis.map((m) => (
                     <button
                       key={m.id}
-                      onClick={() => go("/dashboard/analises/municipios")}
+                      onClick={() => go(`/dashboard/analises/municipio/${m.id}`)}
                       className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
                     >
                       <StateFlag uf={m.state} size="sm" />

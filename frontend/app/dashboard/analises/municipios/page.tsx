@@ -231,6 +231,12 @@ function MunicipalityDrill({
           <p className="text-sm text-muted-foreground">
             {muni.state} · TSE {muni.tse_code}
           </p>
+          <Link
+            href={`/dashboard/analises/municipio/${muni.id}`}
+            className="mt-1 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            Abrir página completa →
+          </Link>
         </div>
         <FavoriteStar
           fav={{

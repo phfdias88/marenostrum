@@ -361,7 +361,9 @@ def list_municipalities(
     search: str | None = Query(None, description="ILIKE no nome do municipio"),
     db: Session = Depends(get_db),
 ) -> Page[MunicipalityRead]:
-    stmt = select(Municipality)
+    # Exclui "ZZ" (Exterior) — zonas de votação no exterior p/ presidente,
+    # não são municípios reais. Sem isso a contagem fica 5.752 em vez de ~5.571.
+    stmt = select(Municipality).where(Municipality.state != "ZZ")
     if state:
         stmt = stmt.where(Municipality.state == state.upper())
     if search:
@@ -762,7 +764,11 @@ def stats_counts(
     by_office = {
         str(int(code)): int(n) for code, n in db.execute(office_q).all() if code is not None
     }
-    municipalities = int(db.execute(select(func.count()).select_from(Municipality)).scalar_one())
+    municipalities = int(
+        db.execute(
+            select(func.count()).select_from(Municipality).where(Municipality.state != "ZZ")
+        ).scalar_one()
+    )
     parties = int(db.execute(select(func.count()).select_from(Party)).scalar_one())
     elections = int(db.execute(select(func.count()).select_from(Election)).scalar_one())
     return {
