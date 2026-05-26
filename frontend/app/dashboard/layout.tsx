@@ -60,16 +60,19 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link href="/dashboard" className="flex items-center gap-2">
+      <header className="border-b bg-card sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          {/* Linha 1: marca + usuário/sair */}
+          <div className="h-14 flex items-center justify-between gap-3">
+            <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
               <BrandMark className="w-7 h-7" />
-              <span className="font-bold tracking-[0.12em] bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
+              <span className="font-bold tracking-[0.12em] text-sm sm:text-base bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
                 MARENOSTRUM
               </span>
             </Link>
-            <nav className="flex items-center gap-1">
+
+            {/* Nav inline só no desktop (lg+) */}
+            <nav className="hidden lg:flex items-center gap-1 flex-1 justify-center">
               {NAV.map(({ href, label, icon: Icon }) => {
                 const active =
                   pathname === href ||
@@ -79,7 +82,7 @@ export default function DashboardLayout({
                     key={href}
                     href={href}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
+                      "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors whitespace-nowrap",
                       active
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
@@ -91,19 +94,42 @@ export default function DashboardLayout({
                 );
               })}
             </nav>
+
+            <div className="flex items-center gap-2 text-sm shrink-0">
+              {me && (
+                <span className="hidden md:inline text-muted-foreground max-w-[180px] truncate">
+                  <span className="text-foreground font-medium">{me.tenant_name}</span>
+                </span>
+              )}
+              <Button variant="ghost" size="sm" onClick={logout}>
+                Sair
+              </Button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 text-sm">
-            {me && (
-              <span className="text-muted-foreground">
-                {me.full_name} ·{" "}
-                <span className="text-foreground font-medium">{me.tenant_name}</span>
-              </span>
-            )}
-            <Button variant="ghost" size="sm" onClick={logout}>
-              Sair
-            </Button>
-          </div>
+          {/* Nav com scroll horizontal no mobile/tablet (até lg) */}
+          <nav className="lg:hidden flex items-center gap-1 overflow-x-auto pb-2 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {NAV.map(({ href, label, icon: Icon }) => {
+              const active =
+                pathname === href ||
+                (href !== "/dashboard" && pathname.startsWith(href));
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors whitespace-nowrap shrink-0",
+                    active
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
       </header>
 
