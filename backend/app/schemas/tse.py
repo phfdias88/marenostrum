@@ -122,6 +122,25 @@ class PartyPerformanceItem(BaseModel):
     candidates_count: int
 
 
+class WinnerMapPoint(BaseModel):
+    """Municipio + partido/candidato vencedor (pra mapa colorido)."""
+    municipality_id: UUID
+    name: str
+    state: str
+    lat: float
+    lng: float
+    party_number: int
+    party_abbreviation: str
+    winner_name: str
+    votes: int
+
+
+class WinnersMapResponse(BaseModel):
+    year: int
+    office_code: int
+    points: list[WinnerMapPoint]
+
+
 class RankedCandidate(BaseModel):
     """Linha do ranking nacional: candidato + total de votos."""
     candidate: CandidateRead

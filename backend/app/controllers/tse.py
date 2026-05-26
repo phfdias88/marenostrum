@@ -8,7 +8,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -44,6 +44,8 @@ from app.schemas.tse import (
     TopCandidateInMunicipality,
     TopCandidatesResponse,
     VoteResultByMunicipality,
+    WinnerMapPoint,
+    WinnersMapResponse,
 )
 from app.utils.tse_photos import PhotoNotFound, get_candidate_photo
 from app.utils.tse_sync import DATASETS, run_sync_job
@@ -602,6 +604,60 @@ def party_performance(
         total_votes=sum(i.total_votes for i in items),
         total_elected=sum(i.elected_count for i in items),
     )
+
+
+# ============================================================ MAPA VENCEDORES
+
+
+@router.get(
+    "/stats/winners-map",
+    response_model=WinnersMapResponse,
+    summary="Partido vencedor por município (mapa colorido)",
+    description="""\
+Para cada município, retorna o candidato/partido mais votado no cargo+ano.
+Ex: prefeito 2024 (mapa partidário do Brasil) ou presidente 2022.
+Usa DISTINCT ON pra pegar o top por município. Só municípios com coords.
+""",
+)
+def winners_map(
+    ctx: CurrentTenant,
+    year: int = Query(2024),
+    office_code: int = Query(11, description="11=prefeito, 1=presidente, 3=governador"),
+    db: Session = Depends(get_db),
+) -> WinnersMapResponse:
+    # DISTINCT ON (municipio) ordenado por votos desc → vencedor por municipio.
+    sql = text(
+        """
+        SELECT DISTINCT ON (vr.municipality_id)
+          m.id AS municipality_id, m.name, m.state, m.latitude, m.longitude,
+          p.number AS party_number, p.abbreviation AS party_abbreviation,
+          c.urn_name AS winner_name, vr.votes
+        FROM tse_vote_results vr
+        JOIN tse_candidates c ON c.id = vr.candidate_id
+        JOIN tse_elections e ON e.id = c.election_id
+        JOIN tse_parties p ON p.id = c.party_id
+        JOIN tse_municipalities m ON m.id = vr.municipality_id
+        WHERE e.year = :year AND c.office_code = :office
+          AND m.latitude IS NOT NULL
+        ORDER BY vr.municipality_id, vr.votes DESC
+        """
+    )
+    rows = db.execute(sql, {"year": year, "office": office_code}).mappings().all()
+    points = [
+        WinnerMapPoint(
+            municipality_id=r["municipality_id"],
+            name=r["name"],
+            state=r["state"],
+            lat=float(r["latitude"]),
+            lng=float(r["longitude"]),
+            party_number=int(r["party_number"]),
+            party_abbreviation=r["party_abbreviation"],
+            winner_name=r["winner_name"],
+            votes=int(r["votes"]),
+        )
+        for r in rows
+    ]
+    return WinnersMapResponse(year=year, office_code=office_code, points=points)
 
 
 # ============================================================ RANKING NACIONAL

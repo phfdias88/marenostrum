@@ -230,6 +230,24 @@ export type TseCandidateByNeighborhoodResponse = {
   total_neighborhoods: number;
 };
 
+export type TseWinnerMapPoint = {
+  municipality_id: string;
+  name: string;
+  state: string;
+  lat: number;
+  lng: number;
+  party_number: number;
+  party_abbreviation: string;
+  winner_name: string;
+  votes: number;
+};
+
+export type TseWinnersMapResponse = {
+  year: number;
+  office_code: number;
+  points: TseWinnerMapPoint[];
+};
+
 export type TseRankedCandidate = {
   candidate: TseCandidate;
   total_votes: number;

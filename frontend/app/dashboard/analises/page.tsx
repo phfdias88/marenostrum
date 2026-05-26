@@ -105,6 +105,12 @@ const CARDS: Card[] = [
     description: "Os 29 partidos brasileiros, com seus candidatos por estado.",
   },
   {
+    href: "/dashboard/analises/mapa",
+    label: "Mapa partidário",
+    icon: MapIcon,
+    description: "Mapa do Brasil colorido pelo partido vencedor em cada cidade.",
+  },
+  {
     href: "/dashboard/analises/municipios",
     label: "Municípios",
     icon: MapPin,
