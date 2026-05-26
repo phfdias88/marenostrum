@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * Botoes de Exportar (PNG) e Compartilhar (copiar link) pra uma analise.
- * - Exportar: captura o elemento referenciado como imagem PNG (html-to-image).
- * - Compartilhar: copia a URL atual (que ja codifica os filtros) pro clipboard.
+ * Botoes de Exportar (PNG) e Compartilhar (copiar link).
+ *
+ * Notas de robustez (o site roda em HTTP, nao HTTPS):
+ * - navigator.clipboard / navigator.share só existem em contexto seguro (HTTPS).
+ *   Em HTTP caímos no fallback execCommand('copy') via textarea.
+ * - html-to-image quebra facil tentando embutir fontes externas → skipFonts:true.
  */
 import { Download, Link2, Loader2 } from "lucide-react";
 import { useState, type RefObject } from "react";
-import { toPng } from "html-to-image";
 import { toast } from "sonner";
 
 export function ExportShare({
@@ -25,34 +27,71 @@ export function ExportShare({
     if (!targetRef.current) return;
     setBusy(true);
     try {
+      const { toPng } = await import("html-to-image");
       const dataUrl = await toPng(targetRef.current, {
         backgroundColor: "#1c1b1a",
         pixelRatio: 2,
         cacheBust: true,
+        skipFonts: true, // evita falha ao embutir fontes externas
       });
       const a = document.createElement("a");
       a.download = `${filename}.png`;
       a.href = dataUrl;
       a.click();
       toast.success("Imagem exportada!");
-    } catch {
-      toast.error("Falha ao exportar imagem.");
+    } catch (err) {
+      console.error("[export] toPng falhou:", err);
+      toast.error("Falha ao exportar imagem. Tente novamente.");
     } finally {
       setBusy(false);
     }
   }
 
+  function copyFallback(text: string) {
+    // Funciona em HTTP (sem navigator.clipboard)
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
   async function share() {
     const url = shareUrl ?? window.location.href;
-    try {
-      if (navigator.share) {
+    // 1) Web Share API (mobile / HTTPS)
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
         await navigator.share({ url, title: "Análise MareNostrum" });
-      } else {
+        return;
+      } catch {
+        /* cancelou — segue pro copy */
+      }
+    }
+    // 2) Clipboard API (HTTPS)
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
         await navigator.clipboard.writeText(url);
         toast.success("Link copiado!");
+        return;
+      } catch {
+        /* cai no fallback */
       }
-    } catch {
-      /* usuario cancelou */
+    }
+    // 3) Fallback HTTP
+    if (copyFallback(url)) {
+      toast.success("Link copiado!");
+    } else {
+      toast.message("Copie o link:", { description: url });
     }
   }
 
