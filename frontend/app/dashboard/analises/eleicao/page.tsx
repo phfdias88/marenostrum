@@ -11,6 +11,7 @@
  * (que agora retorna total_votes pra calcular %).
  */
 import { ArrowLeft, Loader2, Search, Vote, X } from "lucide-react";
+import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -318,11 +319,7 @@ function ResultsPanel({
     "";
 
   if (loading) {
-    return (
-      <div className="py-16 text-center">
-        <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
-      </div>
-    );
+    return <CandidateListSkeleton rows={8} />;
   }
   if (!results || results.results.length === 0) {
     return (

@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { PartyLogo } from "@/components/tse/PartyLogo";
+import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -175,9 +176,7 @@ function PartyPerformance({
       </section>
 
       {loading ? (
-        <div className="py-16 text-center">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
-        </div>
+        <CandidateListSkeleton rows={8} />
       ) : !data || ranked.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-10">
           Sem dados para esse filtro.

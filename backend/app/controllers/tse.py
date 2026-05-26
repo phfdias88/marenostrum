@@ -953,7 +953,12 @@ def candidate_photo(
     try:
         data = get_candidate_photo(uf, candidate.sq_candidato, year)
     except PhotoNotFound:
-        raise NotFoundError("Foto nao disponivel no TSE para este candidato")
+        # 404 cacheável: evita re-tentar fotos inexistentes a cada visita.
+        # 1 dia (mais curto que as existentes — foto pode ser publicada depois).
+        return Response(
+            status_code=404,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     return Response(
         content=data,

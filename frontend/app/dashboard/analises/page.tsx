@@ -171,6 +171,16 @@ export default function AnalisesHubPage() {
       setStats(s);
       setLoading(false);
     });
+    // Pré-aquece o cache do backend das agregações pesadas (fire-and-forget):
+    // ao abrir o hub, Partidos/Painel/Mapa já abrem instantâneos no clique.
+    const warm = [
+      "/v1/tse/stats/party-performance?year=2024&office_code=11",
+      "/v1/tse/stats/winners-map?year=2024&office_code=11",
+      "/v1/tse/stats/top-candidates?year=2024&office_code=13&limit=50",
+    ];
+    warm.forEach((u) => {
+      api(u).catch(() => {});
+    });
   }, []);
 
   async function triggerSync() {
