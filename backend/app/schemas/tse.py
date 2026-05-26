@@ -122,6 +122,20 @@ class PartyPerformanceItem(BaseModel):
     candidates_count: int
 
 
+class RankedCandidate(BaseModel):
+    """Linha do ranking nacional: candidato + total de votos."""
+    candidate: CandidateRead
+    total_votes: int
+
+
+class TopCandidatesResponse(BaseModel):
+    year: int
+    office_code: int | None
+    office_name: str | None
+    state: str | None
+    items: list[RankedCandidate]
+
+
 class PartyPerformanceResponse(BaseModel):
     """GET /stats/party-performance — ranking de partidos por votos/eleitos."""
     year: int

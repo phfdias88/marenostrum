@@ -51,6 +51,9 @@ class Candidate(Base, TimestampMixin):
     assets_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     social_links: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
+    # Total de votos nominais (soma vote_results) — pre-computado pra ranking.
+    total_votes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
     __table_args__ = (
         Index("ix_tse_candidates_sq", "sq_candidato", unique=True),
         # Busca tipica: por eleicao + estado + cargo

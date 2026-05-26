@@ -25,6 +25,7 @@ import {
   Map as MapIcon,
   RefreshCw,
   ScanSearch,
+  Trophy,
   Users,
   UsersRound,
   Vote,
@@ -87,6 +88,12 @@ const CARDS: Card[] = [
     label: "Candidatos",
     icon: Users,
     description: "Busque por UF, cargo, partido, nome. Veja votos por município.",
+  },
+  {
+    href: "/dashboard/analises/ranking",
+    label: "Ranking nacional",
+    icon: Trophy,
+    description: "Os candidatos mais votados do Brasil por cargo e ano.",
   },
   {
     href: "/dashboard/analises/partidos",

@@ -38,9 +38,11 @@ from app.schemas.tse import (
     PartyPerformanceItem,
     PartyPerformanceResponse,
     PartyRead,
+    RankedCandidate,
     SyncJobCreated,
     SyncJobRead,
     TopCandidateInMunicipality,
+    TopCandidatesResponse,
     VoteResultByMunicipality,
 )
 from app.utils.tse_photos import PhotoNotFound, get_candidate_photo
@@ -599,6 +601,75 @@ def party_performance(
         items=items,
         total_votes=sum(i.total_votes for i in items),
         total_elected=sum(i.elected_count for i in items),
+    )
+
+
+# ============================================================ RANKING NACIONAL
+
+
+@router.get(
+    "/stats/top-candidates",
+    response_model=TopCandidatesResponse,
+    summary="Ranking nacional de candidatos por votos (usa total_votes pré-computado)",
+)
+def top_candidates(
+    ctx: CurrentTenant,
+    year: int = Query(2024),
+    office_code: int | None = Query(None),
+    state: str | None = Query(None, min_length=2, max_length=2),
+    elected_only: bool = Query(False, description="So eleitos"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> TopCandidatesResponse:
+    election_ids = select(Election.id).where(Election.year == year)
+    stmt = select(Candidate).where(
+        Candidate.election_id.in_(election_ids),
+        Candidate.total_votes.is_not(None),
+    )
+    if office_code is not None:
+        stmt = stmt.where(Candidate.office_code == office_code)
+    if state is not None:
+        stmt = stmt.where(Candidate.state == state.upper())
+    if elected_only:
+        stmt = stmt.where(Candidate.result_status.like("ELEITO%"))
+    stmt = stmt.order_by(Candidate.total_votes.desc()).limit(limit)
+    rows = db.execute(stmt).scalars().all()
+
+    party_ids = {c.party_id for c in rows}
+    election_ids2 = {c.election_id for c in rows}
+    parties_map = {
+        p.id: p for p in db.execute(select(Party).where(Party.id.in_(party_ids))).scalars()
+    } if party_ids else {}
+    elections_map = {
+        e.id: e for e in db.execute(select(Election).where(Election.id.in_(election_ids2))).scalars()
+    } if election_ids2 else {}
+
+    items = [
+        RankedCandidate(
+            candidate=CandidateRead(
+                id=c.id,
+                number=c.number,
+                name=c.name,
+                urn_name=c.urn_name,
+                office_code=c.office_code,
+                office_name=c.office_name,
+                state=c.state,
+                situation=c.situation,
+                result_status=c.result_status,
+                party=PartyRead.model_validate(parties_map[c.party_id]),
+                election=ElectionRead.model_validate(elections_map[c.election_id]),
+            ),
+            total_votes=int(c.total_votes or 0),
+        )
+        for c in rows
+    ]
+    office_name = items[0].candidate.office_name if items else None
+    return TopCandidatesResponse(
+        year=year,
+        office_code=office_code,
+        office_name=office_name,
+        state=state.upper() if state else None,
+        items=items,
     )
 
 
