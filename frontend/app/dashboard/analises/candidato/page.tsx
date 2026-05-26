@@ -24,6 +24,7 @@ import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { CandidateProfile } from "@/components/tse/CandidateProfile";
+import { FavoriteStar } from "@/components/tse/FavoriteStar";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -89,6 +90,18 @@ export default function CandidatoAnalysisPage() {
       .catch(() => setDetails(null))
       .finally(() => setDetailsLoading(false));
   }, [selected]);
+
+  // Deep-link: ?focus={id} (vindo dos Favoritos) abre o candidato direto.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("focus");
+    if (!id) return;
+    api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`)
+      .then((r) => {
+        setSelected(r.candidate);
+        setDetails(r);
+      })
+      .catch(() => {});
+  }, []);
 
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -287,13 +300,25 @@ function CandidateDetail({
 }) {
   return (
     <div className="rounded-lg border bg-card p-5 sticky top-6 space-y-4">
-      <button
-        onClick={onClose}
-        className="absolute top-3 right-3 text-muted-foreground hover:text-foreground p-1 z-10"
-        aria-label="Fechar"
-      >
-        <X className="w-4 h-4" />
-      </button>
+      <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+        <FavoriteStar
+          fav={{
+            kind: "candidate",
+            id: candidate.id,
+            label: candidate.urn_name,
+            sub: `${candidate.party.abbreviation} · ${candidate.office_name} · ${candidate.state}`,
+            partyNumber: candidate.party.number,
+            state: candidate.state,
+          }}
+        />
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground p-1"
+          aria-label="Fechar"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
       <div className="flex flex-col items-center text-center">
         <CandidatePhoto

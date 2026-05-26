@@ -38,6 +38,9 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Page, TseCandidate, TseElection, TseParty, TseSyncJob } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { useFavorites } from "@/lib/favorites";
+import { FavoriteStar } from "@/components/tse/FavoriteStar";
+import { Star } from "lucide-react";
 
 // ------------------------------------------------------------------- stats
 
@@ -245,6 +248,9 @@ export default function AnalisesHubPage() {
         </section>
       )}
 
+      {/* Favoritos */}
+      <FavoritesSection />
+
       {/* Empty state quando sem dados */}
       {!loading && !hasData && (
         <div className="rounded-xl border border-dashed border-border p-8 text-center bg-card/40">
@@ -309,6 +315,43 @@ export default function AnalisesHubPage() {
         Fonte: Tribunal Superior Eleitoral · dadosabertos.tse.jus.br
       </footer>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------- favoritos
+
+function FavoritesSection() {
+  const { items } = useFavorites();
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-3">
+        <Star className="w-5 h-5 text-amber-400" fill="currentColor" />
+        <h2 className="text-lg font-semibold">Seus favoritos</h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {items.map((f) => {
+          const href =
+            f.kind === "candidate"
+              ? `/dashboard/analises/candidato?focus=${f.id}`
+              : "/dashboard/analises/municipios";
+          return (
+            <div
+              key={`${f.kind}-${f.id}`}
+              className="rounded-lg border bg-card p-3 flex items-center gap-3 hover:border-primary/50 transition-colors"
+            >
+              <Link href={href} className="flex-1 min-w-0">
+                <p className="font-semibold truncate">{f.label}</p>
+                {f.sub && (
+                  <p className="text-xs text-muted-foreground truncate">{f.sub}</p>
+                )}
+              </Link>
+              <FavoriteStar fav={f} />
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
