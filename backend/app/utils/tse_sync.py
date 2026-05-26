@@ -105,14 +105,16 @@ def _ensure_cache_dir() -> Path:
     return CACHE_DIR
 
 
-def download_zip(url: str, dest: Path) -> int:
+def download_zip(url: str, dest: Path, max_mb: int | None = None) -> int:
     """
     Baixa ZIP do TSE pra `dest`. Retorna tamanho em bytes.
-    Aborta se > MAX_ZIP_MB (defensivo pra não esgotar disco/RAM).
+    Aborta se > max_mb (default MAX_ZIP_MB) — defensivo pra não esgotar disco.
+    Datasets grandes (prestacao de contas ~1.2GB) passam max_mb maior.
     """
     log.info("tse_download_start", url=url)
     bytes_downloaded = 0
-    max_bytes = MAX_ZIP_MB * 1024 * 1024
+    limit_mb = max_mb or MAX_ZIP_MB
+    max_bytes = limit_mb * 1024 * 1024
 
     with httpx.stream("GET", url, timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=True) as r:
         r.raise_for_status()
@@ -121,7 +123,7 @@ def download_zip(url: str, dest: Path) -> int:
                 bytes_downloaded += len(chunk)
                 if bytes_downloaded > max_bytes:
                     raise ValueError(
-                        f"ZIP excede {MAX_ZIP_MB}MB (downloaded {bytes_downloaded // (1024*1024)}MB) — abortando"
+                        f"ZIP excede {limit_mb}MB (downloaded {bytes_downloaded // (1024*1024)}MB) — abortando"
                     )
                 f.write(chunk)
 

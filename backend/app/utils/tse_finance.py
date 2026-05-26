@@ -70,7 +70,7 @@ def populate(db: Session) -> dict[str, int]:
     _ensure_cache_dir()
     zp = CACHE_DIR / "prestacao_contas_2024.zip"
     if not zp.exists():
-        download_zip(URL, zp)
+        download_zip(URL, zp, max_mb=1500)  # ~1.2GB
 
     rec_csvs = _csvs_for(zp, "receitas_candidatos")
     desp_csvs = _csvs_for(zp, "despesas_contratadas_candidatos")
