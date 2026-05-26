@@ -316,10 +316,6 @@ export default function AnalisesHubPage() {
           );
         })}
       </section>
-
-      <footer className="text-xs text-muted-foreground text-center pt-4">
-        Fonte: Tribunal Superior Eleitoral · dadosabertos.tse.jus.br
-      </footer>
     </div>
   );
 }

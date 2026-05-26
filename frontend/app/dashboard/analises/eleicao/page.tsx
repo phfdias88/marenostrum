@@ -289,10 +289,6 @@ export default function EleicaoAnalysisPage() {
           loading={resultsLoading}
         />
       )}
-
-      <footer className="text-xs text-muted-foreground text-center pt-6">
-        Fonte: Tribunal Superior Eleitoral (TSE)
-      </footer>
     </div>
   );
 }
