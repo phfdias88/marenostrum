@@ -18,6 +18,7 @@ from app.core.dependencies import CurrentTenant  # garante autenticado, ignora t
 from app.core.errors import DomainError, NotFoundError
 from app.models.tse import (
     Candidate,
+    CandidateZoneVote,
     Election,
     Municipality,
     MunicipalityElectorate,
@@ -34,9 +35,11 @@ from app.schemas.tse import (
     CandidateByNeighborhoodResponse,
     CandidateRead,
     CandidateResultsResponse,
+    CandidateZoneVotesResponse,
     ElectionRead,
     ElectionStatsResponse,
     ElectorateResponse,
+    ZoneVoteItem,
     MunicipalityRead,
     MunicipalityResultsResponse,
     PartyPerformanceItem,
@@ -844,6 +847,45 @@ def stats_counts(
     }
     agg_set(_key, _result)
     return _result
+
+
+# ============================================================ BY ZONE
+
+
+@router.get(
+    "/candidates/{candidate_id}/by-zone",
+    response_model=CandidateZoneVotesResponse,
+    summary="Votos do candidato distribuídos por zona eleitoral",
+)
+def candidate_by_zone(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    limit: int = Query(60, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> CandidateZoneVotesResponse:
+    if db.get(Candidate, candidate_id) is None:
+        raise NotFoundError("Candidato não encontrado")
+    rows = db.execute(
+        select(
+            CandidateZoneVote.zone,
+            CandidateZoneVote.votes,
+            Municipality.name,
+            Municipality.state,
+        )
+        .join(Municipality, Municipality.id == CandidateZoneVote.municipality_id)
+        .where(CandidateZoneVote.candidate_id == candidate_id)
+        .order_by(CandidateZoneVote.votes.desc())
+        .limit(limit)
+    ).all()
+    items = [
+        ZoneVoteItem(zone=z, municipality_name=mn, state=st, votes=int(v))
+        for z, v, mn, st in rows
+    ]
+    return CandidateZoneVotesResponse(
+        candidate_id=candidate_id,
+        total_votes=sum(i.votes for i in items),
+        items=items,
+    )
 
 
 # ============================================================ BY NEIGHBORHOOD

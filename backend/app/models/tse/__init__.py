@@ -23,6 +23,7 @@ from app.models.tse.section_vote import TseSectionVote
 from app.models.tse.sync_job import TseSyncJob, SyncJobStatus
 from app.models.tse.vote_result import VoteResult
 from app.models.tse.voting_place import TseVotingPlace
+from app.models.tse.zone_vote import CandidateZoneVote
 
 __all__ = [
     "Election",
@@ -35,4 +36,5 @@ __all__ = [
     "TseVotingPlace",
     "TseSectionVote",
     "MunicipalityElectorate",
+    "CandidateZoneVote",
 ]

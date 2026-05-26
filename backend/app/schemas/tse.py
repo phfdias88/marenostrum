@@ -201,3 +201,17 @@ class ElectorateResponse(BaseModel):
     by_gender: dict[str, int]
     by_age: dict[str, int]
     by_education: dict[str, int]
+
+
+class ZoneVoteItem(BaseModel):
+    zone: int
+    municipality_name: str
+    state: str
+    votes: int
+
+
+class CandidateZoneVotesResponse(BaseModel):
+    """Votos de um candidato distribuídos por zona eleitoral."""
+    candidate_id: UUID
+    total_votes: int
+    items: list[ZoneVoteItem]

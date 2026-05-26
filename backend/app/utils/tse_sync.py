@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.tse import (
     Candidate,
+    CandidateZoneVote,
     Election,
     Municipality,
     MunicipalityElectorate,
@@ -84,6 +85,19 @@ DATASETS: dict[str, dict] = {
         "year": 2024,
         "processor": "perfil_eleitorado",
         "max_mb": 300,  # zip ~187MB
+    },
+    # Votos por ZONA — reprocessa o munzona guardando NR_ZONA (votos por
+    # candidato × município × zona). Mesma fonte do candidato_munzona.
+    "zona_votos_2024": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2024.zip",
+        "year": 2024,
+        "processor": "zona_votos",
+    },
+    "zona_votos_2022": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2022.zip",
+        "year": 2022,
+        "processor": "zona_votos",
+        "max_mb": 700,
     },
 }
 
@@ -232,6 +246,8 @@ def run_sync_job(job_id: UUID) -> None:
                 )
             elif processor == "perfil_eleitorado":
                 _process_perfil_eleitorado(db, job, zip_path)
+            elif processor == "zona_votos":
+                _process_zona_votos(db, job, zip_path, year=dataset_meta["year"])
             else:
                 _fail(db, job, f"Processor desconhecido: {processor}")
                 return
@@ -879,3 +895,101 @@ def _process_perfil_eleitorado(
     job.rows_processed = rows_processed
     db.commit()
     log.info("tse_perfil_done", munis=len(rows_out), rows=rows_processed)
+
+
+# ====================================================================
+# Processor: zona_votos (reprocessa munzona guardando NR_ZONA)
+# ====================================================================
+
+
+def _flush_zone_votes(
+    db: Session, acc: dict[tuple[UUID, UUID, int], int],
+) -> None:
+    """Grava votos por zona via UPSERT-ADD (votes = votes + excluded.votes)."""
+    if not acc:
+        return
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": uuid4(),
+            "candidate_id": cid,
+            "municipality_id": mid,
+            "zone": zone,
+            "votes": votes,
+            "created_at": now,
+            "updated_at": now,
+        }
+        for (cid, mid, zone), votes in acc.items()
+    ]
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        stmt = pg_insert(CandidateZoneVote.__table__).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["candidate_id", "municipality_id", "zone"],
+            set_={
+                "votes": CandidateZoneVote.__table__.c.votes + stmt.excluded.votes,
+                "updated_at": now,
+            },
+        )
+        db.execute(stmt)
+    db.commit()
+
+
+def _process_zona_votos(
+    db: Session, job: TseSyncJob, zip_path: Path, *, year: int,
+) -> None:
+    """
+    Agrega votos por (candidato, município, zona) do votacao_candidato_munzona.
+    Candidatos e municípios já existem (importados antes) — aqui só somamos
+    votos nominais por zona. Upsert-add com flush parcial (memória limitada).
+
+    Idempotente: apaga os votos-zona dos candidatos DESTE ano antes de regravar.
+    """
+    munis_by_tse: dict[int, UUID] = {
+        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
+    }
+    candidates_by_sq: dict[int, UUID] = {
+        c.sq_candidato: c.id for c in db.execute(select(Candidate)).scalars()
+    }
+
+    # Limpa votos-zona dos candidatos deste ano (reimport idempotente)
+    cand_ids_year = select(Candidate.id).where(
+        Candidate.election_id.in_(select(Election.id).where(Election.year == year))
+    )
+    db.execute(
+        delete(CandidateZoneVote).where(
+            CandidateZoneVote.candidate_id.in_(cand_ids_year)
+        )
+    )
+    db.commit()
+
+    acc: dict[tuple[UUID, UUID, int], int] = {}
+    rows_processed = 0
+
+    # Só _BRASIL.csv — senão conta votos 2x (zip tem 1 csv por UF idêntico)
+    for _, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
+        rows_processed += 1
+        sq = _i(row.get("SQ_CANDIDATO"))
+        muni_code = _i(row.get("CD_MUNICIPIO"))
+        zone = _i(row.get("NR_ZONA"))
+        cid = candidates_by_sq.get(sq)
+        mid = munis_by_tse.get(muni_code)
+        if cid is None or mid is None or not zone:
+            continue
+        votes = _i(row.get("QT_VOTOS_NOMINAIS"))
+        key = (cid, mid, zone)
+        acc[key] = acc.get(key, 0) + votes
+
+        if rows_processed % CHUNK_SIZE == 0:
+            job.rows_processed = rows_processed
+            db.commit()
+
+        if len(acc) >= VOTE_ACC_MAX:
+            _flush_zone_votes(db, acc)
+            acc.clear()
+            log.info("tse_zona_flush", rows=rows_processed)
+
+    _flush_zone_votes(db, acc)
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info("tse_zona_done", year=year, rows=rows_processed)

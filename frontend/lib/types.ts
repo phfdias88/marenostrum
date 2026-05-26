@@ -224,6 +224,19 @@ export type TseElectorate = {
   by_education: Record<string, number>;
 };
 
+export type TseZoneVoteItem = {
+  zone: number;
+  municipality_name: string;
+  state: string;
+  votes: number;
+};
+
+export type TseCandidateZoneVotes = {
+  candidate_id: string;
+  total_votes: number;
+  items: TseZoneVoteItem[];
+};
+
 export type TseCandidateByNeighborhoodItem = {
   neighborhood: string;
   votes: number;

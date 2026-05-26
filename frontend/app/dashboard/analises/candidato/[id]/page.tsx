@@ -11,7 +11,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { TseCandidateResults } from "@/lib/types";
+import type { TseCandidateResults, TseCandidateZoneVotes } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -31,6 +31,7 @@ export default function CandidateDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [zones, setZones] = useState<TseCandidateZoneVotes | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +42,10 @@ export default function CandidateDetailPage() {
       .then(setData)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
+    // Votos por zona (404/vazio = dataset de zona não sincronizado → esconde)
+    api<TseCandidateZoneVotes>(`/v1/tse/candidates/${id}/by-zone`)
+      .then(setZones)
+      .catch(() => setZones(null));
   }, [id]);
 
   if (loading) {
@@ -197,6 +202,41 @@ export default function CandidateDetailPage() {
             </p>
           )}
         </div>
+
+        {/* Votos por zona eleitoral */}
+        {zones && zones.items.length > 0 && (
+          <div className="mt-5">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              Votos por zona eleitoral
+            </p>
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+              {zones.items.map((z, i) => {
+                const max = zones.items[0]?.votes || 1;
+                return (
+                  <li key={`${z.municipality_name}-${z.zone}-${i}`} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate">
+                        Zona {z.zone}{" "}
+                        <span className="text-muted-foreground">
+                          · {z.municipality_name}/{z.state}
+                        </span>
+                      </span>
+                      <span className="font-mono font-semibold shrink-0">
+                        {numberFmt.format(z.votes)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary"
+                        style={{ width: `${(z.votes / max) * 100}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
       {showMap && (
