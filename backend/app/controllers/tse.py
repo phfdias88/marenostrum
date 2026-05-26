@@ -20,6 +20,7 @@ from app.models.tse import (
     Candidate,
     Election,
     Municipality,
+    MunicipalityElectorate,
     Party,
     SyncJobStatus,
     TseSectionVote,
@@ -35,6 +36,7 @@ from app.schemas.tse import (
     CandidateResultsResponse,
     ElectionRead,
     ElectionStatsResponse,
+    ElectorateResponse,
     MunicipalityRead,
     MunicipalityResultsResponse,
     PartyPerformanceItem,
@@ -478,6 +480,40 @@ def municipality_top_candidates(
         total_votes=total_votes,
         office_code=office_code,
         office_name=office_name,
+    )
+
+
+@router.get(
+    "/municipalities/{municipality_id}/electorate",
+    response_model=ElectorateResponse,
+    summary="Perfil do eleitorado do município (gênero/idade/escolaridade)",
+)
+def municipality_electorate(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    year: int = Query(2024),
+    db: Session = Depends(get_db),
+) -> ElectorateResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Município não encontrado")
+    prof = db.execute(
+        select(MunicipalityElectorate).where(
+            MunicipalityElectorate.municipality_id == municipality_id,
+            MunicipalityElectorate.year == year,
+        )
+    ).scalar_one_or_none()
+    if prof is None:
+        raise NotFoundError(
+            "Perfil do eleitorado não disponível (sincronize 'perfil_eleitorado_2024')."
+        )
+    return ElectorateResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        year=prof.year,
+        total=prof.total,
+        by_gender=prof.by_gender or {},
+        by_age=prof.by_age or {},
+        by_education=prof.by_education or {},
     )
 
 

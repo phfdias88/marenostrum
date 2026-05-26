@@ -191,3 +191,13 @@ class SyncJobCreated(BaseModel):
     job_id: UUID = Field(..., description="Use em GET /tse/sync/{id} pra acompanhar progresso")
     dataset: str
     status: SyncJobStatus
+
+
+class ElectorateResponse(BaseModel):
+    """Perfil do eleitorado de um município (gênero/idade/escolaridade)."""
+    municipality: MunicipalityRead
+    year: int
+    total: int
+    by_gender: dict[str, int]
+    by_age: dict[str, int]
+    by_education: dict[str, int]

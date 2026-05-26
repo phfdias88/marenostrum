@@ -11,7 +11,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { TseMunicipalityResults } from "@/lib/types";
+import type { TseElectorate, TseMunicipalityResults } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
@@ -46,7 +46,16 @@ export default function MunicipioDetailPage() {
   const [data, setData] = useState<TseMunicipalityResults | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [electorate, setElectorate] = useState<TseElectorate | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // Perfil do eleitorado (independe do filtro ano/cargo). 404 = não sincronizado.
+  useEffect(() => {
+    if (!id) return;
+    api<TseElectorate>(`/v1/tse/municipalities/${id}/electorate`)
+      .then(setElectorate)
+      .catch(() => setElectorate(null));
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -154,6 +163,21 @@ export default function MunicipioDetailPage() {
           <Stat label="Candidatos com votos" value={loading ? null : data?.total_results ?? 0} />
         </div>
 
+        {/* Perfil do eleitorado (TSE) */}
+        {electorate && (
+          <div className="mt-6">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" /> Perfil do eleitorado ·{" "}
+              {numberFmt.format(electorate.total)} eleitores ({electorate.year})
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Breakdown title="Gênero" data={electorate.by_gender} total={electorate.total} />
+              <Breakdown title="Faixa etária" data={electorate.by_age} total={electorate.total} />
+              <Breakdown title="Escolaridade" data={electorate.by_education} total={electorate.total} />
+            </div>
+          </div>
+        )}
+
         {/* Top candidatos */}
         <div className="mt-6">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -216,6 +240,45 @@ export default function MunicipioDetailPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Breakdown({
+  title,
+  data,
+  total,
+}: {
+  title: string;
+  data: Record<string, number>;
+  total: number;
+}) {
+  const entries = Object.entries(data);
+  const max = Math.max(1, ...entries.map(([, v]) => v));
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">{title}</p>
+      <ul className="space-y-2">
+        {entries.map(([label, value]) => {
+          const pct = total > 0 ? (value / total) * 100 : 0;
+          return (
+            <li key={label}>
+              <div className="flex items-center justify-between text-xs mb-0.5">
+                <span className="truncate">{label}</span>
+                <span className="text-muted-foreground font-mono shrink-0">
+                  {pctFmt.format(pct)}%
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary"
+                  style={{ width: `${(value / max) * 100}%` }}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

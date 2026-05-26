@@ -21,6 +21,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,7 +30,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from sqlalchemy import insert, select
+from sqlalchemy import delete, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -38,6 +39,7 @@ from app.models.tse import (
     Candidate,
     Election,
     Municipality,
+    MunicipalityElectorate,
     Party,
     SyncJobStatus,
     TseSectionVote,
@@ -76,6 +78,12 @@ DATASETS: dict[str, dict] = {
         "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_2024.zip",
         "year": 2024,
         "processor": "locais_votacao",
+    },
+    "perfil_eleitorado_2024": {
+        "url": f"{TSE_BASE_URL}/perfil_eleitorado/perfil_eleitorado_2024.zip",
+        "year": 2024,
+        "processor": "perfil_eleitorado",
+        "max_mb": 300,  # zip ~187MB
     },
 }
 
@@ -208,7 +216,7 @@ def run_sync_job(job_id: UUID) -> None:
 
             # Cache: re-usa se já baixou (TSE não muda dataset histórico)
             if not zip_path.exists():
-                download_zip(dataset_meta["url"], zip_path)
+                download_zip(dataset_meta["url"], zip_path, max_mb=dataset_meta.get("max_mb"))
             else:
                 log.info("tse_zip_from_cache", path=str(zip_path))
 
@@ -222,6 +230,8 @@ def run_sync_job(job_id: UUID) -> None:
                 _process_votacao_secao(
                     db, job, zip_path, uf=dataset_meta["uf"],
                 )
+            elif processor == "perfil_eleitorado":
+                _process_perfil_eleitorado(db, job, zip_path)
             else:
                 _fail(db, job, f"Processor desconhecido: {processor}")
                 return
@@ -729,3 +739,143 @@ def _process_votacao_secao(
     job.rows_processed = rows_processed
     db.commit()
     log.info("tse_secao_done", uf=uf, total=len(rows_out))
+
+
+# ====================================================================
+# Processor: perfil_eleitorado (perfil_eleitorado_2024.zip)
+# ====================================================================
+
+_AGE_ORDER = ["16-17", "18-24", "25-34", "35-44", "45-59", "60-69", "70+"]
+_EDU_ORDER = [
+    "Analfabeto", "Lê e escreve", "Fundamental", "Médio", "Superior",
+    "Não informado",
+]
+_GENDER_ORDER = ["Feminino", "Masculino", "Não informado"]
+
+
+def _age_bucket(ds: str) -> str:
+    m = re.match(r"\s*(\d+)", ds or "")
+    if not m:
+        return "70+"  # "100 anos ou mais" etc caem aqui; "Inválida" é raro
+    n = int(m.group(1))
+    if n <= 17:
+        return "16-17"
+    if n <= 24:
+        return "18-24"
+    if n <= 34:
+        return "25-34"
+    if n <= 44:
+        return "35-44"
+    if n <= 59:
+        return "45-59"
+    if n <= 69:
+        return "60-69"
+    return "70+"
+
+
+def _edu_bucket(ds: str) -> str:
+    s = (ds or "").upper()
+    if "ANALFABETO" in s:
+        return "Analfabeto"
+    if "LÊ E ESCREVE" in s or "LE E ESCREVE" in s:
+        return "Lê e escreve"
+    if "FUNDAMENTAL" in s or "1º GRAU" in s or "1O GRAU" in s:
+        return "Fundamental"
+    if "MÉDIO" in s or "MEDIO" in s or "2º GRAU" in s or "2O GRAU" in s:
+        return "Médio"
+    if "SUPERIOR" in s:
+        return "Superior"
+    return "Não informado"
+
+
+def _gender_label(ds: str) -> str:
+    s = (ds or "").upper()
+    if s.startswith("FEM"):
+        return "Feminino"
+    if s.startswith("MASC"):
+        return "Masculino"
+    return "Não informado"
+
+
+def _ordered(acc: dict[str, int], order: list[str]) -> dict[str, int]:
+    """Reordena o dict pelos rótulos canônicos (mantém só os com valor>0)."""
+    out = {k: acc[k] for k in order if acc.get(k, 0) > 0}
+    # inclui rótulos inesperados ao final
+    for k, v in acc.items():
+        if k not in out and v > 0:
+            out[k] = v
+    return out
+
+
+def _process_perfil_eleitorado(
+    db: Session, job: TseSyncJob, zip_path: Path,
+) -> None:
+    """
+    Agrega perfil_eleitorado_2024.csv por município:
+    total + gênero + faixa etária (agrupada) + escolaridade (agrupada).
+    O CSV tem milhões de linhas (município×zona×gênero×idade×escolaridade×…);
+    acumulamos em memória por município (~5.5k chaves) e gravamos 1 linha/muni.
+    """
+    munis_by_tse: dict[int, UUID] = {
+        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
+    }
+
+    acc: dict[UUID, dict] = {}
+    rows_processed = 0
+
+    for _, row in iter_csv_rows(zip_path):
+        rows_processed += 1
+        code = _i(row.get("CD_MUNICIPIO"))
+        muni_id = munis_by_tse.get(code)
+        if muni_id is None:
+            continue
+        qt = _i(row.get("QT_ELEITORES_PERFIL"))
+        if qt <= 0:
+            continue
+
+        a = acc.get(muni_id)
+        if a is None:
+            a = acc[muni_id] = {"total": 0, "g": {}, "age": {}, "edu": {}}
+        a["total"] += qt
+        g = _gender_label(row.get("DS_GENERO", ""))
+        a["g"][g] = a["g"].get(g, 0) + qt
+        ab = _age_bucket(row.get("DS_FAIXA_ETARIA", ""))
+        a["age"][ab] = a["age"].get(ab, 0) + qt
+        eb = _edu_bucket(row.get("DS_GRAU_ESCOLARIDADE", ""))
+        a["edu"][eb] = a["edu"].get(eb, 0) + qt
+
+        if rows_processed % 200_000 == 0:
+            job.rows_processed = rows_processed
+            db.commit()
+            log.info("tse_perfil_progress", rows=rows_processed, munis=len(acc))
+
+    now = datetime.now(timezone.utc)
+    rows_out = [
+        {
+            "id": uuid4(),
+            "municipality_id": mid,
+            "year": 2024,
+            "total": v["total"],
+            "by_gender": _ordered(v["g"], _GENDER_ORDER),
+            "by_age": _ordered(v["age"], _AGE_ORDER),
+            "by_education": _ordered(v["edu"], _EDU_ORDER),
+            "created_at": now,
+            "updated_at": now,
+        }
+        for mid, v in acc.items()
+    ]
+
+    # Idempotente: limpa o ano antes de regravar
+    db.execute(delete(MunicipalityElectorate).where(MunicipalityElectorate.year == 2024))
+    db.commit()
+
+    log.info("tse_perfil_inserting", munis=len(rows_out))
+    for i in range(0, len(rows_out), CHUNK_SIZE):
+        db.execute(insert(MunicipalityElectorate), rows_out[i : i + CHUNK_SIZE])
+        db.commit()
+        job.municipalities_imported = len(rows_out[: i + CHUNK_SIZE])
+        db.commit()
+
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info("tse_perfil_done", munis=len(rows_out), rows=rows_processed)

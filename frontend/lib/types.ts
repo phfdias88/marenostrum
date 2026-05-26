@@ -215,6 +215,15 @@ export type TseMunicipalityResults = {
   office_name: string | null;
 };
 
+export type TseElectorate = {
+  municipality: TseMunicipality;
+  year: number;
+  total: number;
+  by_gender: Record<string, number>;
+  by_age: Record<string, number>;
+  by_education: Record<string, number>;
+};
+
 export type TseCandidateByNeighborhoodItem = {
   neighborhood: string;
   votes: number;

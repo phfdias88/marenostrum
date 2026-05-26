@@ -16,6 +16,7 @@ Tenant não-isolado pra dados PÚBLICOS:
 """
 from app.models.tse.candidate import Candidate
 from app.models.tse.election import Election
+from app.models.tse.electorate import MunicipalityElectorate
 from app.models.tse.municipality import Municipality
 from app.models.tse.party import Party
 from app.models.tse.section_vote import TseSectionVote
@@ -33,4 +34,5 @@ __all__ = [
     "SyncJobStatus",
     "TseVotingPlace",
     "TseSectionVote",
+    "MunicipalityElectorate",
 ]
