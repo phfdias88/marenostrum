@@ -145,6 +145,7 @@ export function GlobalSearch() {
                     <button
                       key={c.id}
                       onClick={() => go(`/dashboard/analises/candidato/${c.id}`)}
+                      onMouseEnter={() => router.prefetch(`/dashboard/analises/candidato/${c.id}`)}
                       className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
                     >
                       <CandidatePhoto
@@ -175,6 +176,7 @@ export function GlobalSearch() {
                     <button
                       key={p.id}
                       onClick={() => go(`/dashboard/analises/partido/${p.number}`)}
+                      onMouseEnter={() => router.prefetch(`/dashboard/analises/partido/${p.number}`)}
                       className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
                     >
                       <PartyLogo number={p.number} abbreviation={p.abbreviation} size="sm" />
@@ -198,6 +200,7 @@ export function GlobalSearch() {
                     <button
                       key={m.id}
                       onClick={() => go(`/dashboard/analises/municipio/${m.id}`)}
+                      onMouseEnter={() => router.prefetch(`/dashboard/analises/municipio/${m.id}`)}
                       className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
                     >
                       <StateFlag uf={m.state} size="sm" />
