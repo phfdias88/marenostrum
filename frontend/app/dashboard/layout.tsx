@@ -20,7 +20,6 @@ import { api, ApiError } from "@/lib/api";
 import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { BrandMark } from "@/components/brand/BrandMark";
 import { GlobalSearch } from "@/components/tse/GlobalSearch";
 
 type Me = { full_name: string; tenant_name: string };
@@ -65,11 +64,14 @@ export default function DashboardLayout({
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           {/* Linha 1: marca + usuário/sair */}
           <div className="h-14 flex items-center justify-between gap-3">
-            <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
-              <BrandMark className="w-7 h-7" />
-              <span className="font-bold tracking-[0.12em] text-sm sm:text-base bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-500 bg-clip-text text-transparent">
-                MARENOSTRUM
-              </span>
+            <Link href="/dashboard" className="flex items-center shrink-0">
+              {/* Logo horizontal oficial (M + MARENOSTRUM) */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-wordmark.png"
+                alt="MareNostrum"
+                className="h-7 sm:h-8 w-auto object-contain"
+              />
             </Link>
 
             {/* Nav inline só no desktop (lg+) */}
