@@ -336,7 +336,9 @@ function FavoritesSection() {
           const href =
             f.kind === "candidate"
               ? `/dashboard/analises/candidato/${f.id}`
-              : "/dashboard/analises/municipios";
+              : f.kind === "party"
+                ? `/dashboard/analises/partido/${f.id}`
+                : "/dashboard/analises/municipios";
           return (
             <div
               key={`${f.kind}-${f.id}`}

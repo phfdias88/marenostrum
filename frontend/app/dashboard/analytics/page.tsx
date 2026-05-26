@@ -11,6 +11,7 @@ import {
   FileBarChart,
   Landmark,
   MapPin,
+  Sparkles,
   TrendingUp,
   Users,
   Vote,
@@ -153,6 +154,12 @@ export default function PainelPage() {
         )}
       </section>
 
+      {/* Insights automáticos */}
+      <section>
+        <SectionTitle icon={Sparkles} title="Destaques automáticos" />
+        <InsightsPanel perf={perf} data={d} />
+      </section>
+
       {/* Gráfico: prefeitos eleitos por partido 2024 */}
       <section>
         <SectionTitle icon={Landmark} title="Prefeituras conquistadas por partido (2024)" />
@@ -214,6 +221,94 @@ export default function PainelPage() {
 }
 
 // ----------------------------------------------------------------- pieces
+
+/**
+ * Gera frases de destaque a partir dos dados já carregados (sem backend novo).
+ * Tudo derivado de party-performance 2024 (prefeitos) + contagens da base.
+ */
+function buildInsights(
+  perf: TsePartyPerformanceResponse | null,
+  data: Data | null,
+): string[] {
+  const out: string[] = [];
+  if (perf && perf.items.length > 0) {
+    const ranked = perf.items
+      .filter((i) => i.elected_count > 0)
+      .sort((a, b) => b.elected_count - a.elected_count);
+    const totalElected = perf.total_elected || ranked.reduce((s, i) => s + i.elected_count, 0);
+
+    if (ranked[0] && totalElected > 0) {
+      const pct = ((ranked[0].elected_count / totalElected) * 100).toFixed(1);
+      out.push(
+        `${ranked[0].party.abbreviation} foi o partido que mais elegeu prefeitos em 2024: ${numberFmt.format(ranked[0].elected_count)} (${pct}% do total nacional).`,
+      );
+    }
+    if (ranked.length >= 3) {
+      const top3 = ranked.slice(0, 3).reduce((s, i) => s + i.elected_count, 0);
+      const pct3 = ((top3 / totalElected) * 100).toFixed(1);
+      out.push(
+        `Os 3 maiores partidos (${ranked.slice(0, 3).map((i) => i.party.abbreviation).join(", ")}) concentram ${pct3}% das prefeituras.`,
+      );
+    }
+    out.push(
+      `${numberFmt.format(ranked.length)} partidos elegeram ao menos um prefeito no país.`,
+    );
+    if (ranked.length > 0) {
+      const avg = Math.round(totalElected / ranked.length);
+      out.push(
+        `Em média, cada partido vitorioso conquistou ${numberFmt.format(avg)} prefeituras.`,
+      );
+    }
+  }
+  if (data) {
+    if (data.candidates > 0 && data.parties > 0) {
+      out.push(
+        `A base reúne ${numberFmt.format(data.candidates)} candidatos distribuídos em ${numberFmt.format(data.parties)} partidos.`,
+      );
+    }
+    if (data.vereadores > 0 && data.prefeitos > 0) {
+      const ratio = (data.vereadores / data.prefeitos).toFixed(1);
+      out.push(
+        `Há ${ratio} candidatos a vereador para cada candidato a prefeito.`,
+      );
+    }
+  }
+  return out;
+}
+
+function InsightsPanel({
+  perf,
+  data,
+}: {
+  perf: TsePartyPerformanceResponse | null;
+  data: Data | null;
+}) {
+  const insights = buildInsights(perf, data);
+  if (!perf || !data) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-16 rounded-xl border border-border bg-card/40 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {insights.map((text, i) => (
+        <div
+          key={i}
+          className="rounded-xl border border-border bg-card p-4 flex items-start gap-3"
+        >
+          <span className="grid place-items-center w-8 h-8 rounded-lg bg-primary/15 text-primary shrink-0 mt-0.5">
+            <Sparkles className="w-4 h-4" />
+          </span>
+          <p className="text-sm leading-relaxed">{text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function PartyBarChart({ data }: { data: TsePartyPerformanceResponse | null }) {
   if (!data) {

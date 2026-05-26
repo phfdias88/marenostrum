@@ -675,6 +675,7 @@ def top_candidates(
     year: int = Query(2024),
     office_code: int | None = Query(None),
     state: str | None = Query(None, min_length=2, max_length=2),
+    party_number: int | None = Query(None, description="Número do partido (ex: 13 = PT)"),
     elected_only: bool = Query(False, description="So eleitos"),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -688,6 +689,9 @@ def top_candidates(
         stmt = stmt.where(Candidate.office_code == office_code)
     if state is not None:
         stmt = stmt.where(Candidate.state == state.upper())
+    if party_number is not None:
+        party_ids_sub = select(Party.id).where(Party.number == party_number)
+        stmt = stmt.where(Candidate.party_id.in_(party_ids_sub))
     if elected_only:
         stmt = stmt.where(Candidate.result_status.like("ELEITO%"))
     stmt = stmt.order_by(Candidate.total_votes.desc()).limit(limit)

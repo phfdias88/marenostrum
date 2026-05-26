@@ -376,6 +376,12 @@ function PartyDrillDown({
         <div>
           <h2 className="text-2xl font-bold">{party.abbreviation}</h2>
           <p className="text-sm text-muted-foreground">{party.name}</p>
+          <Link
+            href={`/dashboard/analises/partido/${party.number}`}
+            className="mt-1 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            Abrir página completa →
+          </Link>
         </div>
       </div>
 

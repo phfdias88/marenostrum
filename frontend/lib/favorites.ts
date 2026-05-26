@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-export type FavoriteKind = "candidate" | "municipality";
+export type FavoriteKind = "candidate" | "municipality" | "party";
 
 export type Favorite = {
   kind: FavoriteKind;
