@@ -8,7 +8,7 @@
  *  - Lista paginada de candidatos
  *  - Clique abre painel lateral com votos por municipio (top + total)
  */
-import { ArrowLeft, Loader2, Map as MapIcon, Search, SearchX, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Map as MapIcon, Search, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -27,6 +27,8 @@ import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { downloadCsv } from "@/lib/csv";
+import { OUTCOME_LABEL, classifyResult } from "@/lib/types";
 
 const PAGE_SIZE = 20;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -55,6 +57,47 @@ export default function CandidatoAnalysisPage() {
   const [details, setDetails] = useState<TseCandidateResults | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [showMap, setShowMap] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // Exporta a lista filtrada (até 1000) em CSV pro Excel
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({ limit: "1000", offset: "0" });
+      if (state) params.set("state", state);
+      if (office) params.set("office_code", office);
+      if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      const res = await api<Page<TseCandidate>>(
+        `/v1/tse/candidates?${params.toString()}`,
+      );
+      const rows = res.items.map((c) => ({
+        numero: c.number,
+        urna: c.urn_name,
+        nome: c.name,
+        partido: c.party.abbreviation,
+        cargo: c.office_name,
+        uf: c.state,
+        resultado: OUTCOME_LABEL[classifyResult(c.result_status)],
+      }));
+      downloadCsv(
+        `candidatos-${state || "br"}-${office || "todos"}`,
+        [
+          { key: "numero", label: "Número" },
+          { key: "urna", label: "Nome de urna" },
+          { key: "nome", label: "Nome" },
+          { key: "partido", label: "Partido" },
+          { key: "cargo", label: "Cargo" },
+          { key: "uf", label: "UF" },
+          { key: "resultado", label: "Resultado" },
+        ],
+        rows,
+      );
+    } catch {
+      /* silencioso — botão volta ao normal */
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Reset page quando filtros mudam
   useEffect(() => setPage(0), [state, office, debouncedSearch]);
@@ -181,15 +224,30 @@ export default function CandidatoAnalysisPage() {
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Lista */}
         <div className="lg:col-span-2 space-y-3">
-          <div className="text-sm text-muted-foreground">
-            {loading ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="w-3 h-3 animate-spin" /> carregando…
-              </span>
-            ) : (
-              <>
-                {numberFmt.format(total)} candidato(s) encontrado(s)
-              </>
+          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+            <span>
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="w-3 h-3 animate-spin" /> carregando…
+                </span>
+              ) : (
+                `${numberFmt.format(total)} candidato(s) encontrado(s)`
+              )}
+            </span>
+            {!loading && total > 0 && (
+              <button
+                onClick={exportCsv}
+                disabled={exporting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs transition-colors disabled:opacity-50 shrink-0"
+                title="Baixar CSV (até 1000 candidatos do filtro atual)"
+              >
+                {exporting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5" />
+                )}
+                Exportar CSV
+              </button>
             )}
           </div>
 

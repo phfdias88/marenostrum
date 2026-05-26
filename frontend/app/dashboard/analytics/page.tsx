@@ -165,6 +165,18 @@ export default function PainelPage() {
         </div>
       </section>
 
+      {/* Votos nominais por partido + concentração */}
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2">
+          <SectionTitle icon={Vote} title="Votos nominais por partido — prefeito (2024)" />
+          <PartyVotesChart data={perf} />
+        </div>
+        <div>
+          <SectionTitle icon={Landmark} title="Concentração" />
+          <ConcentrationDonut data={perf} />
+        </div>
+      </section>
+
       {/* CRM */}
       <section>
         <SectionTitle icon={Users} title="Sua campanha (CRM)" />
@@ -300,6 +312,110 @@ function InsightsPanel({
           <p className="text-sm leading-relaxed">{text}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+const numberFmtCompact = new Intl.NumberFormat("pt-BR", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+/** Top 10 partidos por votos nominais (complementa o gráfico de eleitos). */
+function PartyVotesChart({ data }: { data: TsePartyPerformanceResponse | null }) {
+  if (!data) {
+    return <div className="h-48 rounded-xl border border-border bg-card/40 animate-pulse" />;
+  }
+  const top = [...data.items]
+    .filter((i) => i.total_votes > 0)
+    .sort((a, b) => b.total_votes - a.total_votes)
+    .slice(0, 10);
+  const max = Math.max(1, ...top.map((i) => i.total_votes));
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-2.5">
+      {top.map((i) => (
+        <div key={i.party.id} className="flex items-center gap-3">
+          <span className="w-16 shrink-0 text-sm font-bold text-right">
+            {i.party.abbreviation}
+          </span>
+          <div className="flex-1 h-6 rounded-md bg-muted overflow-hidden relative">
+            <div
+              className="h-full bg-gradient-to-r from-sky-500 to-cyan-400 flex items-center justify-end pr-2"
+              style={{ width: `${(i.total_votes / max) * 100}%` }}
+            >
+              <span className="text-xs font-bold text-background">
+                {numberFmtCompact.format(i.total_votes)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground pt-1">
+        {numberFmt.format(data.total_votes)} votos nominais no total · top 10 partidos
+      </p>
+    </div>
+  );
+}
+
+/** Donut: fatia de prefeituras dos top 5 partidos vs resto. */
+function ConcentrationDonut({ data }: { data: TsePartyPerformanceResponse | null }) {
+  if (!data) {
+    return <div className="h-48 rounded-xl border border-border bg-card/40 animate-pulse" />;
+  }
+  const total = data.total_elected || 1;
+  const ranked = [...data.items]
+    .filter((i) => i.elected_count > 0)
+    .sort((a, b) => b.elected_count - a.elected_count);
+  const top5 = ranked.slice(0, 5);
+  const colors = ["#eab308", "#0ea5e9", "#22c55e", "#a855f7", "#f97316"];
+  const restCount = total - top5.reduce((s, i) => s + i.elected_count, 0);
+
+  const slices = [
+    ...top5.map((i, idx) => ({
+      label: i.party.abbreviation,
+      value: i.elected_count,
+      color: colors[idx],
+    })),
+    { label: "Outros", value: Math.max(0, restCount), color: "#3f3f46" },
+  ];
+
+  // conic-gradient stops
+  let acc = 0;
+  const stops = slices
+    .map((s) => {
+      const start = (acc / total) * 360;
+      acc += s.value;
+      const end = (acc / total) * 360;
+      return `${s.color} ${start}deg ${end}deg`;
+    })
+    .join(", ");
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 flex flex-col items-center">
+      <div
+        className="w-36 h-36 rounded-full"
+        style={{ background: `conic-gradient(${stops})` }}
+      >
+        <div className="w-full h-full rounded-full grid place-items-center">
+          <div className="w-20 h-20 rounded-full bg-card grid place-items-center text-center">
+            <div>
+              <p className="text-lg font-bold leading-none">{numberFmt.format(total)}</p>
+              <p className="text-[10px] text-muted-foreground">prefeituras</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ul className="mt-4 w-full space-y-1.5">
+        {slices.map((s) => (
+          <li key={s.label} className="flex items-center gap-2 text-xs">
+            <span className="w-3 h-3 rounded-sm shrink-0" style={{ background: s.color }} />
+            <span className="flex-1 truncate">{s.label}</span>
+            <span className="font-mono text-muted-foreground">
+              {((s.value / total) * 100).toFixed(1)}%
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
