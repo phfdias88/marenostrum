@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * Busca global no header — acha candidato OU município de qualquer página.
+ * Busca global no header — acha candidato, município OU partido de qualquer página.
  * - debounce 300ms
  * - chama /tse/candidates?search= e /tse/municipalities?search= em paralelo
+ * - partidos: lista (~29) carregada 1x e filtrada no cliente
  * - dropdown com resultados; clique navega pra página dedicada
  * - Esc fecha, clique fora fecha
  */
-import { Loader2, MapPin, Search, User, X } from "lucide-react";
+import { Building2, Loader2, MapPin, Search, User, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { Page, TseCandidate, TseMunicipality } from "@/lib/types";
+import type { Page, TseCandidate, TseMunicipality, TseParty } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
+import { PartyLogo } from "@/components/tse/PartyLogo";
 import { StateFlag } from "@/components/tse/StateFlag";
 
 function useDebounce<T>(v: T, ms: number): T {
@@ -33,6 +35,7 @@ export function GlobalSearch() {
   const [loading, setLoading] = useState(false);
   const [cands, setCands] = useState<TseCandidate[]>([]);
   const [munis, setMunis] = useState<TseMunicipality[]>([]);
+  const [allParties, setAllParties] = useState<TseParty[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
 
   // Fecha ao clicar fora
@@ -45,6 +48,24 @@ export function GlobalSearch() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // Lista de partidos (pequena) carregada uma vez, filtrada no cliente
+  useEffect(() => {
+    api<TseParty[]>("/v1/tse/parties").then(setAllParties).catch(() => {});
+  }, []);
+
+  const parties = useMemo(() => {
+    const t = debounced.trim().toLowerCase();
+    if (t.length < 2) return [];
+    return allParties
+      .filter(
+        (p) =>
+          p.abbreviation.toLowerCase().includes(t) ||
+          p.name.toLowerCase().includes(t) ||
+          String(p.number) === t,
+      )
+      .slice(0, 4);
+  }, [allParties, debounced]);
 
   useEffect(() => {
     const term = debounced.trim();
@@ -73,7 +94,7 @@ export function GlobalSearch() {
     router.push(href);
   }
 
-  const hasResults = cands.length > 0 || munis.length > 0;
+  const hasResults = cands.length > 0 || munis.length > 0 || parties.length > 0;
 
   return (
     <div ref={boxRef} className="relative w-full max-w-md">
@@ -86,7 +107,7 @@ export function GlobalSearch() {
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        placeholder="Buscar candidato ou município…"
+        placeholder="Buscar candidato, município ou partido…"
         className="w-full pl-9 pr-9 py-2 rounded-md bg-background border border-border text-sm
                    focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
@@ -140,6 +161,29 @@ export function GlobalSearch() {
                       </div>
                       <span className="text-primary font-mono text-xs shrink-0">
                         {c.number}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {parties.length > 0 && (
+                <div>
+                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <Building2 className="w-3 h-3" /> Partidos
+                  </p>
+                  {parties.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => go(`/dashboard/analises/partido/${p.number}`)}
+                      className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
+                    >
+                      <PartyLogo number={p.number} abbreviation={p.abbreviation} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{p.abbreviation}</p>
+                        <p className="text-xs text-muted-foreground truncate">{p.name}</p>
+                      </div>
+                      <span className="text-primary font-mono text-xs shrink-0">
+                        {p.number}
                       </span>
                     </button>
                   ))}
