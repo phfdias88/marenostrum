@@ -215,3 +215,22 @@ class CandidateZoneVotesResponse(BaseModel):
     candidate_id: UUID
     total_votes: int
     items: list[ZoneVoteItem]
+
+
+class ZoneTopCandidate(BaseModel):
+    candidate: CandidateRead
+    votes: int
+
+
+class MunicipalityZone(BaseModel):
+    zone: int
+    total_votes: int
+    candidates: list[ZoneTopCandidate]
+
+
+class MunicipalityZonesResponse(BaseModel):
+    """Top candidatos por zona num município (cargo/ano)."""
+    municipality: MunicipalityRead
+    office_code: int | None = None
+    office_name: str | None = None
+    zones: list[MunicipalityZone]

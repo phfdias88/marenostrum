@@ -11,7 +11,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { TseElectorate, TseMunicipalityResults } from "@/lib/types";
+import type {
+  TseElectorate,
+  TseMunicipalityResults,
+  TseMunicipalityZones,
+} from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
@@ -47,6 +51,7 @@ export default function MunicipioDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [electorate, setElectorate] = useState<TseElectorate | null>(null);
+  const [zones, setZones] = useState<TseMunicipalityZones | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Perfil do eleitorado (independe do filtro ano/cargo). 404 = não sincronizado.
@@ -69,6 +74,18 @@ export default function MunicipioDetailPage() {
       .then(setData)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
+  }, [id, year, office]);
+
+  // Top candidatos por zona (404/vazio = zona não sincronizada → esconde)
+  useEffect(() => {
+    if (!id || !office) {
+      setZones(null);
+      return;
+    }
+    const p = new URLSearchParams({ year, office_code: office, top_per_zone: "5" });
+    api<TseMunicipalityZones>(`/v1/tse/municipalities/${id}/zones?${p.toString()}`)
+      .then(setZones)
+      .catch(() => setZones(null));
   }, [id, year, office]);
 
   const muni = data?.municipality;
@@ -239,6 +256,56 @@ export default function MunicipioDetailPage() {
             </ol>
           )}
         </div>
+
+        {/* Top candidatos por zona eleitoral */}
+        {zones && zones.zones.length > 0 && (
+          <div className="mt-6">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" /> Por zona eleitoral · {zones.office_name ?? "cargo"}
+              <span className="text-muted-foreground/70">({zones.zones.length} zonas)</span>
+            </p>
+            <div className="space-y-2">
+              {zones.zones.map((z) => (
+                <div key={z.zone} className="rounded-lg border bg-card p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-semibold text-sm">Zona {z.zone}</span>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {numberFmt.format(z.total_votes)} votos
+                    </span>
+                  </div>
+                  <ol className="space-y-1">
+                    {z.candidates.map((c, i) => {
+                      const pct = z.total_votes > 0 ? (c.votes / z.total_votes) * 100 : 0;
+                      return (
+                        <li key={c.candidate.id} className="flex items-center gap-2 text-sm">
+                          <span className="w-4 text-center text-xs text-muted-foreground shrink-0">
+                            {i + 1}
+                          </span>
+                          <Link
+                            href={`/dashboard/analises/candidato/${c.candidate.id}`}
+                            className="flex-1 min-w-0 truncate hover:underline"
+                          >
+                            <span className="text-primary font-mono">{c.candidate.number}</span>{" "}
+                            {c.candidate.urn_name}{" "}
+                            <span className="text-muted-foreground">
+                              ({c.candidate.party.abbreviation})
+                            </span>
+                          </Link>
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {pctFmt.format(pct)}%
+                          </span>
+                          <span className="font-mono font-semibold shrink-0 w-16 text-right">
+                            {numberFmt.format(c.votes)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

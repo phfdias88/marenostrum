@@ -231,6 +231,21 @@ export type TseZoneVoteItem = {
   votes: number;
 };
 
+export type TseZoneTopCandidate = { candidate: TseCandidate; votes: number };
+
+export type TseMunicipalityZone = {
+  zone: number;
+  total_votes: number;
+  candidates: TseZoneTopCandidate[];
+};
+
+export type TseMunicipalityZones = {
+  municipality: TseMunicipality;
+  office_code: number | null;
+  office_name: string | null;
+  zones: TseMunicipalityZone[];
+};
+
 export type TseCandidateZoneVotes = {
   candidate_id: string;
   total_votes: number;

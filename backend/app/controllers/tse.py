@@ -39,9 +39,12 @@ from app.schemas.tse import (
     ElectionRead,
     ElectionStatsResponse,
     ElectorateResponse,
+    ZoneTopCandidate,
     ZoneVoteItem,
     MunicipalityRead,
     MunicipalityResultsResponse,
+    MunicipalityZone,
+    MunicipalityZonesResponse,
     PartyPerformanceItem,
     PartyPerformanceResponse,
     PartyRead,
@@ -517,6 +520,79 @@ def municipality_electorate(
         by_gender=prof.by_gender or {},
         by_age=prof.by_age or {},
         by_education=prof.by_education or {},
+    )
+
+
+@router.get(
+    "/municipalities/{municipality_id}/zones",
+    response_model=MunicipalityZonesResponse,
+    summary="Top candidatos por zona eleitoral num município (cargo/ano)",
+)
+def municipality_zones(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    office_code: int = Query(11, description="11=prefeito, 13=vereador"),
+    year: int = Query(2024),
+    top_per_zone: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+) -> MunicipalityZonesResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Município não encontrado")
+
+    election_ids = select(Election.id).where(Election.year == year)
+    rows = db.execute(
+        select(CandidateZoneVote.zone, CandidateZoneVote.votes, Candidate)
+        .join(Candidate, Candidate.id == CandidateZoneVote.candidate_id)
+        .where(
+            CandidateZoneVote.municipality_id == municipality_id,
+            Candidate.office_code == office_code,
+            Candidate.election_id.in_(election_ids),
+        )
+        .order_by(CandidateZoneVote.zone, CandidateZoneVote.votes.desc())
+    ).all()
+
+    # Agrupa por zona (já vem ordenado por zona, votos desc)
+    parties_cache: dict[UUID, Party] = {}
+    elections_cache: dict[UUID, Election] = {}
+    zones_map: dict[int, dict] = {}
+    for zone, votes, cand in rows:
+        z = zones_map.setdefault(zone, {"total": 0, "cands": []})
+        z["total"] += int(votes)
+        if len(z["cands"]) < top_per_zone:
+            if cand.party_id not in parties_cache:
+                parties_cache[cand.party_id] = db.get(Party, cand.party_id)
+            if cand.election_id not in elections_cache:
+                elections_cache[cand.election_id] = db.get(Election, cand.election_id)
+            z["cands"].append((cand, int(votes)))
+
+    office_name = rows[0][2].office_name if rows else None
+    zones = [
+        MunicipalityZone(
+            zone=zone,
+            total_votes=info["total"],
+            candidates=[
+                ZoneTopCandidate(
+                    candidate=CandidateRead(
+                        id=c.id, number=c.number, name=c.name, urn_name=c.urn_name,
+                        office_code=c.office_code, office_name=c.office_name,
+                        state=c.state, situation=c.situation,
+                        result_status=c.result_status,
+                        party=PartyRead.model_validate(parties_cache[c.party_id]),
+                        election=ElectionRead.model_validate(elections_cache[c.election_id]),
+                    ),
+                    votes=v,
+                )
+                for c, v in info["cands"]
+            ],
+        )
+        for zone, info in sorted(zones_map.items())
+    ]
+    return MunicipalityZonesResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        office_code=office_code,
+        office_name=office_name,
+        zones=zones,
     )
 
 
