@@ -740,6 +740,40 @@ def top_candidates(
     )
 
 
+@router.get(
+    "/stats/counts",
+    summary="Contagens exatas (candidatos por cargo, municípios, partidos) p/ painel",
+)
+def stats_counts(
+    ctx: CurrentTenant,
+    year: int | None = Query(None, description="Filtra candidatos por ano da eleição"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Contagens EXATAS p/ stats — diferente de /candidates.total, que é capado
+    em 5000 (otimização da busca). Agregações rápidas (count / group by)."""
+    cand_q = select(func.count()).select_from(Candidate)
+    office_q = select(Candidate.office_code, func.count()).group_by(Candidate.office_code)
+    if year is not None:
+        eids = select(Election.id).where(Election.year == year)
+        cand_q = cand_q.where(Candidate.election_id.in_(eids))
+        office_q = office_q.where(Candidate.election_id.in_(eids))
+
+    candidates = int(db.execute(cand_q).scalar_one())
+    by_office = {
+        str(int(code)): int(n) for code, n in db.execute(office_q).all() if code is not None
+    }
+    municipalities = int(db.execute(select(func.count()).select_from(Municipality)).scalar_one())
+    parties = int(db.execute(select(func.count()).select_from(Party)).scalar_one())
+    elections = int(db.execute(select(func.count()).select_from(Election)).scalar_one())
+    return {
+        "candidates": candidates,
+        "by_office": by_office,
+        "municipalities": municipalities,
+        "parties": parties,
+        "elections": elections,
+    }
+
+
 # ============================================================ BY NEIGHBORHOOD
 
 

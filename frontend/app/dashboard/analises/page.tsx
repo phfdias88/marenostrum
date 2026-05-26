@@ -36,7 +36,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
-import type { Page, TseCandidate, TseElection, TseParty, TseSyncJob } from "@/lib/types";
+import type { TseSyncJob } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useFavorites } from "@/lib/favorites";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
@@ -44,26 +44,35 @@ import { Star } from "lucide-react";
 
 // ------------------------------------------------------------------- stats
 
+type Counts = {
+  candidates: number;
+  by_office: Record<string, number>;
+  municipalities: number;
+  parties: number;
+  elections: number;
+};
+
 type Stats = {
   parties: number;
   elections: number;
   candidates: number;
+  municipalities: number;
   lastSync: TseSyncJob | null;
 };
 
 async function loadStats(): Promise<Stats> {
-  const [parties, elections, page, jobs] = await Promise.all([
-    api<TseParty[]>("/v1/tse/parties").catch(() => []),
-    api<TseElection[]>("/v1/tse/elections").catch(() => []),
-    api<Page<TseCandidate>>("/v1/tse/candidates?limit=1").catch(
-      () => ({ items: [], total: 0, limit: 1, offset: 0 }) as Page<TseCandidate>,
+  const [counts, jobs] = await Promise.all([
+    // Contagens EXATAS (não o total capado em 5000 de /candidates)
+    api<Counts>("/v1/tse/stats/counts").catch(
+      () => ({ candidates: 0, by_office: {}, municipalities: 0, parties: 0, elections: 0 }),
     ),
     api<TseSyncJob[]>("/v1/tse/sync").catch(() => []),
   ]);
   return {
-    parties: parties.length,
-    elections: elections.length,
-    candidates: page.total,
+    parties: counts.parties,
+    elections: counts.elections,
+    candidates: counts.candidates,
+    municipalities: counts.municipalities,
     lastSync: jobs[0] ?? null,
   };
 }
@@ -234,7 +243,7 @@ export default function AnalisesHubPage() {
           />
           <Stat
             label="Municípios"
-            value={5568}
+            value={stats?.municipalities ?? 0}
             hint="todos do Brasil"
             gradient="from-emerald-600/20 to-emerald-500/5"
             accent="text-emerald-400"

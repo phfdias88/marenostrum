@@ -21,13 +21,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
-import type {
-  Page,
-  TseCandidate,
-  TseElection,
-  TseParty,
-  TsePartyPerformanceResponse,
-} from "@/lib/types";
+import type { TsePartyPerformanceResponse } from "@/lib/types";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -41,34 +35,34 @@ type Data = {
   vereadores: number;
 };
 
+type Counts = {
+  candidates: number;
+  by_office: Record<string, number>;
+  municipalities: number;
+  parties: number;
+  elections: number;
+};
+
 async function load(): Promise<Data> {
   const total = (p: string) =>
     api<{ total: number }>(p).then((r) => r.total).catch(() => 0);
-  const [
-    contacts,
-    demandsOpen,
-    candidates,
-    parties,
-    elections,
-    prefeitos,
-    vereadores,
-  ] = await Promise.all([
+  // Contagens EXATAS do TSE 2024 (não o total capado em 5000 de /candidates)
+  const counts = api<Counts>("/v1/tse/stats/counts?year=2024").catch(
+    (): Counts => ({ candidates: 0, by_office: {}, municipalities: 0, parties: 0, elections: 0 }),
+  );
+  const [contacts, demandsOpen, c] = await Promise.all([
     total("/v1/contacts?limit=1"),
     total("/v1/demands?status=aberta&limit=1"),
-    total("/v1/tse/candidates?limit=1"),
-    api<TseParty[]>("/v1/tse/parties").then((r) => r.length).catch(() => 0),
-    api<TseElection[]>("/v1/tse/elections").then((r) => r.length).catch(() => 0),
-    total("/v1/tse/candidates?office_code=11&limit=1"),
-    total("/v1/tse/candidates?office_code=13&limit=1"),
+    counts,
   ]);
   return {
     contacts,
     demandsOpen,
-    candidates,
-    parties,
-    elections,
-    prefeitos,
-    vereadores,
+    candidates: c.candidates,
+    parties: c.parties,
+    elections: c.elections,
+    prefeitos: c.by_office["11"] ?? 0,
+    vereadores: c.by_office["13"] ?? 0,
   };
 }
 
