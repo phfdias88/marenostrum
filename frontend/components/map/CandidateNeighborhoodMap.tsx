@@ -42,6 +42,7 @@ export default function CandidateNeighborhoodMap({
           center={DEFAULT_CENTER}
           zoom={4}
           scrollWheelZoom
+          preferCanvas
           className="h-full w-full"
         >
           <TileLayer

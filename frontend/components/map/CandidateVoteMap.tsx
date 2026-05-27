@@ -54,6 +54,7 @@ export default function CandidateVoteMap({
           center={DEFAULT_CENTER}
           zoom={DEFAULT_ZOOM}
           scrollWheelZoom
+          preferCanvas
           className="h-full w-full"
         >
           <TileLayer
