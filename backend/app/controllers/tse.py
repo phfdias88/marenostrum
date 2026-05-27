@@ -544,31 +544,55 @@ def municipality_zones(
     if muni is None:
         raise NotFoundError("Município não encontrado")
 
-    # Filtra direto por office_code denormalizado na zona (índice
-    # municipality_id, office_code, votes) → sem JOIN pesado pra filtrar cargo.
-    rows = db.execute(
-        select(CandidateZoneVote.zone, CandidateZoneVote.votes, Candidate)
-        .join(Candidate, Candidate.id == CandidateZoneVote.candidate_id)
-        .where(
-            CandidateZoneVote.municipality_id == municipality_id,
-            CandidateZoneVote.office_code == office_code,
+    # Filtro base (índice municipality_id, office_code, votes)
+    base_filter = (
+        CandidateZoneVote.municipality_id == municipality_id,
+        CandidateZoneVote.office_code == office_code,
+    )
+
+    # Total de votos por zona (soma de TODOS) — agregação leve sobre o índice.
+    totals = dict(
+        db.execute(
+            select(CandidateZoneVote.zone, func.sum(CandidateZoneVote.votes))
+            .where(*base_filter)
+            .group_by(CandidateZoneVote.zone)
+        ).all()
+    )
+
+    # Top N por zona via window function — só ~N×zonas linhas voltam (em vez de
+    # dezenas de milhares em cidades grandes), e o JOIN com candidato é só nelas.
+    rn = func.row_number().over(
+        partition_by=CandidateZoneVote.zone,
+        order_by=CandidateZoneVote.votes.desc(),
+    ).label("rn")
+    ranked = (
+        select(
+            CandidateZoneVote.candidate_id.label("cid"),
+            CandidateZoneVote.zone.label("zone"),
+            CandidateZoneVote.votes.label("votes"),
+            rn,
         )
-        .order_by(CandidateZoneVote.zone, CandidateZoneVote.votes.desc())
+        .where(*base_filter)
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked.c.zone, ranked.c.votes, Candidate)
+        .join(Candidate, Candidate.id == ranked.c.cid)
+        .where(ranked.c.rn <= top_per_zone)
+        .order_by(ranked.c.zone, ranked.c.votes.desc())
     ).all()
 
-    # Agrupa por zona (já vem ordenado por zona, votos desc)
+    # Agrupa por zona (top N já vem ordenado)
     parties_cache: dict[UUID, Party] = {}
     elections_cache: dict[UUID, Election] = {}
     zones_map: dict[int, dict] = {}
     for zone, votes, cand in rows:
-        z = zones_map.setdefault(zone, {"total": 0, "cands": []})
-        z["total"] += int(votes)
-        if len(z["cands"]) < top_per_zone:
-            if cand.party_id not in parties_cache:
-                parties_cache[cand.party_id] = db.get(Party, cand.party_id)
-            if cand.election_id not in elections_cache:
-                elections_cache[cand.election_id] = db.get(Election, cand.election_id)
-            z["cands"].append((cand, int(votes)))
+        z = zones_map.setdefault(zone, {"total": int(totals.get(zone, 0)), "cands": []})
+        if cand.party_id not in parties_cache:
+            parties_cache[cand.party_id] = db.get(Party, cand.party_id)
+        if cand.election_id not in elections_cache:
+            elections_cache[cand.election_id] = db.get(Election, cand.election_id)
+        z["cands"].append((cand, int(votes)))
 
     office_name = rows[0][2].office_name if rows else None
     zones = [
