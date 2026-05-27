@@ -544,14 +544,14 @@ def municipality_zones(
     if muni is None:
         raise NotFoundError("Município não encontrado")
 
-    election_ids = select(Election.id).where(Election.year == year)
+    # Filtra direto por office_code denormalizado na zona (índice
+    # municipality_id, office_code, votes) → sem JOIN pesado pra filtrar cargo.
     rows = db.execute(
         select(CandidateZoneVote.zone, CandidateZoneVote.votes, Candidate)
         .join(Candidate, Candidate.id == CandidateZoneVote.candidate_id)
         .where(
             CandidateZoneVote.municipality_id == municipality_id,
-            Candidate.office_code == office_code,
-            Candidate.election_id.in_(election_ids),
+            CandidateZoneVote.office_code == office_code,
         )
         .order_by(CandidateZoneVote.zone, CandidateZoneVote.votes.desc())
     ).all()

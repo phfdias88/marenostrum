@@ -23,6 +23,9 @@ class CandidateZoneVote(Base, TimestampMixin):
     )
     zone: Mapped[int] = mapped_column(Integer, nullable=False)
     votes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Cargo denormalizado (do candidato) — evita JOIN pesado pra filtrar cargo
+    # no "top candidatos por zona" de cidades grandes.
+    office_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         Index(
@@ -34,4 +37,6 @@ class CandidateZoneVote(Base, TimestampMixin):
         Index("ix_tse_zone_votes_candidate", "candidate_id"),
         # "top candidatos por zona no município Y" — filtra por município
         Index("ix_tse_zone_votes_muni", "municipality_id", "votes"),
+        # "top por zona no município Y, cargo Z" — filtra direto, sem join
+        Index("ix_tse_zone_votes_muni_office", "municipality_id", "office_code", "votes"),
     )

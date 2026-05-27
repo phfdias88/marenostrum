@@ -903,7 +903,9 @@ def _process_perfil_eleitorado(
 
 
 def _flush_zone_votes(
-    db: Session, acc: dict[tuple[UUID, UUID, int], int],
+    db: Session,
+    acc: dict[tuple[UUID, UUID, int], int],
+    cand_office: dict[UUID, int],
 ) -> None:
     """Grava votos por zona via UPSERT-ADD (votes = votes + excluded.votes)."""
     if not acc:
@@ -916,6 +918,7 @@ def _flush_zone_votes(
             "municipality_id": mid,
             "zone": zone,
             "votes": votes,
+            "office_code": cand_office.get(cid),
             "created_at": now,
             "updated_at": now,
         }
@@ -951,9 +954,13 @@ def _process_zona_votos(
     munis_by_tse: dict[int, UUID] = dict(
         db.execute(select(Municipality.tse_code, Municipality.id)).all()
     )
-    candidates_by_sq: dict[int, UUID] = dict(
-        db.execute(select(Candidate.sq_candidato, Candidate.id)).all()
-    )
+    candidates_by_sq: dict[int, UUID] = {}
+    cand_office: dict[UUID, int] = {}  # candidate_id → cargo (denormalizado)
+    for sq, cid, office in db.execute(
+        select(Candidate.sq_candidato, Candidate.id, Candidate.office_code)
+    ).all():
+        candidates_by_sq[sq] = cid
+        cand_office[cid] = office
 
     # Limpa votos-zona dos candidatos deste ano (reimport idempotente)
     cand_ids_year = select(Candidate.id).where(
@@ -988,11 +995,11 @@ def _process_zona_votos(
             db.commit()
 
         if len(acc) >= VOTE_ACC_MAX:
-            _flush_zone_votes(db, acc)
+            _flush_zone_votes(db, acc, cand_office)
             acc.clear()
             log.info("tse_zona_flush", rows=rows_processed)
 
-    _flush_zone_votes(db, acc)
+    _flush_zone_votes(db, acc, cand_office)
     job.rows_processed = rows_processed
     db.commit()
     log.info("tse_zona_done", year=year, rows=rows_processed)
