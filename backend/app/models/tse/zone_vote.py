@@ -32,4 +32,6 @@ class CandidateZoneVote(Base, TimestampMixin):
         ),
         # "votos por zona do candidato X" — escaneamos por candidate
         Index("ix_tse_zone_votes_candidate", "candidate_id"),
+        # "top candidatos por zona no município Y" — filtra por município
+        Index("ix_tse_zone_votes_muni", "municipality_id", "votes"),
     )
