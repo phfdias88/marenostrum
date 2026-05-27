@@ -108,7 +108,7 @@ export default function CandidateDetailPage() {
 
       <div ref={cardRef} className="bg-background rounded-xl">
         {/* Hero */}
-        <div className="rounded-xl border bg-card p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5">
+        <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5">
           <CandidatePhoto
             candidateId={c.id}
             name={c.urn_name}
@@ -205,7 +205,7 @@ export default function CandidateDetailPage() {
 
         {/* Votos por zona eleitoral */}
         {zones && zones.items.length > 0 && (
-          <div className="mt-5">
+          <div className="mt-5 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Votos por zona eleitoral
             </p>

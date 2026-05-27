@@ -136,18 +136,26 @@ export default function MunicipioDetailPage() {
 
       <div ref={cardRef} className="bg-background rounded-xl">
         {/* Hero */}
-        <div className="rounded-xl border bg-card p-6 flex items-center gap-5">
+        <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 flex items-center gap-5">
           {muni ? (
             <StateFlag uf={muni.state} size="lg" className="!w-16 !h-11 shadow shrink-0" />
           ) : (
             <div className="w-16 h-11 rounded bg-muted animate-pulse shrink-0" />
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               {muni ? `${muni.state} · TSE ${muni.tse_code}` : "…"}
             </p>
             <h1 className="text-2xl font-bold">{muni?.name ?? "…"}</h1>
           </div>
+          {electorate && (
+            <div className="hidden sm:block text-right shrink-0">
+              <p className="text-2xl font-bold text-primary tabular-nums">
+                {numberFmt.format(electorate.total)}
+              </p>
+              <p className="text-xs text-muted-foreground">eleitores</p>
+            </div>
+          )}
         </div>
 
         {/* Filtros */}
@@ -176,21 +184,26 @@ export default function MunicipioDetailPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 mt-4">
-          <Stat label="Votos nominais (cargo)" value={loading ? null : totalVotes} accent="text-primary" />
+          <Stat
+            label="Votos nominais (cargo)"
+            value={loading ? null : totalVotes}
+            accent="text-primary"
+            hint={["11", "1", "3"].includes(office) ? "soma 1º + 2º turno (quando houve)" : undefined}
+          />
           <Stat label="Candidatos com votos" value={loading ? null : data?.total_results ?? 0} />
         </div>
 
         {/* Perfil do eleitorado (TSE) */}
         {electorate && (
-          <div className="mt-6">
+          <div className="mt-6 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" /> Perfil do eleitorado ·{" "}
               {numberFmt.format(electorate.total)} eleitores ({electorate.year})
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Breakdown title="Gênero" data={electorate.by_gender} total={electorate.total} />
-              <Breakdown title="Faixa etária" data={electorate.by_age} total={electorate.total} />
-              <Breakdown title="Escolaridade" data={electorate.by_education} total={electorate.total} />
+              <Breakdown title="Gênero" data={electorate.by_gender} total={electorate.total} palette={PAL_GENDER} />
+              <Breakdown title="Faixa etária" data={electorate.by_age} total={electorate.total} palette={PAL_AGE} />
+              <Breakdown title="Escolaridade" data={electorate.by_education} total={electorate.total} palette={PAL_EDU} />
             </div>
           </div>
         )}
@@ -259,14 +272,14 @@ export default function MunicipioDetailPage() {
 
         {/* Top candidatos por zona eleitoral */}
         {zones && zones.zones.length > 0 && (
-          <div className="mt-6">
+          <div className="mt-6 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" /> Por zona eleitoral · {zones.office_name ?? "cargo"}
               <span className="text-muted-foreground/70">({zones.zones.length} zonas)</span>
             </p>
             <div className="space-y-2">
               {zones.zones.map((z) => (
-                <div key={z.zone} className="rounded-lg border bg-card p-3">
+                <div key={z.zone} className="rounded-lg border bg-card p-3 mn-hover">
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-semibold text-sm">Zona {z.zone}</span>
                     <span className="text-xs text-muted-foreground font-mono">
@@ -315,10 +328,12 @@ function Breakdown({
   title,
   data,
   total,
+  palette,
 }: {
   title: string;
   data: Record<string, number>;
   total: number;
+  palette: string[];
 }) {
   const entries = Object.entries(data);
   const max = Math.max(1, ...entries.map(([, v]) => v));
@@ -326,20 +341,24 @@ function Breakdown({
     <div className="rounded-lg border bg-card p-4">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">{title}</p>
       <ul className="space-y-2">
-        {entries.map(([label, value]) => {
+        {entries.map(([label, value], i) => {
           const pct = total > 0 ? (value / total) * 100 : 0;
+          const color = palette[i % palette.length];
           return (
             <li key={label}>
               <div className="flex items-center justify-between text-xs mb-0.5">
-                <span className="truncate">{label}</span>
+                <span className="truncate flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: color }} />
+                  {label}
+                </span>
                 <span className="text-muted-foreground font-mono shrink-0">
                   {pctFmt.format(pct)}%
                 </span>
               </div>
               <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full bg-primary"
-                  style={{ width: `${(value / max) * 100}%` }}
+                  className="h-full rounded-full transition-[width] duration-700 ease-out"
+                  style={{ width: `${(value / max) * 100}%`, background: color }}
                 />
               </div>
             </li>
@@ -350,14 +369,21 @@ function Breakdown({
   );
 }
 
+// Paletas por categoria (tons coerentes com o tema)
+const PAL_GENDER = ["#ec4899", "#0ea5e9", "#a1a1aa"]; // F rosa, M azul, NI cinza
+const PAL_AGE = ["#fde68a", "#fbbf24", "#f59e0b", "#ea580c", "#c2410c", "#9a3412", "#7c2d12"];
+const PAL_EDU = ["#a1a1aa", "#94a3b8", "#22d3ee", "#0ea5e9", "#6366f1", "#a855f7"];
+
 function Stat({
   label,
   value,
   accent,
+  hint,
 }: {
   label: string;
   value: number | null;
   accent?: string;
+  hint?: string;
 }) {
   return (
     <div className="rounded-lg border bg-card/60 p-4 text-center">
@@ -367,6 +393,7 @@ function Stat({
         <p className={`text-2xl font-bold ${accent ?? ""}`}>{numberFmt.format(value)}</p>
       )}
       <p className="text-xs text-muted-foreground mt-1">{label}</p>
+      {hint && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{hint}</p>}
     </div>
   );
 }
