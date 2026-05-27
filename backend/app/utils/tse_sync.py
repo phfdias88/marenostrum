@@ -945,12 +945,15 @@ def _process_zona_votos(
 
     Idempotente: apaga os votos-zona dos candidatos DESTE ano antes de regravar.
     """
-    munis_by_tse: dict[int, UUID] = {
-        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
-    }
-    candidates_by_sq: dict[int, UUID] = {
-        c.sq_candidato: c.id for c in db.execute(select(Candidate)).scalars()
-    }
+    # Carrega só (chave → id), NÃO o objeto ORM inteiro — com 454k candidatos,
+    # hidratar objetos completos (c/ colunas JSON) estoura os 768MB do container
+    # (OOM kill). Tuplas leves resolvem.
+    munis_by_tse: dict[int, UUID] = dict(
+        db.execute(select(Municipality.tse_code, Municipality.id)).all()
+    )
+    candidates_by_sq: dict[int, UUID] = dict(
+        db.execute(select(Candidate.sq_candidato, Candidate.id)).all()
+    )
 
     # Limpa votos-zona dos candidatos deste ano (reimport idempotente)
     cand_ids_year = select(Candidate.id).where(
