@@ -29,6 +29,7 @@ type Data = {
   contacts: number;
   demandsOpen: number;
   candidates: number;
+  municipalities: number;
   parties: number;
   elections: number;
   prefeitos: number;
@@ -59,6 +60,7 @@ async function load(): Promise<Data> {
     contacts,
     demandsOpen,
     candidates: c.candidates,
+    municipalities: c.municipalities,
     parties: c.parties,
     elections: c.elections,
     prefeitos: c.by_office["11"] ?? 0,
@@ -107,11 +109,10 @@ export default function PainelPage() {
           />
           <BigStat
             label="Municípios"
-            value={5568}
+            value={d?.municipalities}
             icon={MapPin}
             gradient="from-emerald-600/20 to-emerald-500/5"
             accent="text-emerald-400"
-            ready
           />
           <BigStat
             label="Partidos"
