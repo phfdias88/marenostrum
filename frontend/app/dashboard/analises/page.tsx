@@ -160,8 +160,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/zona",
     label: "Zona eleitoral",
     icon: Compass,
-    description: "Análise por zona — em breve (depende de dataset por zona).",
-    disabled: true,
+    description: "Top candidatos por zona numa cidade — votos e % por zona.",
   },
 ];
 
