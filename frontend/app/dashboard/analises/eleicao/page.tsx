@@ -79,6 +79,34 @@ export default function EleicaoAnalysisPage() {
   const [results, setResults] = useState<TseMunicipalityResults | null>(null);
   const [resultsLoading, setResultsLoading] = useState(false);
 
+  // URL compartilhável: hidrata estado a partir de ?ano=&uf=&cargo=&muni=
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const a = sp.get("ano"); const u = sp.get("uf");
+    const c = sp.get("cargo"); const m = sp.get("muni");
+    if (a) setYear(a);
+    if (u) setState(u);
+    if (c) setOffice(c);
+    if (m) {
+      api<TseMunicipality>(`/v1/tse/municipalities/${m}`)
+        .then((muni) => setSelectedMuni(muni))
+        .catch(() => {});
+    }
+    setHydrated(true);
+  }, []);
+  // Sincroniza URL conforme o estado muda
+  useEffect(() => {
+    if (!hydrated) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("ano", year);
+    url.searchParams.set("uf", state);
+    url.searchParams.set("cargo", office);
+    if (selectedMuni) url.searchParams.set("muni", selectedMuni.id);
+    else url.searchParams.delete("muni");
+    window.history.replaceState(null, "", url.toString());
+  }, [year, state, office, selectedMuni, hydrated]);
+
   // Busca municipios conforme digita (so quando ainda nao selecionou)
   useEffect(() => {
     if (selectedMuni) return;

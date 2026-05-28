@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant
-from app.schemas.auth import LoginRequest, MeResponse, TokenResponse
+from app.core.errors import UnauthorizedError
+from app.core.security import hash_password, verify_password
+from app.models.user import User
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    MeResponse,
+    TokenResponse,
+)
 from app.services.auth import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -75,3 +83,21 @@ Isso protege contra tokens forjados com `tid` arbitrário.
 )
 def me(ctx: CurrentTenant) -> MeResponse:
     return AuthService.me(ctx)
+
+
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Trocar senha (usuário autenticado)",
+    description="Verifica a senha atual e grava a nova (mín. 8 caracteres).",
+)
+def change_password(
+    payload: ChangePasswordRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    user = db.get(User, ctx.user_id)
+    if user is None or not verify_password(payload.current_password, user.hashed_password):
+        raise UnauthorizedError("Senha atual incorreta")
+    user.hashed_password = hash_password(payload.new_password)
+    db.commit()

@@ -105,9 +105,13 @@ export default function DashboardLayout({
 
             <div className="flex items-center gap-2 text-sm shrink-0">
               {me && (
-                <span className="hidden md:inline text-muted-foreground max-w-[180px] truncate">
+                <Link
+                  href="/dashboard/configuracoes"
+                  title="Configurações"
+                  className="hidden md:inline text-muted-foreground max-w-[180px] truncate hover:text-foreground"
+                >
                   <span className="text-foreground font-medium">{me.tenant_name}</span>
-                </span>
+                </Link>
               )}
               <Button variant="ghost" size="sm" onClick={logout}>
                 Sair

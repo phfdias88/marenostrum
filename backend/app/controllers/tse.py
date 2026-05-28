@@ -394,6 +394,22 @@ def list_municipalities(
 
 
 @router.get(
+    "/municipalities/{municipality_id}",
+    response_model=MunicipalityRead,
+    summary="Pega um município pelo ID (p/ hidratar URL compartilhável)",
+)
+def get_municipality(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> MunicipalityRead:
+    m = db.get(Municipality, municipality_id)
+    if m is None:
+        raise NotFoundError("Município não encontrado")
+    return MunicipalityRead.model_validate(m)
+
+
+@router.get(
     "/municipalities/{municipality_id}/top-candidates",
     response_model=MunicipalityResultsResponse,
     summary="Top candidatos num municipio (ordenado por votos desc)",

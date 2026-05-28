@@ -4,6 +4,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
+class ChangePasswordRequest(BaseModel):
+    """Troca de senha pelo próprio usuário autenticado."""
+    current_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
 class LoginRequest(BaseModel):
     """
     Login multi-tenant: o usuario informa em qual tenant esta entrando.
