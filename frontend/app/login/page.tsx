@@ -21,7 +21,8 @@ function LoginForm() {
   const search = useSearchParams();
   const nextUrl = search.get("next") ?? "/dashboard";
 
-  const [tenantSlug, setTenantSlug] = useState("");
+  // Slug fixo — campanha única; backend continua recebendo no body.
+  const tenantSlug = "marenostrum-admin";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -69,14 +70,6 @@ function LoginForm() {
           onSubmit={onSubmit}
           className="bg-card/80 backdrop-blur rounded-2xl shadow-xl border border-border p-8 space-y-5"
         >
-          <Field
-            label="Campanha (slug)"
-            value={tenantSlug}
-            onChange={setTenantSlug}
-            autoComplete="organization"
-            placeholder="ex: candidato-joao-2026"
-            required
-          />
           <Field
             label="Email"
             type="email"
