@@ -1,9 +1,21 @@
 """Entrypoint da aplicacao FastAPI."""
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+
+from app.utils.warmup import warm_up_cache
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Aquece agg_cache em background (não bloqueia readiness)
+    task = asyncio.create_task(warm_up_cache())
+    yield
+    task.cancel()
 
 from app.config import get_settings
 from app.controllers import api_router
@@ -118,6 +130,7 @@ def create_app() -> FastAPI:
         title="MareNostrum API",
         description=_DESCRIPTION,
         version=_VERSION,
+        lifespan=_lifespan,
         openapi_tags=_TAGS_METADATA,
         contact={
             "name": "MareNostrum App",
