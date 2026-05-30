@@ -288,26 +288,32 @@ def list_candidates(
             )
         )
     if search:
-        # Busca acento-insensível por PALAVRA — evita falsos positivos como
-        # "lula" matchando "hollulanca" ou "celular". Usamos POSIX regex com
-        # \m (word boundary inicio) sobre f_unaccent. Mantemos rapido pois
-        # o filtro inicial e' boundary-aware mas ainda pequeno o suficiente.
-        # Estrategia:
-        #   1. Palavra INICIA com o termo (\m<termo>) — caso comum
-        #   2. Nome completo equivale ao termo exato (case-insensitive)
-        # ILIKE so' pra fallback amplo perderia precisao demais, entao
-        # explicitamente exigimos word boundary.
+        # Busca acento-insensivel por PALAVRA, hibrida:
+        #
+        # 1. ILIKE '%termo%' — RAPIDO porque bate o indice GIN trgm
+        #    (ix_tse_candidates_{name,urn}_unaccent_trgm). Narrows 962k -> ~poucos
+        #    milhares em ~ms.
+        # 2. ~* '\mtermo' (regex word boundary) — PRECISO, elimina falsos
+        #    positivos como "celular"/"hollulanca". Roda APENAS no subset
+        #    ja' filtrado pelo trigram (fast).
+        #
+        # Sem (1) regex sozinha varre tabela inteira -> 504 timeout.
+        # Sem (2) ILIKE sozinha = falsos positivos "celular" pra busca "lula".
         raw = search.strip().lower()
-        # Escapa metachars do regex (.+*?()|[]^$\\)
         import re as _re
         esc = _re.escape(raw)
-        pattern = f"\\m{esc}"  # \m = word boundary INICIO em POSIX (PG)
+        pattern = f"\\m{esc}"
+        ilike_pat = f"%{raw}%"
         stmt = stmt.where(
-            func.f_unaccent(Candidate.name).op("~*")(
-                func.f_unaccent(pattern)
+            # Filtro trigram (usa indice)
+            (
+                func.f_unaccent(Candidate.name).ilike(func.f_unaccent(ilike_pat))
+                | func.f_unaccent(Candidate.urn_name).ilike(func.f_unaccent(ilike_pat))
             )
-            | func.f_unaccent(Candidate.urn_name).op("~*")(
-                func.f_unaccent(pattern)
+            # Filtro word-boundary (preciso)
+            & (
+                func.f_unaccent(Candidate.name).op("~*")(func.f_unaccent(pattern))
+                | func.f_unaccent(Candidate.urn_name).op("~*")(func.f_unaccent(pattern))
             )
         )
 

@@ -75,6 +75,35 @@ DATASETS: dict[str, dict] = {
         "year": 2022,
         "processor": "candidato_munzona",
     },
+    # ---- HISTORICO LONGO (Wave 4 — 21A) ---------------------------------
+    # 2020 (municipal): prefeito + vereador. ZIP ~280MB.
+    "candidato_munzona_2020": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2020.zip",
+        "year": 2020,
+        "processor": "candidato_munzona",
+        "max_mb": 500,
+    },
+    # 2018 (federal/estadual): pres + gov + sen + dep fed + dep est. ZIP ~450MB.
+    "candidato_munzona_2018": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2018.zip",
+        "year": 2018,
+        "processor": "candidato_munzona",
+        "max_mb": 700,
+    },
+    # 2016 (municipal). ZIP ~260MB.
+    "candidato_munzona_2016": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2016.zip",
+        "year": 2016,
+        "processor": "candidato_munzona",
+        "max_mb": 500,
+    },
+    # 2014 (federal/estadual). ZIP ~400MB.
+    "candidato_munzona_2014": {
+        "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_2014.zip",
+        "year": 2014,
+        "processor": "candidato_munzona",
+        "max_mb": 700,
+    },
     "locais_votacao_2024": {
         "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_2024.zip",
         "year": 2024,
