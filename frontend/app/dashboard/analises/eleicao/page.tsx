@@ -474,9 +474,11 @@ function ResultsPanel({
           const pct = (r.votes / total) * 100;
           const top = results.results[0]?.votes || 1;
           return (
-            <div
+            <Link
               key={r.candidate.id}
-              className="px-4 py-2.5"
+              href={`/dashboard/analises/candidato/${r.candidate.id}`}
+              className="block px-4 py-2.5 hover:bg-accent/40 transition-colors"
+              title="Ver página completa do candidato"
             >
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="w-7 sm:w-8 font-bold text-primary tabular-nums text-sm shrink-0">
@@ -509,7 +511,7 @@ function ResultsPanel({
               <div className="mt-1.5 ml-9 sm:ml-11">
                 <VoteBar value={r.votes} max={top} rank={i + 1} />
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>

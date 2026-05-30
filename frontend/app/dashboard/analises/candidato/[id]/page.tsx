@@ -247,42 +247,9 @@ export default function CandidateDetailPage() {
           )}
         </div>
 
-        {/* Votos por zona eleitoral */}
-        {zones && zones.items.length > 0 && (
-          <div className="mt-5 mn-fade-in">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-              Votos por zona eleitoral
-            </p>
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
-              {zones.items.map((z, i) => {
-                const max = zones.items[0]?.votes || 1;
-                return (
-                  <li key={`${z.municipality_name}-${z.zone}-${i}`} className="px-4 py-2.5">
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="truncate">
-                        Zona {z.zone}{" "}
-                        <span className="text-muted-foreground">
-                          · {z.municipality_name}/{z.state}
-                        </span>
-                      </span>
-                      <span className="font-mono font-semibold shrink-0">
-                        {numberFmt.format(z.votes)}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-primary"
-                        style={{ width: `${(z.votes / max) * 100}%` }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
-
-        {/* Top bairros (so aparece quando ha dados — capitais sincronizadas) */}
+        {/* Top bairros (so aparece quando ha dados — capitais sincronizadas).
+            Vem ANTES de zonas: bairro e' mais granular/util pra estrategia
+            de campanha que zona eleitoral. */}
         {bairros && bairros.items.length > 0 && (
           <div className="mt-5 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
@@ -317,6 +284,41 @@ export default function CandidateDetailPage() {
                         {penetration.toFixed(1)}% dos eleitores do bairro
                       </p>
                     )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* Votos por zona eleitoral — vem DEPOIS dos bairros */}
+        {zones && zones.items.length > 0 && (
+          <div className="mt-5 mn-fade-in">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              Votos por zona eleitoral
+            </p>
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+              {zones.items.map((z, i) => {
+                const max = zones.items[0]?.votes || 1;
+                return (
+                  <li key={`${z.municipality_name}-${z.zone}-${i}`} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate">
+                        Zona {z.zone}{" "}
+                        <span className="text-muted-foreground">
+                          · {z.municipality_name}/{z.state}
+                        </span>
+                      </span>
+                      <span className="font-mono font-semibold shrink-0">
+                        {numberFmt.format(z.votes)}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary"
+                        style={{ width: `${(z.votes / max) * 100}%` }}
+                      />
+                    </div>
                   </li>
                 );
               })}

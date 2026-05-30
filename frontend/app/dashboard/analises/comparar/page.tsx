@@ -222,7 +222,13 @@ function CompareCard({
           size="lg"
         />
         <p className="text-xs font-mono text-primary mt-2">#{c.number}</p>
-        <p className="font-bold truncate w-full">{c.urn_name}</p>
+        <Link
+          href={`/dashboard/analises/candidato/${c.id}`}
+          className="font-bold truncate w-full hover:underline"
+          title="Ver página completa"
+        >
+          {c.urn_name}
+        </Link>
         <p className="text-xs text-muted-foreground truncate w-full">{c.name}</p>
         <div className="mt-1.5 flex justify-center">
           <ResultBadge status={c.result_status} size="sm" />
@@ -295,6 +301,14 @@ function CompareCard({
           </dl>
         </>
       )}
+
+      <Link
+        href={`/dashboard/analises/candidato/${c.id}`}
+        data-html2canvas-ignore
+        className="mt-3 inline-flex w-full items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+      >
+        Ver página completa →
+      </Link>
     </div>
   );
 }

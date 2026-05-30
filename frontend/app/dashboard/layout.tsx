@@ -141,8 +141,9 @@ export default function DashboardLayout({
               })}
             </nav>
 
-            {/* Busca global — desktop */}
-            <div className="hidden md:block w-56 lg:w-64 ml-auto mr-2">
+            {/* Busca global — desktop. Cresceu pra dar mais espaco aos
+                resultados longos (nomes completos cabem sem truncar). */}
+            <div className="hidden md:block w-72 lg:w-96 xl:w-[28rem] ml-auto mr-2">
               <GlobalSearch />
             </div>
 

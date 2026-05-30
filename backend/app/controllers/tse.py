@@ -288,12 +288,27 @@ def list_candidates(
             )
         )
     if search:
-        # Busca acento-insensível: f_unaccent(coluna) ILIKE f_unaccent(termo).
-        # Indexes funcionais GIN trigram em f_unaccent(...) mantêm rápido.
-        term = func.f_unaccent(f"%{search}%")
+        # Busca acento-insensível por PALAVRA — evita falsos positivos como
+        # "lula" matchando "hollulanca" ou "celular". Usamos POSIX regex com
+        # \m (word boundary inicio) sobre f_unaccent. Mantemos rapido pois
+        # o filtro inicial e' boundary-aware mas ainda pequeno o suficiente.
+        # Estrategia:
+        #   1. Palavra INICIA com o termo (\m<termo>) — caso comum
+        #   2. Nome completo equivale ao termo exato (case-insensitive)
+        # ILIKE so' pra fallback amplo perderia precisao demais, entao
+        # explicitamente exigimos word boundary.
+        raw = search.strip().lower()
+        # Escapa metachars do regex (.+*?()|[]^$\\)
+        import re as _re
+        esc = _re.escape(raw)
+        pattern = f"\\m{esc}"  # \m = word boundary INICIO em POSIX (PG)
         stmt = stmt.where(
-            func.f_unaccent(Candidate.name).ilike(term)
-            | func.f_unaccent(Candidate.urn_name).ilike(term)
+            func.f_unaccent(Candidate.name).op("~*")(
+                func.f_unaccent(pattern)
+            )
+            | func.f_unaccent(Candidate.urn_name).op("~*")(
+                func.f_unaccent(pattern)
+            )
         )
 
     if party_number is not None:
