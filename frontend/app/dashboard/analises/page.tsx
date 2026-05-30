@@ -23,7 +23,9 @@ import {
   Loader2,
   MapPin,
   Calculator,
+  Calendar,
   Map as MapIcon,
+  Swords,
   RefreshCw,
   ScanSearch,
   Trophy,
@@ -168,6 +170,18 @@ const CARDS: Card[] = [
     label: "Projeção eleitoral",
     icon: Calculator,
     description: "Quociente eleitoral + D'Hondt: quem elegeria com base no histórico. Modo 'e se' com edição de votos por partido.",
+  },
+  {
+    href: "/dashboard/analises/adversarios",
+    label: "Adversários",
+    icon: Swords,
+    description: "Defina seu candidato + adversários e mantenha o comparativo persistente entre sessões.",
+  },
+  {
+    href: "/dashboard/calendario",
+    label: "Calendário eleitoral",
+    icon: Calendar,
+    description: "Datas-chave do TSE (propaganda, debate, registro, prestação de contas) com checklist por etapa.",
   },
 ];
 

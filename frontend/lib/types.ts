@@ -37,6 +37,26 @@ export type BirthdayContact = {
   tags: string[];
 };
 
+/** Candidato monitorado (meu candidato / adversário) */
+export type MonitoredCandidateRead = {
+  id: string;
+  candidate_id: string;
+  label: string | null;
+  is_mine: boolean;
+  color: string | null;
+  notes: string | null;
+  created_at: string;
+  candidate_found: boolean;
+  candidate_name: string | null;
+  candidate_number: number | null;
+  candidate_party_abbr: string | null;
+  candidate_office_name: string | null;
+  candidate_state: string | null;
+  candidate_municipality_name: string | null;
+  candidate_total_votes: number | null;
+  candidate_was_elected: boolean | null;
+};
+
 export type Page<T> = {
   items: T[];
   total: number;
