@@ -117,8 +117,9 @@ export default function DashboardLayout({
               />
             </Link>
 
-            {/* Nav inline só no desktop (lg+) */}
-            <nav className="hidden lg:flex items-center gap-1 flex-1 justify-center">
+            {/* Nav inline só no desktop (lg+). shrink-0 evita encolher
+                e roubar largura da busca quando layout aperta. */}
+            <nav className="hidden lg:flex items-center gap-1 shrink-0">
               {NAV.map(({ href, label, icon: Icon }) => {
                 const active =
                   pathname === href ||
@@ -141,9 +142,11 @@ export default function DashboardLayout({
               })}
             </nav>
 
-            {/* Busca global — desktop. Cresceu pra dar mais espaco aos
-                resultados longos (nomes completos cabem sem truncar). */}
-            <div className="hidden md:block w-72 lg:w-96 xl:w-[28rem] ml-auto mr-2">
+            {/* Busca global — desktop. flex-1 cresce no espaco livre entre
+                nav e bloco direito; min-w-0 permite encolher em telas
+                medias sem virar 0 (a placeholder some mas o input segue
+                clicavel). Tem max-w pra nao ficar gigante em ultrawide. */}
+            <div className="hidden md:block flex-1 min-w-[180px] max-w-md ml-auto mr-2">
               <GlobalSearch />
             </div>
 
