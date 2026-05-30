@@ -22,6 +22,7 @@ import {
   FileBarChart,
   Loader2,
   MapPin,
+  Calculator,
   Map as MapIcon,
   RefreshCw,
   ScanSearch,
@@ -111,7 +112,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/partidos",
     label: "Partidos",
     icon: Building2,
-    description: "Os 29 partidos brasileiros, com seus candidatos por estado.",
+    description: "Todos os partidos brasileiros registrados, com seus candidatos por estado.",
   },
   {
     href: "/dashboard/analises/mapa",
@@ -123,13 +124,13 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/municipios",
     label: "Municípios",
     icon: MapPin,
-    description: "Top candidatos por município — 5.568 cidades importadas.",
+    description: "Top candidatos por município — 5.571 cidades do Brasil.",
   },
   {
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
-    description: "Eleições municipais 2024 (ordinárias e suplementares).",
+    description: "Eleições municipais 2024 + gerais 2022 (presidente, governador, deputados).",
   },
   {
     href: "/dashboard/analises/comparar",
@@ -161,6 +162,12 @@ const CARDS: Card[] = [
     label: "Zona eleitoral",
     icon: Compass,
     description: "Top candidatos por zona numa cidade — votos e % por zona.",
+  },
+  {
+    href: "/dashboard/analises/projecao",
+    label: "Projeção eleitoral",
+    icon: Calculator,
+    description: "Quociente eleitoral + D'Hondt: quem elegeria com base no histórico. Modo 'e se' com edição de votos por partido.",
   },
 ];
 
@@ -233,22 +240,13 @@ export default function AnalisesHubPage() {
           </p>
           <h1 className="text-3xl font-bold mt-1">Análises (TSE)</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
-            Dados públicos oficiais do Tribunal Superior Eleitoral — Brasil
-            inteiro, 2024.
+            Brasil inteiro — eleições 2024 (municipais) e 2022 (federais/estaduais).
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {job && <SyncBadge job={job} />}
-          <Button onClick={triggerSync} disabled={syncing} variant="outline">
-            {syncing ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <RefreshCw />
-            )}
-            Sincronizar TSE
-          </Button>
-        </div>
+        {/* Badge "última sync" e botão "Sincronizar TSE" foram removidos
+            do hub a pedido — ruído visual. Sync continua disponível via
+            POST /api/v1/tse/sync pra quem precisar. */}
       </header>
 
       {/* Stats banner */}
@@ -259,6 +257,7 @@ export default function AnalisesHubPage() {
           <Stat
             label="Candidatos"
             value={stats?.candidates ?? 0}
+            hint="2024 + 2022 combinados"
             gradient="from-blue-600/20 to-blue-500/5"
             accent="text-blue-400"
           />

@@ -96,27 +96,29 @@ export function ExportShare({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5 sm:gap-2">
       <button
         onClick={exportPng}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors disabled:opacity-50"
         title="Exportar como imagem"
+        aria-label="Exportar como imagem"
       >
         {busy ? (
           <Loader2 className="w-4 h-4 animate-spin" />
         ) : (
           <Download className="w-4 h-4" />
         )}
-        Exportar
+        <span className="hidden sm:inline">Exportar</span>
       </button>
       <button
         onClick={share}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors"
+        className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors"
         title="Compartilhar link"
+        aria-label="Compartilhar link"
       >
         <Link2 className="w-4 h-4" />
-        Compartilhar
+        <span className="hidden sm:inline">Compartilhar</span>
       </button>
     </div>
   );

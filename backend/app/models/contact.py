@@ -10,6 +10,7 @@ from datetime import date
 
 from sqlalchemy import Date, Enum as SAEnum
 from sqlalchemy import Float, Index, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -43,6 +44,13 @@ class Contact(Base, TenantMixin, TimestampMixin):
 
     # Pessoais
     birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Tags livres pra segmentacao (ex: "doador-2024", "lideranca-bairro-x").
+    # JSONB array de strings. Indice GIN com jsonb_path_ops em migration 020.
+    # Default em DB e' '[]'::jsonb — Python sempre ve' lista nunca None.
+    tags: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
 
     # Classificacao
     type: Mapped[ContactType] = mapped_column(

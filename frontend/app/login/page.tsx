@@ -49,26 +49,37 @@ function LoginForm() {
   }
 
   return (
-    <main className="min-h-screen grid place-items-center px-4 relative overflow-hidden">
+    <main
+      className="min-h-[100dvh] grid place-items-center px-4 py-6 relative overflow-hidden"
+      style={{
+        paddingTop: "max(env(safe-area-inset-top), 1.5rem)",
+        paddingBottom: "max(env(safe-area-inset-bottom), 1.5rem)",
+      }}
+    >
       {/* Fundo com gradiente + glow */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-primary/5" />
       <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
       <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
-        {/* Marca — logo horizontal oficial (M + MARENOSTRUM + tagline) */}
-        <div className="flex flex-col items-center mb-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo-wordmark.png"
-            alt="MareNostrum — Inteligência de dados & consultoria"
-            className="w-64 max-w-full h-auto object-contain"
-          />
+        {/* Marca — logo horizontal oficial.
+            No tema claro o logo (gold + branco) ficava invisivel no fundo
+            creme. Container charcoal escuro com padding garante contraste
+            consistente nos 2 temas. */}
+        <div className="flex flex-col items-center mb-6 sm:mb-8">
+          <div className="bg-[hsl(36,7%,12%)] rounded-2xl px-6 py-4 shadow-lg shadow-black/20 border border-primary/30">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-wordmark.png"
+              alt="MareNostrum — Inteligência de dados & consultoria"
+              className="w-44 sm:w-56 max-w-full h-auto object-contain"
+            />
+          </div>
         </div>
 
         <form
           onSubmit={onSubmit}
-          className="bg-card/80 backdrop-blur rounded-2xl shadow-xl border border-border p-8 space-y-5"
+          className="bg-card/85 backdrop-blur rounded-2xl shadow-xl border border-border p-5 sm:p-8 space-y-4 sm:space-y-5"
         >
           <Field
             label="Email"
@@ -76,6 +87,7 @@ function LoginForm() {
             value={email}
             onChange={setEmail}
             autoComplete="username"
+            inputMode="email"
             required
           />
           <Field
@@ -88,7 +100,7 @@ function LoginForm() {
           />
 
           {error && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2">
+            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2.5">
               {error}
             </p>
           )}
@@ -96,13 +108,13 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold py-2.5 transition shadow-lg shadow-primary/20"
+            className="w-full rounded-lg bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold min-h-[48px] py-3 transition shadow-lg shadow-primary/20"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
 
-        <p className="text-center text-xs text-muted-foreground mt-5">
+        <p className="text-center text-xs text-muted-foreground mt-4 sm:mt-5">
           Dados eleitorais públicos · Fonte: TSE
         </p>
       </div>
@@ -129,7 +141,7 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+        className="mt-1.5 w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
         {...rest}
       />
     </label>

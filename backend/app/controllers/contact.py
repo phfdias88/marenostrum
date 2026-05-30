@@ -14,11 +14,13 @@ from fastapi import APIRouter, BackgroundTasks, File, Query, Response, UploadFil
 from app.core.dependencies import CurrentTenant
 from app.core.errors import DomainError
 from app.schemas.contact import (
+    BirthdayContact,
     ContactCreate,
     ContactRead,
     ContactUpdate,
     ImportResult,
     Page,
+    TagItem,
 )
 from app.schemas.interaction import InteractionRead
 from app.services.contact import ContactService
@@ -62,9 +64,15 @@ def list_contacts(
         description="Filtro ILIKE no nome (case-insensitive, busca parcial)",
         examples=["joão", "silva"],
     ),
+    tag: str | None = Query(
+        None,
+        max_length=32,
+        description="Filtro por tag exata (use /contacts/tags pra listar disponíveis)",
+        examples=["doador-2024", "lideranca"],
+    ),
 ) -> Page[ContactRead]:
     items, total = ContactService(ctx).list_contacts(
-        limit=limit, offset=offset, search=search,
+        limit=limit, offset=offset, search=search, tag=tag,
     )
     return Page[ContactRead](
         items=[ContactRead.model_validate(c) for c in items],
@@ -72,6 +80,47 @@ def list_contacts(
         limit=limit,
         offset=offset,
     )
+
+
+# ---------------------------------------------------------------- Tags
+
+
+@router.get(
+    "/tags",
+    response_model=list[TagItem],
+    summary="Listar tags usadas + contagem",
+    description=(
+        "Retorna tags distintas usadas em contatos ATIVOS do tenant, "
+        "ordenadas por uso (DESC). Frontend usa pra chips/autocomplete."
+    ),
+)
+def list_tags(ctx: CurrentTenant) -> list[TagItem]:
+    return ContactService(ctx).list_tag_summary()
+
+
+# ------------------------------------------------------- Aniversariantes
+
+
+@router.get(
+    "/birthdays",
+    response_model=list[BirthdayContact],
+    summary="Aniversariantes (hoje ou janela futura)",
+    description="""\
+Lista contatos ATIVOS aniversariando entre hoje e hoje+`days_ahead`.
+
+### Parâmetros
+- `days_ahead=0` (default) — só hoje
+- `days_ahead=6` — hoje + próximos 6 dias (semana inteira)
+- `days_ahead=29` — próximos 30 dias (mês)
+
+Ordenado por `days_until` ASC, depois nome.
+""",
+)
+def list_birthdays(
+    ctx: CurrentTenant,
+    days_ahead: int = Query(0, ge=0, le=60, description="Dias à frente (0=hoje)"),
+) -> list[BirthdayContact]:
+    return ContactService(ctx).list_birthdays(days_ahead=days_ahead)
 
 
 @router.get(

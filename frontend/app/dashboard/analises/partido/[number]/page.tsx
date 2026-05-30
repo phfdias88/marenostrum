@@ -62,29 +62,38 @@ export default function PartyDetailPage() {
 
   // Acha o partido pelo número
   useEffect(() => {
+    let cancelled = false;
+    setParty(null);
+    setNotFound(false);
     api<TseParty[]>("/v1/tse/parties")
       .then((list) => {
+        if (cancelled) return;
         const p = list.find((x) => x.number === num) ?? null;
         setParty(p);
         if (!p) setNotFound(true);
       })
-      .catch(() => setNotFound(true));
+      .catch(() => { if (!cancelled) setNotFound(true); });
+    return () => { cancelled = true; };
   }, [num]);
 
   // Desempenho do partido (ano + cargo + UF)
   useEffect(() => {
+    let cancelled = false;
     setPerfLoading(true);
     const p = new URLSearchParams({ year, office_code: office });
     if (state) p.set("state", state);
     api<TsePartyPerformanceResponse>(`/v1/tse/stats/party-performance?${p.toString()}`)
-      .then(setPerf)
-      .catch(() => setPerf(null))
-      .finally(() => setPerfLoading(false));
+      .then((d) => { if (!cancelled) setPerf(d); })
+      .catch(() => { if (!cancelled) setPerf(null); })
+      .finally(() => { if (!cancelled) setPerfLoading(false); });
+    return () => { cancelled = true; };
   }, [year, office, state]);
 
   // Top candidatos do partido
   useEffect(() => {
+    let cancelled = false;
     setTopLoading(true);
+    setTop(null);
     const p = new URLSearchParams({
       year,
       office_code: office,
@@ -93,9 +102,10 @@ export default function PartyDetailPage() {
     });
     if (state) p.set("state", state);
     api<TseTopCandidatesResponse>(`/v1/tse/stats/top-candidates?${p.toString()}`)
-      .then(setTop)
-      .catch(() => setTop(null))
-      .finally(() => setTopLoading(false));
+      .then((d) => { if (!cancelled) setTop(d); })
+      .catch(() => { if (!cancelled) setTop(null); })
+      .finally(() => { if (!cancelled) setTopLoading(false); });
+    return () => { cancelled = true; };
   }, [num, year, office, state]);
 
   // Stats deste partido + ranking nacional

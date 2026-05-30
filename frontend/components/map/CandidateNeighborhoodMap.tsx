@@ -13,12 +13,13 @@ import {
   CircleMarker,
   MapContainer,
   Popup,
-  TileLayer,
+  Tooltip,
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import type { TseCandidateByNeighborhoodResponse } from "@/lib/types";
+import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
@@ -45,10 +46,7 @@ export default function CandidateNeighborhoodMap({
           preferCanvas
           className="h-full w-full"
         >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
+          <ThemedTileLayer />
 
           {withCoords.map((r) => {
             const pct = r.votes / maxVotes;
@@ -73,6 +71,11 @@ export default function CandidateNeighborhoodMap({
                   weight: 1.5,
                 }}
               >
+                <Tooltip direction="top" offset={[0, -4]} className="mn-tip" opacity={1}>
+                  <span>
+                    {r.neighborhood} · <b>{numberFmt.format(r.votes)}</b>
+                  </span>
+                </Tooltip>
                 <Popup>
                   <div className="text-sm">
                     <p className="font-semibold">{r.neighborhood}</p>

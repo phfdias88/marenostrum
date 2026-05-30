@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   ClipboardList,
@@ -21,6 +21,8 @@ import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/tse/GlobalSearch";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { BottomNav } from "@/components/nav/BottomNav";
 
 type Me = { full_name: string; tenant_name: string };
 
@@ -41,6 +43,8 @@ export default function DashboardLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const lastY = useRef(0);
 
   useEffect(() => {
     api<Me>("/v1/auth/me")
@@ -53,6 +57,36 @@ export default function DashboardLayout({
       });
   }, [router]);
 
+  // Sticky header shrink + direcao do scroll pra auto-hide.
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let lastDirChange = 0;
+    function onScroll() {
+      const y = window.scrollY;
+      const dy = y - lastY.current;
+
+      // Shrink quando passa de 12px
+      const next = y > 12;
+      if (next !== (lastY.current > 12)) setScrolled(next);
+
+      // Auto-hide: scrolla pra baixo > 8px -> esconde, pra cima > 8px -> mostra.
+      // Pequeno threshold pra nao flicker em jitter.
+      if (Math.abs(dy) > 8) {
+        if (dy > 0 && y > 80) {
+          // descendo + ja passou do header
+          if (!hidden) setHidden(true);
+        } else if (dy < 0) {
+          if (hidden) setHidden(false);
+        }
+        lastDirChange = y;
+      }
+      lastY.current = y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden]);
+
   function logout() {
     clearAuth();
     router.replace("/login");
@@ -60,7 +94,16 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="border-b bg-card sticky top-0 z-30">
+      <header
+        data-dash-header
+        data-scrolled={scrolled ? "true" : "false"}
+        data-hidden={hidden ? "true" : "false"}
+        className={cn(
+          "border-b bg-card/70 backdrop-blur-md sticky top-0 z-30 supports-[backdrop-filter]:bg-card/55 transition-[transform,box-shadow] duration-200 will-change-transform",
+          scrolled && "shadow-md shadow-black/10",
+          hidden && "md:translate-y-0 -translate-y-full",
+        )}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           {/* Linha 1: marca + usuário/sair */}
           <div className="h-14 flex items-center justify-between gap-3">
@@ -113,19 +156,23 @@ export default function DashboardLayout({
                   <span className="text-foreground font-medium">{me.tenant_name}</span>
                 </Link>
               )}
+              <ThemeToggle />
               <Button variant="ghost" size="sm" onClick={logout}>
                 Sair
               </Button>
             </div>
           </div>
 
-          {/* Busca global — mobile */}
+          {/* Busca global — mobile (some quando scrolla pra dar espaco) */}
           <div className="md:hidden pb-2">
-            <GlobalSearch />
+            <div data-mobile-search>
+              <GlobalSearch />
+            </div>
           </div>
 
-          {/* Nav com scroll horizontal no mobile/tablet (até lg) */}
-          <nav className="lg:hidden flex items-center gap-1 overflow-x-auto pb-2 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Nav com scroll horizontal — so em tablets (md-lg). No mobile
+              quem manda e o BottomNav, fica mais limpo. */}
+          <nav className="hidden md:flex lg:hidden items-center gap-1 overflow-x-auto pb-2 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {NAV.map(({ href, label, icon: Icon }) => {
               const active =
                 pathname === href ||
@@ -150,7 +197,12 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      {/* pb pro BottomNav nao cobrir conteudo no mobile */}
+      <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))] md:pb-0">
+        {children}
+      </main>
+
+      <BottomNav hidden={hidden} />
     </div>
   );
 }

@@ -1,13 +1,53 @@
 """Schemas Pydantic para a API de contatos."""
+import re
 from datetime import date, datetime
 from typing import Generic, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.contact import ContactType
 
 T = TypeVar("T")
+
+
+# --------------------------------------------------- helpers de tag
+
+# Tags: lowercase, sem espaco, sem acento, ate' 32 chars. Normalizamos no
+# servidor pra evitar "Doador" vs "doador" virarem 2 segmentos diferentes.
+_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+_MAX_TAGS = 16
+
+
+def _normalize_tag(t: str) -> str:
+    """Lowercase + espaco/acento -> '-'. Devolve string vazia se invalida."""
+    import unicodedata
+
+    s = unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode("ascii")
+    s = s.strip().lower().replace(" ", "-")
+    # Mantem apenas chars validos pra slug
+    s = re.sub(r"[^a-z0-9_-]", "", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s
+
+
+def _validate_tags(value: list[str] | None) -> list[str]:
+    """Normaliza, dedup mantendo ordem, valida regex, trunca em _MAX_TAGS."""
+    if not value:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        norm = _normalize_tag(raw)
+        if not norm or not _TAG_RE.match(norm):
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(norm)
+        if len(out) >= _MAX_TAGS:
+            break
+    return out
 
 
 # ---------------------------------------------------------------- Base shapes
@@ -31,6 +71,15 @@ class ContactBase(BaseModel):
 
     type: ContactType = ContactType.VOTER
     notes: str | None = Field(None, max_length=1000)
+
+    # Tags livres pra segmentacao. Sempre normalizadas no servidor.
+    # Ate' 16 por contato. Cada tag: lowercase, [a-z0-9_-], 1-32 chars.
+    tags: list[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, v):
+        return _validate_tags(v if isinstance(v, list) else [])
 
 
 class ContactCreate(ContactBase):
@@ -71,6 +120,14 @@ class ContactUpdate(BaseModel):
     birth_date: date | None = None
     type: ContactType | None = None
     notes: str | None = Field(None, max_length=1000)
+    tags: list[str] | None = Field(None, max_length=64)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _coerce_tags_update(cls, v):
+        if v is None:
+            return None
+        return _validate_tags(v if isinstance(v, list) else [])
 
 
 class ContactRead(ContactBase):
@@ -110,3 +167,30 @@ class ImportResult(BaseModel):
     skipped: int            # quantos foram pulados (erros + duplicatas)
     total_rows: int         # total de linhas do CSV (excluindo header)
     errors: list[ImportRowError]  # truncado em 50 para nao explodir resposta
+
+
+# --------------------------------------------------- Tags & Birthdays
+
+
+class TagItem(BaseModel):
+    """Tag + quantos contatos usam — pra chips/autocomplete no frontend."""
+    tag: str
+    count: int
+
+
+class BirthdayContact(BaseModel):
+    """
+    Contato com aniversario no periodo (hoje / semana / mes).
+    `days_until` = 0 (hoje), 1..N (proximos), nunca negativo.
+    `age_turning` = idade que completara no aniversario (None se ano desconhecido).
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    full_name: str
+    phone: str | None = None
+    email: EmailStr | None = None
+    birth_date: date
+    days_until: int
+    age_turning: int | None = None
+    tags: list[str] = Field(default_factory=list)

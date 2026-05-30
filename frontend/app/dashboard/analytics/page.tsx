@@ -83,12 +83,12 @@ export default function PainelPage() {
   }, []);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10 space-y-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 sm:space-y-10">
       <header>
         <p className="text-sm font-medium text-primary flex items-center gap-1.5">
           <TrendingUp className="w-4 h-4" /> Painel
         </p>
-        <h1 className="text-3xl font-bold tracking-tight mt-1">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
           Visão consolidada
         </h1>
         <p className="text-muted-foreground mt-1">

@@ -3,11 +3,27 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from brotli_asgi import BrotliMiddleware
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
+from app.utils.rate_limit import limiter
 from app.utils.warmup import warm_up_cache
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Handler limpo pro 429 em vez do default do slowapi."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "code": "rate_limit",
+            "message": "Muitas requisicoes. Tente novamente em instantes.",
+        },
+        headers={"Retry-After": "60"},
+    )
 
 
 @asynccontextmanager
@@ -152,6 +168,17 @@ def create_app() -> FastAPI:
         },
     )
 
+    # Rate limiting (anti-DoS) — primeiro middleware da pilha, pra qualquer
+    # request abusiva ser rejeitada o mais cedo possivel.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+    app.add_middleware(SlowAPIMiddleware)
+
+    # Brotli — comprime JSON/text 20-25% mais que gzip do nginx. Aplicado
+    # antes do CORS pra a resposta sair compactada. minimum_size=500 evita
+    # gastar CPU compactando payloads pequenos onde o overhead nao compensa.
+    app.add_middleware(BrotliMiddleware, quality=4, minimum_size=500)
+
     # CORS — origens vem do .env
     app.add_middleware(
         CORSMiddleware,
@@ -160,6 +187,41 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Cache HTTP — dados publicos do TSE sao historicos, browser pode reutilizar
+    # por horas. Reduz round-trips e libera CPU no backend.
+    # Importante: SO em GET, e SO em /v1/tse/*, evitando vazar cache em
+    # endpoints autenticados de tenant (contacts, demands, voting-places).
+    @app.middleware("http")
+    async def add_tse_cache_headers(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if (
+            request.method == "GET"
+            and path.startswith("/api/v1/tse/")
+            and "Cache-Control" not in response.headers
+            and 200 <= response.status_code < 400
+            # Dossie PDF ja seta seu proprio cache (private, max-age=300)
+            and not path.endswith(".pdf")
+            # Endpoints com estado mutavel — NAO cachear:
+            # - /sync: status do job pode mudar a qualquer momento
+            and "/sync" not in path
+        ):
+            # max-age 5 min + stale-while-revalidate 24h: navegacao continua
+            # rapida (cache "morno") mas evolucoes de schema/dados aparecem
+            # em ate 5 min sem precisar hard-refresh. Antes era 1h, que deixava
+            # mudancas presas (ex: campo "round" adicionado nao apareceu por 1h).
+            response.headers["Cache-Control"] = (
+                "public, max-age=300, stale-while-revalidate=86400"
+            )
+        # Endpoints de estado mutavel ganham no-cache explicito
+        elif (
+            request.method == "GET"
+            and "/sync" in path
+            and "Cache-Control" not in response.headers
+        ):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     register_exception_handlers(app)
     app.include_router(api_router, prefix="/api")

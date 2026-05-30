@@ -234,3 +234,34 @@ class MunicipalityZonesResponse(BaseModel):
     office_code: int | None = None
     office_name: str | None = None
     zones: list[MunicipalityZone]
+
+
+# ---------- Timeline eleitoral do municipio ----------
+
+class TimelineWinner(BaseModel):
+    """Candidato vencedor num cargo/ano numa cidade."""
+    candidate_id: UUID
+    urn_name: str
+    name: str
+    party_abbr: str
+    party_number: int
+    party_name: str
+    result_status: str | None
+    votes: int
+
+
+class TimelineItem(BaseModel):
+    """Resultado de uma eleicao num cargo/ano na cidade."""
+    year: int
+    office_code: int
+    office_name: str
+    round: int = 1  # 1=1o turno, 2=2o turno (relevante pra Presidente/Governador)
+    total_votes: int
+    winner: TimelineWinner | None
+    runner_up: TimelineWinner | None = None
+    candidates_count: int
+
+
+class MunicipalityTimelineResponse(BaseModel):
+    municipality: MunicipalityRead
+    items: list[TimelineItem]

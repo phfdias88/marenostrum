@@ -11,7 +11,7 @@ import dynamic from "next/dynamic";
 const ContactsMap = dynamic(() => import("@/components/map/ContactsMap"), {
   ssr: false,
   loading: () => (
-    <div className="h-[calc(100vh-3.5rem)] w-full grid place-items-center text-muted-foreground">
+    <div className="w-full h-[calc(100dvh-3.5rem-64px-env(safe-area-inset-bottom))] md:h-[calc(100dvh-3.5rem)] grid place-items-center text-muted-foreground">
       Carregando mapa...
     </div>
   ),

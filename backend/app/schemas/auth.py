@@ -1,4 +1,6 @@
 """Schemas de autenticacao."""
+from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -100,3 +102,47 @@ class MeResponse(BaseModel):
     tenant_id: UUID
     tenant_slug: str
     tenant_name: str
+
+
+# ---------------------------------------------------- Team management
+
+
+TeamRole = Literal["manager", "staff", "volunteer"]
+
+
+class CreateUserRequest(BaseModel):
+    """Criacao de novo membro da equipe (only owner)."""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "coordenador@campanha.com.br",
+                "full_name": "Maria Souza",
+                "role": "manager",
+            }
+        }
+    )
+
+    email: EmailStr
+    full_name: str = Field(..., min_length=2, max_length=150)
+    role: TeamRole = "staff"
+
+
+class CreateUserResponse(BaseModel):
+    """Resposta com a senha temporaria — exibida UMA UNICA VEZ no frontend."""
+    id: UUID
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    temp_password: str = Field(
+        ..., description="Senha temporaria gerada — mostre UMA vez ao admin.",
+    )
+
+
+class UserListItem(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    created_at: datetime

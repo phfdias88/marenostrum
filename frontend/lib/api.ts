@@ -34,11 +34,20 @@ export async function api<T>(path: string, opts: RequestOpts = {}): Promise<T> {
     body = JSON.stringify(opts.body);
   }
 
+  // Cache strategy:
+  // - GET em /v1/tse/* (dados publicos historicos): "default" → respeita
+  //   Cache-Control do backend (max-age=3600 + stale-while-revalidate=86400).
+  //   Navegacoes repetidas viram instant (sem round-trip).
+  // - Resto (POST/PUT/DELETE ou GETs de tenant): "no-store" → sempre fresco.
+  const method = (opts.method ?? "GET").toUpperCase();
+  const isTseRead = method === "GET" && path.startsWith("/v1/tse/");
+  const cacheMode: RequestCache = isTseRead ? "default" : "no-store";
+
   const res = await fetch(`${BASE_URL}${path}`, {
     ...opts,
     headers,
     body,
-    cache: "no-store",
+    cache: cacheMode,
   });
 
   if (!res.ok) {

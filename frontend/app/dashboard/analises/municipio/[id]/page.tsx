@@ -5,7 +5,7 @@
  * URL compartilhável: bandeira, nome, top candidatos por cargo/ano com % dos
  * votos nominais, favoritar e exportar. Espelha as páginas de candidato/partido.
  */
-import { ArrowLeft, SearchX, Users } from "lucide-react";
+import { ArrowLeft, Crown, History, SearchX, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -14,15 +14,18 @@ import { api } from "@/lib/api";
 import type {
   TseElectorate,
   TseMunicipalityResults,
+  TseMunicipalityTimeline,
   TseMunicipalityZones,
 } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
+import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
@@ -52,40 +55,61 @@ export default function MunicipioDetailPage() {
   const [error, setError] = useState(false);
   const [electorate, setElectorate] = useState<TseElectorate | null>(null);
   const [zones, setZones] = useState<TseMunicipalityZones | null>(null);
+  const [timeline, setTimeline] = useState<TseMunicipalityTimeline | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   // Perfil do eleitorado (independe do filtro ano/cargo). 404 = não sincronizado.
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+    setElectorate(null);
     api<TseElectorate>(`/v1/tse/municipalities/${id}/electorate`)
-      .then(setElectorate)
-      .catch(() => setElectorate(null));
+      .then((d) => { if (!cancelled) setElectorate(d); })
+      .catch(() => { if (!cancelled) setElectorate(null); });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Timeline eleitoral (independe do filtro — todos os anos/cargos)
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    setTimeline(null);
+    api<TseMunicipalityTimeline>(`/v1/tse/municipalities/${id}/timeline`)
+      .then((d) => { if (!cancelled) setTimeline(d); })
+      .catch(() => { if (!cancelled) setTimeline(null); });
+    return () => { cancelled = true; };
   }, [id]);
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
     setLoading(true);
     setError(false);
+    setData(null); // reset pra nao mostrar dados antigos durante navegacao
     const p = new URLSearchParams({ limit: "30", year });
     if (office) p.set("office_code", office);
     api<TseMunicipalityResults>(
       `/v1/tse/municipalities/${id}/top-candidates?${p.toString()}`,
     )
-      .then(setData)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [id, year, office]);
 
-  // Top candidatos por zona (404/vazio = zona não sincronizada → esconde)
+  // Top candidatos por zona (404/vazio = zona nao sincronizada → esconde)
   useEffect(() => {
     if (!id || !office) {
       setZones(null);
       return;
     }
+    let cancelled = false;
+    setZones(null);
     const p = new URLSearchParams({ year, office_code: office, top_per_zone: "5" });
     api<TseMunicipalityZones>(`/v1/tse/municipalities/${id}/zones?${p.toString()}`)
-      .then(setZones)
-      .catch(() => setZones(null));
+      .then((d) => { if (!cancelled) setZones(d); })
+      .catch(() => { if (!cancelled) setZones(null); });
+    return () => { cancelled = true; };
   }, [id, year, office]);
 
   const muni = data?.municipality;
@@ -106,8 +130,8 @@ export default function MunicipioDetailPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-4">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <Link
           href="/dashboard/analises/municipios"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -136,17 +160,17 @@ export default function MunicipioDetailPage() {
 
       <div ref={cardRef} className="bg-background rounded-xl">
         {/* Hero */}
-        <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 flex items-center gap-5">
+        <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-4 sm:p-6 flex items-center gap-3 sm:gap-5">
           {muni ? (
-            <StateFlag uf={muni.state} size="lg" className="!w-16 !h-11 shadow shrink-0" />
+            <StateFlag uf={muni.state} size="lg" className="!w-12 sm:!w-16 !h-8 sm:!h-11 shadow shrink-0" />
           ) : (
-            <div className="w-16 h-11 rounded bg-muted animate-pulse shrink-0" />
+            <div className="w-12 sm:w-16 h-8 sm:h-11 rounded bg-muted animate-pulse shrink-0" />
           )}
           <div className="min-w-0 flex-1">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">
               {muni ? `${muni.state} · TSE ${muni.tse_code}` : "…"}
             </p>
-            <h1 className="text-2xl font-bold">{muni?.name ?? "…"}</h1>
+            <h1 className="text-lg sm:text-2xl font-bold leading-tight truncate">{muni?.name ?? "…"}</h1>
           </div>
           {electorate && (
             <div className="hidden sm:block text-right shrink-0">
@@ -205,6 +229,16 @@ export default function MunicipioDetailPage() {
               <Breakdown title="Faixa etária" data={electorate.by_age} total={electorate.total} palette={PAL_AGE} />
               <Breakdown title="Escolaridade" data={electorate.by_education} total={electorate.total} palette={PAL_EDU} />
             </div>
+          </div>
+        )}
+
+        {/* Linha do tempo eleitoral (independe do filtro) */}
+        {timeline && timeline.items.length > 0 && (
+          <div className="mt-6 mn-fade-in">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5" /> Linha do tempo eleitoral · vencedores por cargo/ano
+            </p>
+            <TimelineGrid items={timeline.items} />
           </div>
         )}
 
@@ -320,6 +354,89 @@ export default function MunicipioDetailPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================ Timeline
+
+// Detecta se um cargo teve mais de 1 turno no ano (pra rotular "1º turno" / "2º turno")
+function hasMultiRounds(yearItems: import("@/lib/types").TseTimelineItem[], officeCode: number): boolean {
+  return yearItems.filter((x) => x.office_code === officeCode).length > 1;
+}
+
+function TimelineGrid({ items }: { items: import("@/lib/types").TseTimelineItem[] }) {
+  // Agrupa por ano (desc) → dentro do ano, lista cargos
+  const byYear = new Map<number, typeof items>();
+  for (const it of items) {
+    const arr = byYear.get(it.year) ?? [];
+    arr.push(it);
+    byYear.set(it.year, arr);
+  }
+  const years = Array.from(byYear.keys()).sort((a, b) => b - a);
+
+  return (
+    <div className="space-y-3">
+      {years.map((y) => (
+        <div key={y} className="rounded-xl border bg-card overflow-hidden">
+          <div className="px-4 py-2 bg-primary/10 border-b border-primary/20 flex items-center gap-2">
+            <span className="text-lg font-bold text-primary tabular-nums">{y}</span>
+            <span className="text-xs text-muted-foreground">
+              {y === 2024 ? "Eleições Municipais" : y === 2022 ? "Eleições Gerais" : ""}
+            </span>
+          </div>
+          <ul className="divide-y divide-border">
+            {byYear.get(y)!.map((item) => {
+              const w = item.winner;
+              const ru = item.runner_up;
+              const pct = w && item.total_votes > 0
+                ? (w.votes / item.total_votes) * 100
+                : 0;
+              const roundLabel = (item.round ?? 1) === 2 ? " · 2º turno" : (item.round ?? 1) === 1 && hasMultiRounds(byYear.get(y)!, item.office_code) ? " · 1º turno" : "";
+              return (
+                <li key={`${y}-${item.office_code}-${item.round ?? 1}`} className="p-3 sm:p-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Crown className="w-4 h-4 text-primary shrink-0" />
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                      {item.office_name}<span className="text-primary normal-case">{roundLabel}</span>
+                    </p>
+                  </div>
+                  {w ? (
+                    <Link
+                      href={`/dashboard/analises/candidato/${w.candidate_id}`}
+                      className="flex items-center gap-3 hover:bg-accent/30 -mx-2 px-2 py-1.5 rounded-md transition-colors"
+                    >
+                      <PartyLogo number={w.party_number} abbreviation={w.party_abbr} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate">
+                          {w.urn_name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          <span className="text-primary font-semibold">{w.party_abbr}</span>
+                          {" · "}
+                          <AnimatedNumber value={w.votes} /> votos
+                          {pct > 0 && ` · ${pct.toFixed(1)}%`}
+                        </p>
+                      </div>
+                      {w.result_status && (
+                        <ResultBadge status={w.result_status} size="sm" />
+                      )}
+                    </Link>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Sem dados.</p>
+                  )}
+                  {ru && (
+                    <p className="text-xs text-muted-foreground mt-2 ml-7">
+                      2º lugar: <span className="font-semibold">{ru.urn_name}</span>{" "}
+                      ({ru.party_abbr}) · {new Intl.NumberFormat("pt-BR").format(ru.votes)} votos
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }

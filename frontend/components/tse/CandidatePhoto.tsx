@@ -10,7 +10,7 @@
  *
  * O endpoint backend e PUBLICO (sem JWT) — proxia do TSE com cache em disco.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -85,16 +85,40 @@ export function CandidatePhoto({
 }: Props) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [visible, setVisible] = useState(false);
   const dim = SIZE_PX[size];
   const url = `${API_BASE}/v1/tse/candidates/${candidateId}/photo`;
   const color = PARTY_COLORS[partyNumber] ?? "bg-slate-600";
+  const ref = useRef<HTMLDivElement>(null);
 
-  // Renderiza fallback + img sobrepostos. A img comeca invisivel (opacity-0)
-  // e fica visivel quando onLoad dispara — assim nao tem flicker de
-  // "broken image" e o fallback ja aparece preenchendo o circulo enquanto
-  // a foto carrega da rede.
+  // IntersectionObserver "estrito" — so dispara fetch da foto quando o
+  // avatar entra a menos de 200px do viewport visivel. Mais conservador
+  // que o `loading="lazy"` nativo, que dispara MUITO antes (>1000px),
+  // causando estouro no backend (cada foto = RemoteZip lock por UF).
+  useEffect(() => {
+    if (!ref.current || visible) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setVisible(true);
+            io.disconnect();
+            break;
+          }
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(ref.current);
+    return () => io.disconnect();
+  }, [visible]);
+
+  // Renderiza fallback (iniciais + cor do partido) + img sobreposta.
+  // A img so e adicionada ao DOM quando visivel, evitando barragens
+  // de fetch quando a lista tem 20+ candidatos.
   return (
     <div
+      ref={ref}
       className={`relative shrink-0 ${dim} rounded-full ${className}`}
       title={name}
     >
@@ -103,7 +127,7 @@ export function CandidatePhoto({
       >
         {initials(name)}
       </div>
-      {!failed && (
+      {visible && !failed && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={url}
@@ -111,6 +135,7 @@ export function CandidatePhoto({
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
           loading="lazy"
+          decoding="async"
           className={`absolute inset-0 w-full h-full rounded-full object-cover border border-border transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
         />
       )}

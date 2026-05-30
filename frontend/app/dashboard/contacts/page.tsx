@@ -6,13 +6,13 @@
  *  - paginacao server-side
  *  - acoes Editar (mesmo dialog) e Excluir (AlertDialog de confirmacao)
  */
-import { Plus, Search, Upload } from "lucide-react";
+import { Plus, Search, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/hooks";
-import type { Contact, Page } from "@/lib/types";
+import type { Contact, ContactTag, Page } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DataTable } from "@/components/ui/data-table";
@@ -43,12 +43,15 @@ export default function ContactsPage() {
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput, 300);
 
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [availableTags, setAvailableTags] = useState<ContactTag[]>([]);
+
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
   const load = useCallback(
-    async (page: number, searchTerm: string) => {
+    async (page: number, searchTerm: string, tag: string | null) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({
@@ -56,6 +59,7 @@ export default function ContactsPage() {
           offset: String(page * PAGE_SIZE),
         });
         if (searchTerm.trim()) params.set("search", searchTerm.trim());
+        if (tag) params.set("tag", tag);
 
         const res = await api<Page<Contact>>(`/v1/contacts?${params}`);
         setData(res.items);
@@ -70,12 +74,22 @@ export default function ContactsPage() {
     [],
   );
 
-  // Reset para pagina 0 sempre que o termo de busca mudar
+  // Reset para pagina 0 sempre que o termo de busca ou tag mudar
   useEffect(() => {
-    load(0, search);
-  }, [load, search]);
+    load(0, search, tagFilter);
+  }, [load, search, tagFilter]);
 
-  const refresh = useCallback(() => load(pageIndex, search), [load, pageIndex, search]);
+  // Carrega tags disponiveis (chips de filtro rapido)
+  useEffect(() => {
+    api<ContactTag[]>("/v1/contacts/tags")
+      .then(setAvailableTags)
+      .catch(() => setAvailableTags([]));
+  }, []);
+
+  const refresh = useCallback(
+    () => load(pageIndex, search, tagFilter),
+    [load, pageIndex, search, tagFilter],
+  );
 
   async function handleConfirmDelete() {
     if (!deleting) return;
@@ -87,7 +101,7 @@ export default function ContactsPage() {
       // Se removeu o ultimo da pagina, recua uma pagina
       const newTotal = total - 1;
       const lastPage = Math.max(0, Math.ceil(newTotal / PAGE_SIZE) - 1);
-      load(Math.min(pageIndex, lastPage), search);
+      load(Math.min(pageIndex, lastPage), search, tagFilter);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro ao excluir.");
     } finally {
@@ -129,15 +143,54 @@ export default function ContactsPage() {
         </div>
       </header>
 
-      {/* Barra de busca */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Buscar por nome..."
-          className="pl-9"
-        />
+      {/* Barra de busca + filtros tag */}
+      <div className="space-y-3">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Buscar por nome..."
+            className="pl-9"
+          />
+        </div>
+
+        {(availableTags.length > 0 || tagFilter) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">
+              Filtrar por tag:
+            </span>
+            {availableTags.slice(0, 12).map((t) => {
+              const on = tagFilter === t.tag;
+              return (
+                <button
+                  key={t.tag}
+                  type="button"
+                  onClick={() => setTagFilter(on ? null : t.tag)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs transition-colors ${
+                    on
+                      ? "border-primary bg-primary/15 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
+                  }`}
+                >
+                  {t.tag}
+                  <span className="text-[9px] opacity-70">({t.count})</span>
+                  {on && <X className="w-3 h-3" />}
+                </button>
+              );
+            })}
+            {tagFilter && !availableTags.find((t) => t.tag === tagFilter) && (
+              <button
+                type="button"
+                onClick={() => setTagFilter(null)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-primary bg-primary/15 text-xs"
+              >
+                {tagFilter}
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <DataTable
@@ -146,11 +199,11 @@ export default function ContactsPage() {
         total={total}
         pageSize={PAGE_SIZE}
         pageIndex={pageIndex}
-        onPageChange={(p) => load(p, search)}
+        onPageChange={(p) => load(p, search, tagFilter)}
         isLoading={loading}
         emptyMessage={
-          search
-            ? `Nenhum contato com "${search}".`
+          search || tagFilter
+            ? `Nenhum contato encontrado com os filtros atuais.`
             : "Nenhum contato. Clique em 'Novo contato' para começar."
         }
       />

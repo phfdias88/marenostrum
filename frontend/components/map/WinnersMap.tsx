@@ -2,16 +2,25 @@
 
 /**
  * Mapa do Brasil com cada municipio pintado pela cor do partido vencedor.
- * CircleMarkers nos centroides (temos lat/lng dos municipios).
+ *
+ * Melhorias:
+ *  - Tile tematico (CartoDB Dark/Voyager) ao inves do OSM cru.
+ *  - Top 3 municipios (por votos) ganham marker pulsante dourado por cima.
+ *  - Tooltip on hover (sem precisar clicar).
+ *  - Suporte a `highlightedParty`: quando setado, dim os outros e destaca
+ *    so os municipios do partido escolhido.
+ *  - Imperative pan/zoom via `focusRequest` (chips UF na pagina pai).
  */
-import { CircleMarker, MapContainer, Popup, TileLayer } from "react-leaflet";
+import { useEffect, useMemo, useRef } from "react";
+import L from "leaflet";
+import { CircleMarker, MapContainer, Marker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import type { TseWinnerMapPoint } from "@/lib/types";
+import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
-// Cor por numero de partido (mesma paleta do PartyLogo)
 const PARTY_COLOR: Record<number, string> = {
   10: "#0050a0", 11: "#ff8c00", 12: "#c41a1a", 13: "#e30613", 14: "#0099cc",
   15: "#2d6f30", 16: "#a31a1a", 17: "#ffcd1a", 18: "#7fbc41", 19: "#16a085",
@@ -24,7 +33,28 @@ const PARTY_COLOR: Record<number, string> = {
 
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
 
-export default function WinnersMap({ points }: { points: TseWinnerMapPoint[] }) {
+const PULSE_ICON = L.divIcon({
+  className: "mn-pulse-marker",
+  html: '<div class="mn-pulse-wrap"><div class="mn-pulse-ring"></div><div class="mn-pulse-dot"></div></div>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+type Props = {
+  points: TseWinnerMapPoint[];
+  /** Quando setado, destaca so os municipios desse partido. */
+  highlightedParty?: number | null;
+  /** Pedido externo de pan/zoom (lat, lng, zoom). */
+  focusRequest?: { lat: number; lng: number; zoom: number; key: number } | null;
+};
+
+export default function WinnersMap({ points, highlightedParty, focusRequest }: Props) {
+  // Top 3 municipios por votos pra pulsar
+  const top3 = useMemo(
+    () => [...points].sort((a, b) => b.votes - a.votes).slice(0, 3),
+    [points],
+  );
+
   return (
     <MapContainer
       center={DEFAULT_CENTER}
@@ -33,39 +63,65 @@ export default function WinnersMap({ points }: { points: TseWinnerMapPoint[] }) 
       preferCanvas
       className="h-full w-full"
     >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+      <ThemedTileLayer />
       {points.map((p) => {
         const color = PARTY_COLOR[p.party_number] ?? "#888";
+        const dimmed =
+          highlightedParty != null && p.party_number !== highlightedParty;
+        const active =
+          highlightedParty != null && p.party_number === highlightedParty;
         return (
           <CircleMarker
             key={p.municipality_id}
             center={[p.lat, p.lng]}
-            radius={4}
+            radius={active ? 6 : dimmed ? 2.5 : 4}
             pathOptions={{
               color,
               fillColor: color,
-              fillOpacity: 0.85,
-              weight: 0.5,
+              fillOpacity: dimmed ? 0.18 : 0.85,
+              weight: active ? 1 : 0.5,
             }}
           >
-            <Popup>
-              <div className="text-sm">
-                <p className="font-semibold">
-                  {p.name}/{p.state}
-                </p>
-                <p>
-                  <strong style={{ color }}>{p.party_abbreviation}</strong> —{" "}
-                  {p.winner_name}
-                </p>
-                <p className="text-xs">{numberFmt.format(p.votes)} votos</p>
-              </div>
-            </Popup>
+            <Tooltip
+              direction="top"
+              offset={[0, -4]}
+              className="mn-tip"
+              opacity={1}
+            >
+              <span>
+                {p.name}/{p.state} · <b style={{ color }}>{p.party_abbreviation}</b>{" "}
+                · {numberFmt.format(p.votes)}
+              </span>
+            </Tooltip>
           </CircleMarker>
         );
       })}
+
+      {/* Pulse dourado nos top 3 — chama atencao */}
+      {top3.map((p) => (
+        <Marker
+          key={`pulse-${p.municipality_id}`}
+          position={[p.lat, p.lng]}
+          icon={PULSE_ICON}
+          interactive={false}
+          keyboard={false}
+        />
+      ))}
+
+      <FocusController req={focusRequest} />
     </MapContainer>
   );
+}
+
+function FocusController({
+  req,
+}: {
+  req?: { lat: number; lng: number; zoom: number; key: number } | null;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!req) return;
+    map.flyTo([req.lat, req.lng], req.zoom, { duration: 0.7 });
+  }, [req?.key, map]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
 }

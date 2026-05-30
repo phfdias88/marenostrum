@@ -78,6 +78,34 @@ export function makeContactColumns({
       ),
     },
     {
+      id: "tags",
+      header: "Tags",
+      cell: ({ row }) => {
+        const tags = row.original.tags ?? [];
+        if (!tags.length) return <span className="text-xs text-muted-foreground">—</span>;
+        // Mostra ate' 2 + "+N" se sobrar
+        const shown = tags.slice(0, 2);
+        const extra = tags.length - shown.length;
+        return (
+          <div className="flex flex-wrap gap-1">
+            {shown.map((t) => (
+              <span
+                key={t}
+                className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium"
+              >
+                {t}
+              </span>
+            ))}
+            {extra > 0 && (
+              <span className="text-[10px] text-muted-foreground self-center">
+                +{extra}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       id: "geo",
       header: "Geo",
       cell: ({ row }) =>

@@ -8,7 +8,7 @@
  *  - Lista paginada de candidatos
  *  - Clique abre painel lateral com votos por municipio (top + total)
  */
-import { ArrowLeft, Download, Loader2, Map as MapIcon, Search, SearchX, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Loader2, Map as MapIcon, Search, SearchX, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -17,6 +17,7 @@ import type {
   Page,
   TseCandidate,
   TseCandidateResults,
+  TseMunicipality,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -47,7 +48,24 @@ export default function CandidatoAnalysisPage() {
   const [state, setState] = useState<string>("MG");
   const [office, setOffice] = useState<string>("11"); // prefeito
   const [search, setSearch] = useState("");
+  const [electedOnly, setElectedOnly] = useState(false);
+  const [muniSearch, setMuniSearch] = useState("");
+  const muniDebounced = useDebounce(muniSearch, 300);
+  const [muniResults, setMuniResults] = useState<TseMunicipality[]>([]);
+  const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
   const debouncedSearch = useDebounce(search, 300);
+
+  // Busca municipios pra filtro
+  useEffect(() => {
+    if (selectedMuni) return;
+    const q = muniDebounced.trim();
+    if (q.length < 2) { setMuniResults([]); return; }
+    const p = new URLSearchParams({ limit: "10", search: q });
+    if (state) p.set("state", state);
+    api<Page<TseMunicipality>>(`/v1/tse/municipalities?${p.toString()}`)
+      .then((r) => setMuniResults(r.items))
+      .catch(() => setMuniResults([]));
+  }, [muniDebounced, state, selectedMuni]);
 
   const [page, setPage] = useState(0);
   const [data, setData] = useState<Page<TseCandidate> | null>(null);
@@ -100,7 +118,7 @@ export default function CandidatoAnalysisPage() {
   }
 
   // Reset page quando filtros mudam
-  useEffect(() => setPage(0), [state, office, debouncedSearch]);
+  useEffect(() => setPage(0), [state, office, debouncedSearch, electedOnly, selectedMuni]);
 
   // Fetch lista
   useEffect(() => {
@@ -111,6 +129,8 @@ export default function CandidatoAnalysisPage() {
     if (state) params.set("state", state);
     if (office) params.set("office_code", office);
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (electedOnly) params.set("elected_only", "true");
+    if (selectedMuni) params.set("municipality_id", selectedMuni.id);
 
     setLoading(true);
     api<Page<TseCandidate>>(`/v1/tse/candidates?${params.toString()}`)
@@ -121,7 +141,7 @@ export default function CandidatoAnalysisPage() {
         setData({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 });
       })
       .finally(() => setLoading(false));
-  }, [state, office, debouncedSearch, page]);
+  }, [state, office, debouncedSearch, page, electedOnly, selectedMuni]);
 
   // Fetch detalhe (votos por municipio)
   useEffect(() => {
@@ -217,6 +237,61 @@ export default function CandidatoAnalysisPage() {
               </button>
             )}
           </div>
+        </div>
+        {/* Chips de filtro rapido */}
+        <div className="md:col-span-12 flex items-center gap-2 -mt-1 flex-wrap">
+          <button
+            onClick={() => setElectedOnly((v) => !v)}
+            data-no-mobile-touch
+            className={
+              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors " +
+              (electedOnly
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                : "bg-card text-muted-foreground border-border hover:border-emerald-500/40 hover:text-emerald-400")
+            }
+            aria-pressed={electedOnly}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Só eleitos
+          </button>
+
+          {/* Filtro por cidade */}
+          {selectedMuni ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-primary/15 text-primary border-primary/40">
+              <MapIcon className="w-3.5 h-3.5" />
+              {selectedMuni.name}/{selectedMuni.state}
+              <button
+                onClick={() => { setSelectedMuni(null); setMuniSearch(""); }}
+                className="ml-1 hover:text-foreground"
+                aria-label="Remover filtro cidade"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ) : (
+            <div className="relative">
+              <input
+                value={muniSearch}
+                onChange={(e) => setMuniSearch(e.target.value)}
+                placeholder="Filtrar por cidade…"
+                className="pl-3 pr-3 py-1.5 rounded-full text-xs bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 w-44"
+              />
+              {muniResults.length > 0 && (
+                <div className="absolute z-20 top-full left-0 mt-1 rounded-lg border bg-card shadow-xl divide-y divide-border min-w-[14rem] max-h-48 overflow-auto">
+                  {muniResults.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setSelectedMuni(m); setMuniResults([]); setMuniSearch(""); }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent/50 flex items-center justify-between"
+                    >
+                      <span>{m.name}</span>
+                      <span className="text-xs text-muted-foreground">{m.state}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </section>
 

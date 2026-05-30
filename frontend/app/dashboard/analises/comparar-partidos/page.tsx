@@ -162,9 +162,16 @@ export default function CompararPartidosPage() {
           Escolha os partidos ({selected.length}/{MAX})
         </p>
         <div className="flex flex-wrap gap-2">
-          {parties
-            .slice()
-            .sort((a, b) => a.number - b.number)
+          {/* Dedup partidos com mesma sigla (TSE tem alguns como PODE em 2 numeros
+              por causa de migracoes historicas — 19 e 20). Mostramos o numero
+              mais alto (que e o registro vigente). */}
+          {(() => {
+            const seen = new Map<string, typeof parties[number]>();
+            for (const p of [...parties].sort((a, b) => b.number - a.number)) {
+              if (!seen.has(p.abbreviation)) seen.set(p.abbreviation, p);
+            }
+            return Array.from(seen.values()).sort((a, b) => a.number - b.number);
+          })()
             .map((p) => {
               const on = selected.includes(p.number);
               const disabled = !on && selected.length >= MAX;

@@ -20,14 +20,15 @@
  * Strings vazias viram null antes de enviar — backend espera ausencia.
  */
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { api, ApiError } from "@/lib/api";
-import type { Contact, ContactType } from "@/lib/types";
+import type { Contact, ContactTag, ContactType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { TagInput } from "@/components/contacts/TagInput";
 import {
   Dialog,
   DialogContent,
@@ -92,6 +93,16 @@ export function ContactFormDialog(props: Props) {
   const isEdit = props.mode === "edit";
   const contact = isEdit ? props.contact : null;
 
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+
+  // Carrega tags ja' usadas no tenant (sugestoes pro chip "ja usadas")
+  useEffect(() => {
+    api<ContactTag[]>("/v1/contacts/tags")
+      .then((rows) => setTagSuggestions(rows.map((r) => r.tag)))
+      .catch(() => setTagSuggestions([]));
+  }, []);
+
   const {
     register,
     handleSubmit,
@@ -117,15 +128,18 @@ export function ContactFormDialog(props: Props) {
         birth_date: contact.birth_date ?? "",
         type: contact.type,
       });
+      setTags(contact.tags ?? []);
     } else {
       reset(EMPTY_DEFAULTS);
+      setTags([]);
     }
   }, [isEdit, contact, reset]);
 
   async function onSubmit(values: FormValues) {
-    const payload = Object.fromEntries(
+    const payload: Record<string, unknown> = Object.fromEntries(
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]),
     );
+    payload.tags = tags;
 
     try {
       if (isEdit && contact) {
@@ -139,6 +153,7 @@ export function ContactFormDialog(props: Props) {
         await api<Contact>("/v1/contacts", { method: "POST", body: payload });
         toast.success("Contato criado.");
         reset(EMPTY_DEFAULTS);
+        setTags([]);
       }
       props.onSaved();
     } catch (err) {
@@ -202,6 +217,18 @@ export function ContactFormDialog(props: Props) {
         </Field>
         <Field label="Aniversário" error={errors.birth_date?.message}>
           <Input type="date" {...register("birth_date")} />
+        </Field>
+
+        <Field
+          label="Tags"
+          className="sm:col-span-2"
+        >
+          <TagInput
+            value={tags}
+            onChange={setTags}
+            suggestions={tagSuggestions}
+            placeholder="ex: doador-2024, lideranca-bairro, voluntario..."
+          />
         </Field>
 
         <DialogFooter className="sm:col-span-2 pt-2">

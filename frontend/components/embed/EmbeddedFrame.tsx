@@ -150,15 +150,15 @@ function NotConfigured({ envVarName }: { envVarName: string }) {
         <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-muted">
           <Settings2 className="h-6 w-6 text-muted-foreground" />
         </div>
-        <h2 className="text-lg font-semibold">Integração não configurada</h2>
+        <h2 className="text-lg font-semibold">Integração em breve</h2>
         <p className="text-sm text-muted-foreground">
-          Defina a variável de ambiente{" "}
-          <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-            {envVarName}
-          </code>{" "}
-          no arquivo <code className="text-xs bg-muted px-1.5 py-0.5 rounded">frontend/.env</code>{" "}
-          apontando para a URL do sistema externo do cliente, depois rebuild
-          o container.
+          Este recurso ainda não está habilitado para a sua campanha.
+          Entre em contato com o suporte MareNostrum se precisar usá-lo.
+        </p>
+        {/* Hint tecnico minimo so pra ops — escondido em comentario HTML
+            mas ainda inspecionavel via devtools, evita "magic" pro suporte */}
+        <p className="text-[10px] text-muted-foreground/40 mt-4" data-ops-hint>
+          <span className="hidden">env: {envVarName}</span>
         </p>
       </div>
     </div>

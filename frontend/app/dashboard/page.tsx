@@ -26,6 +26,10 @@ import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { clearAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { InsightCarousel } from "@/components/tse/InsightCarousel";
+import { PullToRefresh } from "@/components/ui/PullToRefresh";
+import { BirthdaysCard } from "@/components/contacts/BirthdaysCard";
 
 // -------------------------------------------------------------------- types
 
@@ -67,39 +71,38 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // 5 chamadas em paralelo. Promise.allSettled = qualquer uma falhar nao
-    // afeta as outras.
-    const meReq = api<Me>("/v1/auth/me");
+  async function load() {
     const total = (path: string) =>
       api<{ total: number }>(path).then((r) => r.total).catch(() => 0);
-
-    Promise.all([
-      meReq,
-      total("/v1/contacts?limit=1"),
-      total("/v1/demands?status=aberta&limit=1"),
-      total("/v1/demands?status=em_andamento&limit=1"),
-      total("/v1/demands?status=resolvida&limit=1"),
-      api<unknown[]>("/v1/contacts/map").then((r) => r.length).catch(() => 0),
-    ])
-      .then(([m, c, dOpen, dProg, dRes, mapC]) => {
-        setMe(m);
-        setStats({
-          contacts: c,
-          demandsOpen: dOpen,
-          demandsInProgress: dProg,
-          demandsResolved: dRes,
-          contactsOnMap: mapC,
-        });
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 401) {
-          clearAuth();
-          router.replace("/login");
-          return;
-        }
-        setError(err instanceof ApiError ? err.message : "Erro ao carregar.");
+    try {
+      const [m, c, dOpen, dProg, dRes, mapC] = await Promise.all([
+        api<Me>("/v1/auth/me"),
+        total("/v1/contacts?limit=1"),
+        total("/v1/demands?status=aberta&limit=1"),
+        total("/v1/demands?status=em_andamento&limit=1"),
+        total("/v1/demands?status=resolvida&limit=1"),
+        api<unknown[]>("/v1/contacts/map").then((r) => r.length).catch(() => 0),
+      ]);
+      setMe(m);
+      setStats({
+        contacts: c,
+        demandsOpen: dOpen,
+        demandsInProgress: dProg,
+        demandsResolved: dRes,
+        contactsOnMap: mapC,
       });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearAuth();
+        router.replace("/login");
+        return;
+      }
+      setError(err instanceof ApiError ? err.message : "Erro ao carregar.");
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   if (error) {
@@ -113,7 +116,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <section className="max-w-7xl mx-auto px-6 py-10 space-y-8">
+    <PullToRefresh onRefresh={load}>
+    <section className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 sm:space-y-8">
       {/* Hero header */}
       <header className="space-y-1">
         {me ? (
@@ -136,8 +140,11 @@ export default function DashboardPage() {
         )}
       </header>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Hero rotativo — insights TSE */}
+      <InsightCarousel />
+
+      {/* KPI cards — 2 colunas no mobile (cabe melhor sem scroll) */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <KpiCard
           label="Contatos no CRM"
           value={stats?.contacts}
@@ -176,31 +183,6 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Banner TSE — inteligencia eleitoral */}
-      <Link
-        href="/dashboard/analises"
-        className="group block relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/15 via-blue-600/10 to-transparent p-6"
-      >
-        <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-primary/10 blur-2xl" />
-        <div className="relative flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-primary font-semibold">
-              Inteligência eleitoral
-            </p>
-            <h2 className="text-xl font-bold mt-1">
-              Análise dos dados públicos do TSE 2024
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-              428 mil candidatos · 5.568 municípios · votos por bairro · quem foi
-              eleito. Tudo navegável.
-            </p>
-          </div>
-          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-medium group-hover:gap-3 transition-all shrink-0">
-            Explorar Análises <ArrowRight className="w-4 h-4" />
-          </span>
-        </div>
-      </Link>
-
       {/* Ações rápidas */}
       <section>
         <div className="flex items-end justify-between mb-3">
@@ -232,6 +214,9 @@ export default function DashboardPage() {
           />
         </div>
       </section>
+
+      {/* Aniversariantes da semana — widget gabinete/campanha */}
+      <BirthdaysCard />
 
       {/* Insight + Sobre */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -301,6 +286,7 @@ export default function DashboardPage() {
         </div>
       </div>
     </section>
+    </PullToRefresh>
   );
 }
 
@@ -329,31 +315,31 @@ function KpiCard({
   }[tone];
 
   const content = (
-    <div className="rounded-xl border bg-card p-5 transition-all hover:border-foreground/20 hover:shadow-sm h-full">
+    <div className="rounded-xl border bg-card p-4 sm:p-5 transition-all hover:border-foreground/20 hover:shadow-sm h-full">
       <div className="flex items-start justify-between">
         <div
           className={cn(
-            "grid h-10 w-10 place-items-center rounded-lg text-white",
+            "grid h-9 w-9 sm:h-10 sm:w-10 place-items-center rounded-lg text-white",
             TONE.icon,
           )}
         >
-          <Icon className="h-5 w-5" />
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </div>
         {href && (
           <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </div>
-      <p className="mt-4 text-xs uppercase tracking-wide text-muted-foreground">
+      <p className="mt-3 sm:mt-4 text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground line-clamp-1">
         {label}
       </p>
-      <p className="mt-1 text-3xl font-semibold tracking-tight">
+      <p className="mt-0.5 sm:mt-1 text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums">
         {value === undefined ? (
           <Loader2 className="h-7 w-7 animate-spin text-muted-foreground inline-block" />
         ) : (
-          numberFmt.format(value)
+          <AnimatedNumber value={value} />
         )}
       </p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="mt-1 text-[11px] sm:text-xs text-muted-foreground line-clamp-2">{hint}</p>}
     </div>
   );
 

@@ -4,11 +4,12 @@
  * Ranking nacional — candidatos mais votados (por ano/cargo/UF).
  * Usa /tse/stats/top-candidates (ordena por total_votes pré-computado).
  */
-import { ArrowLeft, SearchX, Trophy } from "lucide-react";
+import { ArrowLeft, Download, SearchX, Trophy } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { downloadCsv } from "@/lib/csv";
 import type { TseTopCandidatesResponse } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
@@ -67,12 +68,50 @@ export default function RankingPage() {
         <span className="grid place-items-center w-10 h-10 rounded-lg bg-primary/15 text-primary">
           <Trophy className="w-5 h-5" />
         </span>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">Ranking nacional</h1>
           <p className="text-sm text-muted-foreground">
             Os 50 candidatos mais votados por cargo.
           </p>
         </div>
+        <button
+          onClick={() => {
+            if (!data || data.items.length === 0) return;
+            const rows = data.items.map((it, i) => ({
+              rank: i + 1,
+              urna: it.candidate.urn_name,
+              nome: it.candidate.name,
+              numero: it.candidate.number,
+              partido: it.candidate.party.abbreviation,
+              cargo: it.candidate.office_name,
+              uf: it.candidate.state,
+              votos: it.total_votes,
+              situacao: it.candidate.result_status ?? "",
+            }));
+            downloadCsv(
+              `ranking-${year}-${office}-${state || "br"}${electedOnly ? "-eleitos" : ""}`,
+              [
+                { key: "rank", label: "#" },
+                { key: "urna", label: "Nome de urna" },
+                { key: "nome", label: "Nome" },
+                { key: "numero", label: "Número" },
+                { key: "partido", label: "Partido" },
+                { key: "cargo", label: "Cargo" },
+                { key: "uf", label: "UF" },
+                { key: "votos", label: "Votos" },
+                { key: "situacao", label: "Situação" },
+              ],
+              rows,
+            );
+          }}
+          disabled={!data || data.items.length === 0}
+          className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card text-sm hover:border-primary/60 transition-colors disabled:opacity-50 shrink-0"
+          aria-label="Exportar ranking em CSV"
+          title="Exportar CSV"
+        >
+          <Download className="w-4 h-4" />
+          <span className="hidden sm:inline">CSV</span>
+        </button>
       </header>
 
       <section className="grid grid-cols-2 md:grid-cols-12 gap-3 mb-5">

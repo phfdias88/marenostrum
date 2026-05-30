@@ -23,7 +23,9 @@ from typing import Any, Callable, TypeVar
 T = TypeVar("T")
 
 # TTL padrão (segundos). Sync limpa o cache, então pode ser generoso.
-DEFAULT_TTL = 900  # 15 min
+# Dados TSE históricos não mudam — 4h é confortável. Warmup periódico
+# re-aquece antes do TTL expirar, mantendo o cache sempre "quente".
+DEFAULT_TTL = 14400  # 4h
 
 _store: dict[str, tuple[float, Any]] = {}
 _lock = threading.Lock()

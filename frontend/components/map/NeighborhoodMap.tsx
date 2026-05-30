@@ -9,10 +9,11 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet.heat";
-import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import type { HeatmapResponse } from "@/lib/types";
+import { ThemedTileLayer } from "./ThemedTileLayer";
 
 declare module "leaflet" {
   function heatLayer(
@@ -45,10 +46,7 @@ export default function NeighborhoodMap({ heatmap, focus }: Props) {
       scrollWheelZoom
       className="h-full w-full rounded-lg"
     >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+      <ThemedTileLayer />
       {heatmap && <HeatLayer data={heatmap} />}
       {focus && <FocusController lat={focus.lat} lng={focus.lng} />}
     </MapContainer>

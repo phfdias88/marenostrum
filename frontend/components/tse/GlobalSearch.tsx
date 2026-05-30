@@ -8,7 +8,7 @@
  * - dropdown com resultados; clique navega pra página dedicada
  * - Esc fecha, clique fora fecha
  */
-import { Building2, Loader2, MapPin, Search, User, X } from "lucide-react";
+import { ArrowLeft, Building2, Loader2, MapPin, Search, User, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -37,8 +37,10 @@ export function GlobalSearch() {
   const [munis, setMunis] = useState<TseMunicipality[]>([]);
   const [allParties, setAllParties] = useState<TseParty[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const mobileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fecha ao clicar fora
+  // Fecha ao clicar fora — so no desktop. Mobile fullscreen fecha por botao.
   useEffect(() => {
     function onClick(e: MouseEvent) {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
@@ -48,6 +50,20 @@ export function GlobalSearch() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // Quando abre no mobile (md:hidden), trava o scroll do body
+  useEffect(() => {
+    if (open && typeof window !== "undefined" && window.innerWidth < 768) {
+      document.body.style.overflow = "hidden";
+      // Foca o input do modal pra teclado abrir direto
+      setTimeout(() => mobileInputRef.current?.focus(), 50);
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
 
   // Lista de partidos (pequena) carregada uma vez, filtrada no cliente
   useEffect(() => {
@@ -96,10 +112,15 @@ export function GlobalSearch() {
 
   const hasResults = cands.length > 0 || munis.length > 0 || parties.length > 0;
 
+  // Renderizado em 2 modos:
+  // - Desktop (md+): input inline + dropdown absoluto abaixo
+  // - Mobile (<md): input no header dispara overlay full-screen com input
+  //   maior + resultados em altura total
   return (
     <div ref={boxRef} className="relative w-full max-w-md">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
       <input
+        ref={inputRef}
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
@@ -117,103 +138,209 @@ export function GlobalSearch() {
             setQ("");
             setOpen(false);
           }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground hidden md:inline-flex"
           aria-label="Limpar"
         >
           <X className="w-4 h-4" />
         </button>
       )}
 
+      {/* === MOBILE FULL-SCREEN OVERLAY === */}
+      {open && (
+        <div
+          className="md:hidden fixed inset-0 z-[60] bg-background flex flex-col"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <div className="flex items-center gap-2 p-3 border-b border-border">
+            <button
+              onClick={() => {
+                setOpen(false);
+                setQ("");
+              }}
+              className="p-2 -ml-2 rounded-full hover:bg-accent/50"
+              aria-label="Fechar busca"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                ref={mobileInputRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+                placeholder="Buscar candidato, município ou partido…"
+                className="w-full pl-9 pr-9 py-3 text-base rounded-md bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              {q && (
+                <button
+                  onClick={() => setQ("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Limpar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto">
+            {debounced.trim().length < 2 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                Digite ao menos 2 letras pra buscar candidatos, municípios ou partidos.
+              </div>
+            ) : loading ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> buscando…
+              </div>
+            ) : !hasResults ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                Nada encontrado para "{debounced.trim()}".
+              </div>
+            ) : (
+              <ResultList
+                cands={cands}
+                parties={parties}
+                munis={munis}
+                onGo={go}
+                router={router}
+                mobile
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* === DESKTOP DROPDOWN === */}
       {open && debounced.trim().length >= 2 && (
-        <div className="absolute top-full mt-2 left-0 right-0 rounded-lg border bg-card shadow-xl z-50 overflow-hidden">
+        <div className="hidden md:block absolute top-full mt-2 left-0 right-0 rounded-lg border bg-card shadow-xl z-50 overflow-hidden">
           {loading ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin inline" /> buscando…
             </div>
           ) : !hasResults ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
-              Nada encontrado para “{debounced.trim()}”.
+              Nada encontrado para "{debounced.trim()}".
             </div>
           ) : (
             <div className="max-h-[60vh] overflow-auto divide-y divide-border">
-              {cands.length > 0 && (
-                <div>
-                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <User className="w-3 h-3" /> Candidatos
-                  </p>
-                  {cands.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => go(`/dashboard/analises/candidato/${c.id}`)}
-                      onMouseEnter={() => router.prefetch(`/dashboard/analises/candidato/${c.id}`)}
-                      className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <CandidatePhoto
-                        candidateId={c.id}
-                        name={c.urn_name}
-                        partyNumber={c.party.number}
-                        size="sm"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{c.urn_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {c.party.abbreviation} · {c.office_name} · {c.state}
-                        </p>
-                      </div>
-                      <span className="text-primary font-mono text-xs shrink-0">
-                        {c.number}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {parties.length > 0 && (
-                <div>
-                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <Building2 className="w-3 h-3" /> Partidos
-                  </p>
-                  {parties.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => go(`/dashboard/analises/partido/${p.number}`)}
-                      onMouseEnter={() => router.prefetch(`/dashboard/analises/partido/${p.number}`)}
-                      className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <PartyLogo number={p.number} abbreviation={p.abbreviation} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{p.abbreviation}</p>
-                        <p className="text-xs text-muted-foreground truncate">{p.name}</p>
-                      </div>
-                      <span className="text-primary font-mono text-xs shrink-0">
-                        {p.number}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {munis.length > 0 && (
-                <div>
-                  <p className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> Municípios
-                  </p>
-                  {munis.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => go(`/dashboard/analises/municipio/${m.id}`)}
-                      onMouseEnter={() => router.prefetch(`/dashboard/analises/municipio/${m.id}`)}
-                      className="w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <StateFlag uf={m.state} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{m.name}</p>
-                        <p className="text-xs text-muted-foreground">{m.state}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <ResultList
+                cands={cands}
+                parties={parties}
+                munis={munis}
+                onGo={go}
+                router={router}
+              />
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------- Result list reusavel (desktop + mobile)
+
+function ResultList({
+  cands,
+  parties,
+  munis,
+  onGo,
+  router,
+  mobile = false,
+}: {
+  cands: TseCandidate[];
+  parties: TseParty[];
+  munis: TseMunicipality[];
+  onGo: (href: string) => void;
+  router: ReturnType<typeof useRouter>;
+  mobile?: boolean;
+}) {
+  // Mobile: padding/altura maior pra touch
+  const itemCls = mobile
+    ? "w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-accent/50 transition-colors min-h-[56px]"
+    : "w-full text-left px-3 py-2 flex items-center gap-3 hover:bg-accent/50 transition-colors";
+  const titleCls = mobile ? "text-base font-medium truncate" : "text-sm font-medium truncate";
+  const subCls = mobile ? "text-sm text-muted-foreground truncate" : "text-xs text-muted-foreground truncate";
+  const sectCls = mobile
+    ? "px-4 pt-3 pb-1 text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"
+    : "px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1";
+
+  return (
+    <div className={mobile ? "divide-y divide-border" : ""}>
+      {cands.length > 0 && (
+        <div>
+          <p className={sectCls}>
+            <User className={mobile ? "w-3.5 h-3.5" : "w-3 h-3"} /> Candidatos
+          </p>
+          {cands.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => onGo(`/dashboard/analises/candidato/${c.id}`)}
+              onMouseEnter={() => router.prefetch(`/dashboard/analises/candidato/${c.id}`)}
+              className={itemCls}
+            >
+              <CandidatePhoto
+                candidateId={c.id}
+                name={c.urn_name}
+                partyNumber={c.party.number}
+                size={mobile ? "md" : "sm"}
+              />
+              <div className="flex-1 min-w-0">
+                <p className={titleCls}>{c.urn_name}</p>
+                <p className={subCls}>
+                  {c.party.abbreviation} · {c.office_name} · {c.state}
+                </p>
+              </div>
+              <span className="text-primary font-mono text-xs shrink-0">
+                {c.number}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {parties.length > 0 && (
+        <div>
+          <p className={sectCls}>
+            <Building2 className={mobile ? "w-3.5 h-3.5" : "w-3 h-3"} /> Partidos
+          </p>
+          {parties.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onGo(`/dashboard/analises/partido/${p.number}`)}
+              onMouseEnter={() => router.prefetch(`/dashboard/analises/partido/${p.number}`)}
+              className={itemCls}
+            >
+              <PartyLogo number={p.number} abbreviation={p.abbreviation} size={mobile ? "md" : "sm"} />
+              <div className="flex-1 min-w-0">
+                <p className={titleCls}>{p.abbreviation}</p>
+                <p className={subCls}>{p.name}</p>
+              </div>
+              <span className="text-primary font-mono text-xs shrink-0">
+                {p.number}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {munis.length > 0 && (
+        <div>
+          <p className={sectCls}>
+            <MapPin className={mobile ? "w-3.5 h-3.5" : "w-3 h-3"} /> Municípios
+          </p>
+          {munis.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onGo(`/dashboard/analises/municipio/${m.id}`)}
+              onMouseEnter={() => router.prefetch(`/dashboard/analises/municipio/${m.id}`)}
+              className={itemCls}
+            >
+              <StateFlag uf={m.state} size={mobile ? "md" : "sm"} />
+              <div className="flex-1 min-w-0">
+                <p className={titleCls}>{m.name}</p>
+                <p className={mobile ? "text-sm text-muted-foreground" : "text-xs text-muted-foreground"}>{m.state}</p>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>

@@ -7,7 +7,7 @@ não há filtro de tenant porque dados TSE são públicos).
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, joinedload
 
@@ -43,8 +43,11 @@ from app.schemas.tse import (
     ZoneVoteItem,
     MunicipalityRead,
     MunicipalityResultsResponse,
+    MunicipalityTimelineResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
+    TimelineItem,
+    TimelineWinner,
     PartyPerformanceItem,
     PartyPerformanceResponse,
     PartyRead,
@@ -57,7 +60,9 @@ from app.schemas.tse import (
     WinnerMapPoint,
     WinnersMapResponse,
 )
-from app.utils.tse_photos import PhotoNotFound, get_candidate_photo
+from app.utils.rate_limit import limiter
+from app.utils.tse_pdf import build_candidate_dossier
+from app.utils.tse_photos import PhotoNotFound, get_candidate_photo, get_or_make_webp
 from app.utils.tse_sync import DATASETS, run_sync_job
 
 
@@ -96,7 +101,9 @@ muda dataset histórico). Para forçar refresh, delete o cache + dispare.
 - **409** se já há job RUNNING desse dataset (evita duplicação)
 """,
 )
+@limiter.limit("3/hour")
 def trigger_sync(
+    request: Request,
     ctx: CurrentTenant,  # apenas pra exigir autenticação
     background_tasks: BackgroundTasks,
     dataset: str = Query(
@@ -105,10 +112,31 @@ def trigger_sync(
     ),
     db: Session = Depends(get_db),
 ) -> SyncJobCreated:
+    # 3/hora por IP — sync e caro (~10min, baixa 50MB do TSE, parsea 600k+
+    # linhas). Ninguem precisa disparar isso varias vezes por hora.
     if dataset not in DATASETS:
         raise NotFoundError(
             f"Dataset '{dataset}' não suportado. Disponíveis: {list(DATASETS)}"
         )
+
+    # Auto-cleanup de jobs orfaos: se ja tem job "running" ha mais de 1h
+    # sem updated_at recente, marca como failed (provavelmente container
+    # caiu durante a sync). Sem isso, jobs ficam "presos" e bloqueiam novos.
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    orphans = db.execute(
+        select(TseSyncJob).where(
+            TseSyncJob.dataset == dataset,
+            TseSyncJob.status.in_([SyncJobStatus.PENDING, SyncJobStatus.RUNNING]),
+            TseSyncJob.updated_at < cutoff,
+        )
+    ).scalars().all()
+    for o in orphans:
+        o.status = SyncJobStatus.FAILED
+        o.error_message = "Orphan: stuck running with no progress for >1h"
+        o.completed_at = datetime.now(timezone.utc)
+    if orphans:
+        db.commit()
 
     # Verifica se já tem job rodando — evita race
     existing = db.execute(
@@ -162,6 +190,25 @@ def list_sync_jobs(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> list[SyncJobRead]:
+    # Cleanup oportunista de jobs orfaos (status "running" sem progresso ha >1h).
+    # Acontece quando o container reinicia durante uma sync. Sem isso, o badge
+    # "sincronizando..." fica preso na UI ate proximo POST /sync.
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    orphans = db.execute(
+        select(TseSyncJob).where(
+            TseSyncJob.status.in_([SyncJobStatus.PENDING, SyncJobStatus.RUNNING]),
+            TseSyncJob.updated_at < cutoff,
+        )
+    ).scalars().all()
+    if orphans:
+        now = datetime.now(timezone.utc)
+        for o in orphans:
+            o.status = SyncJobStatus.FAILED
+            o.error_message = "Orphan: stuck >1h sem progresso (container reiniciou)"
+            o.completed_at = now
+        db.commit()
+
     jobs = (
         db.execute(
             select(TseSyncJob).order_by(TseSyncJob.created_at.desc()).limit(20)
@@ -220,6 +267,8 @@ def list_candidates(
     search: str | None = Query(None, description="Busca ILIKE no nome/urna"),
     election_id: UUID | None = Query(None),
     year: int | None = Query(None, description="Ano da eleição (2024, 2022...)"),
+    elected_only: bool = Query(False, description="Filtra so candidatos eleitos"),
+    municipality_id: UUID | None = Query(None, description="Filtra so candidatos que tiveram votos nesta cidade"),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
@@ -250,6 +299,19 @@ def list_candidates(
     if party_number is not None:
         party_id_subq = select(Party.id).where(Party.number == party_number)
         stmt = stmt.where(Candidate.party_id.in_(party_id_subq))
+
+    if elected_only:
+        stmt = stmt.where(Candidate.result_status.like("ELEITO%"))
+
+    if municipality_id is not None:
+        # So inclui candidatos que tiveram votos nesta cidade.
+        # Subquery DISTINCT pra evitar dup quando candidato tem N vote_results.
+        cand_ids_in_muni = (
+            select(VoteResult.candidate_id)
+            .where(VoteResult.municipality_id == municipality_id)
+            .distinct()
+        )
+        stmt = stmt.where(Candidate.id.in_(cand_ids_in_muni))
 
     # Count total com CAP: contar exato todos os "silva" (77k) e' lento e
     # inutil pra UI. Limitamos a contagem em COUNT_CAP+1 — se passar, a UI
@@ -537,6 +599,162 @@ def municipality_electorate(
         by_age=prof.by_age or {},
         by_education=prof.by_education or {},
     )
+
+
+@router.get(
+    "/municipalities/{municipality_id}/timeline",
+    response_model=MunicipalityTimelineResponse,
+    summary="Linha do tempo eleitoral do municipio — vencedor por ano/cargo",
+    description="""\
+Pra cada (ano, cargo) com dados sincronizados, retorna o vencedor + vice
++ contagem total na cidade. Permite analise comparativa:
+- "Quem ganhou prefeito 2024 vs governador 2022?"
+- "Onde a esquerda perdeu prefeitura mas Lula ganhou?"
+- "Transicao partidaria do municipio"
+""",
+)
+def municipality_timeline(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> MunicipalityTimelineResponse:
+    _key = f"muni_timeline:{municipality_id}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    # Window function: ranqueia candidatos por (election_id, office_code)
+    # filtrando por esta cidade. Pega top 2 (vencedor + vice).
+    from sqlalchemy import literal_column
+    ranked = (
+        select(
+            VoteResult.candidate_id.label("cand_id"),
+            VoteResult.votes.label("votes"),
+            Candidate.election_id.label("election_id"),
+            Candidate.office_code.label("office_code"),
+            func.row_number().over(
+                partition_by=(Candidate.election_id, Candidate.office_code),
+                order_by=VoteResult.votes.desc(),
+            ).label("rn"),
+        )
+        .join(Candidate, Candidate.id == VoteResult.candidate_id)
+        .where(VoteResult.municipality_id == municipality_id)
+        .subquery()
+    )
+    top2 = (
+        select(
+            ranked.c.cand_id,
+            ranked.c.votes,
+            ranked.c.election_id,
+            ranked.c.office_code,
+            ranked.c.rn,
+        )
+        .where(ranked.c.rn <= 2)
+    )
+    rows = db.execute(top2).all()
+
+    # Mapa (election_id, office_code) -> {"rn1": (cand_id, votes), "rn2": ...}
+    buckets: dict[tuple, dict] = {}
+    for r in rows:
+        key = (r.election_id, r.office_code)
+        slot = buckets.setdefault(key, {})
+        slot[r.rn] = (r.cand_id, int(r.votes))
+
+    if not buckets:
+        return MunicipalityTimelineResponse(
+            municipality=MunicipalityRead.model_validate(muni),
+            items=[],
+        )
+
+    # Batch-load candidates, parties, elections referenciados
+    cand_ids: set = set()
+    for slot in buckets.values():
+        for v in slot.values():
+            cand_ids.add(v[0])
+    cands = {
+        c.id: c for c in db.execute(
+            select(Candidate).where(Candidate.id.in_(cand_ids))
+        ).scalars()
+    }
+    party_ids = {c.party_id for c in cands.values()}
+    parties = {
+        p.id: p for p in db.execute(
+            select(Party).where(Party.id.in_(party_ids))
+        ).scalars()
+    }
+    election_ids = {key[0] for key in buckets.keys()}
+    elections = {
+        e.id: e for e in db.execute(
+            select(Election).where(Election.id.in_(election_ids))
+        ).scalars()
+    }
+
+    # Total de votos por (election, office) — denominador
+    total_rows = db.execute(
+        select(
+            Candidate.election_id,
+            Candidate.office_code,
+            func.coalesce(func.sum(VoteResult.votes), 0).label("total"),
+            func.count(VoteResult.candidate_id).label("cands"),
+        )
+        .join(Candidate, Candidate.id == VoteResult.candidate_id)
+        .where(VoteResult.municipality_id == municipality_id)
+        .group_by(Candidate.election_id, Candidate.office_code)
+    ).all()
+    totals = {
+        (r.election_id, r.office_code): (int(r.total), int(r.cands))
+        for r in total_rows
+    }
+
+    def _winner(cand_id, votes) -> TimelineWinner:
+        c = cands[cand_id]
+        p = parties.get(c.party_id)
+        return TimelineWinner(
+            candidate_id=c.id,
+            urn_name=c.urn_name,
+            name=c.name,
+            party_abbr=p.abbreviation if p else "",
+            party_number=p.number if p else 0,
+            party_name=p.name if p else "",
+            result_status=c.result_status,
+            votes=votes,
+        )
+
+    items: list[TimelineItem] = []
+    for (election_id, office_code), slot in buckets.items():
+        e = elections.get(election_id)
+        if e is None:
+            continue
+        winner_data = slot.get(1)
+        runner_data = slot.get(2)
+        winner_cand = cands.get(winner_data[0]) if winner_data else None
+        office_name = winner_cand.office_name if winner_cand else f"Cargo {office_code}"
+        total, ncands = totals.get((election_id, office_code), (0, 0))
+        items.append(TimelineItem(
+            year=e.year,
+            office_code=office_code,
+            office_name=office_name,
+            round=getattr(e, "round", 1) or 1,
+            total_votes=total,
+            winner=_winner(*winner_data) if winner_data else None,
+            runner_up=_winner(*runner_data) if runner_data else None,
+            candidates_count=ncands,
+        ))
+
+    # Ordena: ano desc, office_code asc (Presidente, Governador, ...),
+    # round desc (mostra 2o turno antes do 1o pra cargos que tiveram turno).
+    items.sort(key=lambda x: (-x.year, x.office_code, -x.round))
+
+    result = MunicipalityTimelineResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        items=items,
+    )
+    agg_set(_key, result)
+    return result
 
 
 @router.get(
@@ -1140,10 +1358,14 @@ forma — autenticar so adiciona complicacao sem ganho de seguranca.
     response_class=Response,
     include_in_schema=True,
 )
+@limiter.limit("120/minute")
 def candidate_photo(
     candidate_id: UUID,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
+    # 120/min por IP — 2 fotos/seg em media. Suficiente pro fluxo normal
+    # (Lista de 20 candidatos + scroll), bloqueia ataque de script.
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise NotFoundError("Candidato nao encontrado")
@@ -1157,20 +1379,201 @@ def candidate_photo(
     uf = "BR" if candidate.office_code == 1 else candidate.state
 
     try:
-        data = get_candidate_photo(uf, candidate.sq_candidato, year)
+        jpeg = get_candidate_photo(uf, candidate.sq_candidato, year)
     except PhotoNotFound:
-        # 404 cacheável: evita re-tentar fotos inexistentes a cada visita.
-        # 1 dia (mais curto que as existentes — foto pode ser publicada depois).
+        # 404 cacheavel: evita re-tentar fotos inexistentes a cada visita.
         return Response(
             status_code=404,
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
+    # Negociacao de conteudo: serve WebP quando o cliente aceita (Chrome,
+    # Firefox, Safari modernos suportam). Fica 40-60% menor que JPEG.
+    accept = request.headers.get("accept", "")
+    wants_webp = "image/webp" in accept.lower()
+
+    if wants_webp:
+        data = get_or_make_webp(uf, candidate.sq_candidato, year, jpeg)
+        media = "image/webp"
+        etag = f'"tse-{year}-{candidate.sq_candidato}-w"'
+    else:
+        data = jpeg
+        media = "image/jpeg"
+        etag = f'"tse-{year}-{candidate.sq_candidato}"'
+
     return Response(
         content=data,
-        media_type="image/jpeg",
+        media_type=media,
         headers={
-            "Cache-Control": "public, max-age=604800",  # 7 dias
-            "ETag": f'"tse-{year}-{candidate.sq_candidato}"',
+            # 30 dias — fotos sao estaveis, varia raramente
+            "Cache-Control": "public, max-age=2592000, immutable",
+            "ETag": etag,
+            "Vary": "Accept",  # navegadores cacheiam por variante (jpeg/webp)
+        },
+    )
+
+
+# ============================================================ DOSSIE PDF
+
+
+@router.get(
+    "/candidates/{candidate_id}/dossier.pdf",
+    summary="Dossie PDF do candidato (executivo)",
+    description="""\
+Gera um PDF executivo do candidato com:
+- Hero (foto, nome, partido, cargo, situacao)
+- Stats (votos totais, municipios)
+- Perfil rico (patrimonio, receitas, despesas, redes)
+- Top 50 municipios por votos
+- Top 30 zonas eleitorais por votos
+
+Renderizado com ReportLab. ~3-5 paginas A4. Bom pra impressao e arquivo.
+""",
+    responses={
+        200: {
+            "content": {"application/pdf": {}},
+            "description": "PDF do dossie",
+        },
+        404: {"description": "Candidato nao encontrado"},
+    },
+    response_class=Response,
+)
+@limiter.limit("30/minute")
+def candidate_dossier_pdf(
+    candidate_id: UUID,
+    request: Request,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> Response:
+    # 30/min por IP — gerar PDF e caro (ReportLab + QR + mapa).
+    # Razoavel: 1 por 2s.
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+
+    # --- Cache em disco ---
+    # PDFs sao deterministicos. Sync do TSE deveria invalidar este cache;
+    # como sync e raro, usamos tambem TTL via mtime (24h). Hit serve em ~5ms.
+    from pathlib import Path as _Path
+    import time as _time
+    pdf_cache_dir = _Path("/var/marenostrum/pdf_cache")
+    pdf_cache_path = pdf_cache_dir / f"{candidate.id}.pdf"
+    if pdf_cache_path.is_file():
+        try:
+            age = _time.time() - pdf_cache_path.stat().st_mtime
+            if age < 86400:  # 24h
+                safe = "".join(
+                    c if c.isalnum() else "-" for c in (candidate.urn_name or "candidato").lower()
+                ).strip("-")
+                fname = f"dossie-{safe}.pdf"
+                return Response(
+                    content=pdf_cache_path.read_bytes(),
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'inline; filename="{fname}"',
+                        "Cache-Control": "public, max-age=86400",
+                        "X-Cache": "HIT",
+                    },
+                )
+        except Exception:
+            pass  # corrupted/permission -> cai pra geracao normal
+
+    party = db.get(Party, candidate.party_id)
+    election = db.get(Election, candidate.election_id)
+
+    # Votos por municipio (todos, ordenado desc) + coords pra mini-mapa
+    muni_rows = db.execute(
+        select(
+            Municipality.name,
+            Municipality.state,
+            VoteResult.votes,
+            Municipality.latitude,
+            Municipality.longitude,
+        )
+        .join(Municipality, Municipality.id == VoteResult.municipality_id)
+        .where(VoteResult.candidate_id == candidate_id)
+        .order_by(VoteResult.votes.desc())
+    ).all()
+    municipality_results = [(n, s, int(v)) for n, s, v, _, _ in muni_rows]
+    municipality_coords = [
+        (float(lat) if lat is not None else None,
+         float(lng) if lng is not None else None,
+         int(v))
+        for _, _, v, lat, lng in muni_rows
+        if lat is not None and lng is not None
+    ]
+    total_votes = sum(v for _, _, v in municipality_results)
+    muni_count = len(municipality_results)
+
+    # Votos por zona (top 60 ja basta — usamos 30 no PDF)
+    zone_rows = db.execute(
+        select(
+            CandidateZoneVote.zone,
+            Municipality.name,
+            Municipality.state,
+            CandidateZoneVote.votes,
+        )
+        .join(Municipality, Municipality.id == CandidateZoneVote.municipality_id)
+        .where(CandidateZoneVote.candidate_id == candidate_id)
+        .order_by(CandidateZoneVote.votes.desc())
+        .limit(60)
+    ).all()
+    zone_results = [(int(z), n, s, int(v)) for z, n, s, v in zone_rows]
+
+    # Foto (best-effort — sem foto, segue sem)
+    photo_bytes: bytes | None = None
+    try:
+        year_p = election.year if election else 2024
+        uf_p = "BR" if candidate.office_code == 1 else candidate.state
+        photo_bytes = get_candidate_photo(uf_p, candidate.sq_candidato, year_p)
+    except Exception:
+        photo_bytes = None
+
+    pdf_bytes = build_candidate_dossier(
+        candidate_name=candidate.name,
+        urn_name=candidate.urn_name,
+        number=candidate.number,
+        office_name=candidate.office_name or "",
+        state=candidate.state,
+        year=election.year if election else 0,
+        result_status=candidate.result_status,
+        party_abbr=party.abbreviation if party else "",
+        party_name=party.name if party else "",
+        party_number=party.number if party else 0,
+        total_votes=total_votes,
+        muni_count=muni_count,
+        assets_total=candidate.assets_total,
+        revenue_total=candidate.revenue_total,
+        expense_total=candidate.expense_total,
+        social_links=candidate.social_links,
+        municipality_results=municipality_results,
+        zone_results=zone_results,
+        photo_bytes=photo_bytes,
+        candidate_id=str(candidate.id),
+        public_url_base="https://srv1412083.hstgr.cloud",
+        municipality_coords=municipality_coords,
+    )
+
+    # Persiste no cache (atomico via .tmp + rename)
+    try:
+        pdf_cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp = pdf_cache_path.with_suffix(".pdf.tmp")
+        tmp.write_bytes(pdf_bytes)
+        tmp.replace(pdf_cache_path)
+    except Exception:
+        pass  # falha de cache nao impede a resposta
+
+    # Filename amigavel pro download (sem acento/espaco)
+    safe = "".join(
+        c if c.isalnum() else "-" for c in (candidate.urn_name or "candidato").lower()
+    ).strip("-")
+    fname = f"dossie-{safe}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{fname}"',
+            "Cache-Control": "public, max-age=86400",
+            "X-Cache": "MISS",
         },
     )

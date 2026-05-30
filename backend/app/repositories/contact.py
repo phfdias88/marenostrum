@@ -13,11 +13,12 @@ SOFT DELETE (Fase 10):
   do DB que e' global): exists_by_phone, find_existing_phones
   Razao: phone de contact soft-deleted ainda ocupa o slot unique.
 """
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import cast, extract, func, insert, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.models.contact import Contact
@@ -95,6 +96,7 @@ class ContactRepository:
         *,
         tenant_id: UUID,
         search: str | None = None,
+        tag: str | None = None,
     ) -> int:
         stmt = select(func.count(Contact.id)).where(
             Contact.tenant_id == tenant_id,
@@ -102,6 +104,9 @@ class ContactRepository:
         )
         if search:
             stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
+        if tag:
+            # tags @> '["x"]'::jsonb — bate indice GIN jsonb_path_ops
+            stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
         return int(self._db.execute(stmt).scalar_one())
 
     def list_paginated(
@@ -111,10 +116,12 @@ class ContactRepository:
         limit: int,
         offset: int,
         search: str | None = None,
+        tag: str | None = None,
     ) -> list[Contact]:
         """
         Lista contatos ATIVOS do tenant.
         ILIKE no nome se search fornecido; case-insensitive.
+        Filtro por tag usa contains (`tags @> '["x"]'`) — bate indice GIN.
         """
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
@@ -122,12 +129,98 @@ class ContactRepository:
         )
         if search:
             stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
+        if tag:
+            stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
         stmt = (
             stmt.order_by(Contact.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
         return list(self._db.execute(stmt).scalars().all())
+
+    # ----------------------------------------------------- Tags & Birthdays
+
+    def list_tag_summary(self, *, tenant_id: UUID) -> list[tuple[str, int]]:
+        """
+        Lista tags distintas no tenant + contagem de uso (sort: count DESC, tag ASC).
+        Usa jsonb_array_elements_text — eficiente o suficiente pra ate' ~100k contatos.
+        """
+        sql = text(
+            "SELECT tag, COUNT(*) AS n "
+            "FROM contacts c, jsonb_array_elements_text(c.tags) AS tag "
+            "WHERE c.tenant_id = :tid AND c.is_active = true "
+            "GROUP BY tag "
+            "ORDER BY n DESC, tag ASC "
+            "LIMIT 200"
+        )
+        rows = self._db.execute(sql, {"tid": str(tenant_id)}).all()
+        return [(r[0], int(r[1])) for r in rows]
+
+    def list_birthdays(
+        self,
+        *,
+        tenant_id: UUID,
+        ref_date: date,
+        days_ahead: int = 0,
+    ) -> list[tuple[Contact, int]]:
+        """
+        Aniversariantes ATIVOS do tenant entre ref_date e ref_date+days_ahead (inclusive).
+        Retorna lista de (contact, days_until). Lida com virada de ano.
+
+        Estrategia: gera (mes,dia) das proximas N datas, faz IN — bate
+        indice expression `ix_contacts_birthday_md`.
+        """
+        days_ahead = max(0, min(days_ahead, 60))  # defensiva: max 60 dias
+        target_md: list[tuple[int, int]] = []
+        for i in range(days_ahead + 1):
+            d = ref_date + timedelta(days=i)
+            target_md.append((d.month, d.day))
+
+        # Monta tupla SQL ((m,d), (m,d), ...) via WHERE (month, day) IN ...
+        # SQLAlchemy nao tem helper bonito pra tuple IN; usamos OR chain
+        # — pra max 60 dias e' aceitavel
+        stmt = select(Contact).where(
+            Contact.tenant_id == tenant_id,
+            Contact.is_active.is_(True),
+            Contact.birth_date.is_not(None),
+        )
+
+        # Filtro composto (month,day) IN target_md via OR
+        from sqlalchemy import and_, or_
+
+        clauses = [
+            and_(
+                extract("month", Contact.birth_date) == m,
+                extract("day", Contact.birth_date) == d,
+            )
+            for (m, d) in target_md
+        ]
+        if clauses:
+            stmt = stmt.where(or_(*clauses))
+
+        contacts = list(self._db.execute(stmt).scalars().all())
+
+        # Calcula days_until por contato (em Python — barato pra max ~200 contatos)
+        result: list[tuple[Contact, int]] = []
+        for c in contacts:
+            if c.birth_date is None:
+                continue
+            # Proxima ocorrencia do aniversario a partir de ref_date
+            this_year = c.birth_date.replace(year=ref_date.year)
+            if this_year < ref_date:
+                # passou esse ano, vai pro proximo (so' acontece se days_ahead
+                # cruzar virada de ano — fim de dezembro -> janeiro)
+                try:
+                    this_year = c.birth_date.replace(year=ref_date.year + 1)
+                except ValueError:
+                    # 29/fev em ano nao-bissexto: cai pra 28/fev
+                    this_year = date(ref_date.year + 1, 2, 28)
+            delta = (this_year - ref_date).days
+            result.append((c, delta))
+
+        # Ordena por days_until ASC, depois nome
+        result.sort(key=lambda t: (t[1], t[0].full_name.lower()))
+        return result
 
     def list_with_coords(self, *, tenant_id: UUID) -> list[Contact]:
         """Mapa — so contatos ATIVOS com lat/lng preenchidos."""

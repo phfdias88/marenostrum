@@ -16,8 +16,25 @@ export type Contact = {
   birth_date: string | null; // ISO date "YYYY-MM-DD"
   type: ContactType;
   notes: string | null;
+  /** Tags livres pra segmentação. Lowercase + slug ([a-z0-9_-], max 32). */
+  tags: string[];
   created_at: string;
   updated_at: string;
+};
+
+/** Tag + contagem (resposta de GET /v1/contacts/tags). */
+export type ContactTag = { tag: string; count: number };
+
+/** Aniversariante (resposta de GET /v1/contacts/birthdays). */
+export type BirthdayContact = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  birth_date: string; // ISO "YYYY-MM-DD"
+  days_until: number; // 0 = hoje
+  age_turning: number | null;
+  tags: string[];
 };
 
 export type Page<T> = {
@@ -244,6 +261,35 @@ export type TseMunicipalityZones = {
   office_code: number | null;
   office_name: string | null;
   zones: TseMunicipalityZone[];
+};
+
+// ---------- Timeline eleitoral do município ----------
+
+export type TseTimelineWinner = {
+  candidate_id: string;
+  urn_name: string;
+  name: string;
+  party_abbr: string;
+  party_number: number;
+  party_name: string;
+  result_status: string | null;
+  votes: number;
+};
+
+export type TseTimelineItem = {
+  year: number;
+  office_code: number;
+  office_name: string;
+  round?: number; // 1=1º turno, 2=2º turno
+  total_votes: number;
+  winner: TseTimelineWinner | null;
+  runner_up: TseTimelineWinner | null;
+  candidates_count: number;
+};
+
+export type TseMunicipalityTimeline = {
+  municipality: TseMunicipality;
+  items: TseTimelineItem[];
 };
 
 export type TseCandidateZoneVotes = {

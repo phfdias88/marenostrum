@@ -5,13 +5,19 @@
  * URL compartilhável com tudo: foto, resultado, perfil (patrimônio/finanças/
  * redes), votos por município, mapa, favoritar, exportar.
  */
-import { ArrowLeft, Map as MapIcon, UserX } from "lucide-react";
+import { ArrowLeft, FileDown, Loader2, Map as MapIcon, UserX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-import type { TseCandidateResults, TseCandidateZoneVotes } from "@/lib/types";
+import { getToken } from "@/lib/auth";
+import type {
+  TseCandidateByNeighborhoodResponse,
+  TseCandidateResults,
+  TseCandidateZoneVotes,
+} from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -21,6 +27,9 @@ import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
 import { CandidateDetailSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { VoteBar } from "@/components/ui/VoteBar";
+import { PresentButton } from "@/components/ui/PresentButton";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -32,20 +41,42 @@ export default function CandidateDetailPage() {
   const [error, setError] = useState(false);
   const [showMap, setShowMap] = useState(false);
   const [zones, setZones] = useState<TseCandidateZoneVotes | null>(null);
+  const [bairros, setBairros] = useState<TseCandidateByNeighborhoodResponse | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!id) return;
+    // Reset imediato — sem isso, ao trocar de candidato A→B, voce ve
+    // brevemente os dados de A enquanto B carrega. Pior: race condition
+    // se o fetch de A demorar mais que o de B (A sobrescreve B no .then).
+    let cancelled = false;
     setLoading(true);
     setError(false);
+    setData(null);
+    setZones(null);
+    setBairros(null);
+
     api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`)
-      .then(setData)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-    // Votos por zona (404/vazio = dataset de zona não sincronizado → esconde)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    // Votos por zona (404/vazio = dataset nao sincronizado → esconde)
     api<TseCandidateZoneVotes>(`/v1/tse/candidates/${id}/by-zone`)
-      .then(setZones)
-      .catch(() => setZones(null));
+      .then((d) => { if (!cancelled) setZones(d); })
+      .catch(() => { if (!cancelled) setZones(null); });
+    // Top bairros (so existe pra capitais grandes com voting_places enriquecidos)
+    api<TseCandidateByNeighborhoodResponse>(
+      `/v1/tse/candidates/${id}/by-neighborhood?limit=20`,
+    )
+      .then((d) => { if (!cancelled) setBairros(d); })
+      .catch(() => { if (!cancelled) setBairros(null); });
+
+    // Limpa estados "abertos" ao trocar de candidato.
+    setShowMap(false);
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   if (loading) {
@@ -79,8 +110,8 @@ export default function CandidateDetailPage() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-4">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <Link
           href="/dashboard/analises/candidato"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -88,6 +119,8 @@ export default function CandidateDetailPage() {
           <ArrowLeft className="w-4 h-4" /> Buscar candidatos
         </Link>
         <div className="flex items-center gap-3" data-html2canvas-ignore>
+          <PresentButton />
+          <DossierDownload candidateId={c.id} urnName={c.urn_name} />
           <FavoriteStar
             fav={{
               kind: "candidate",
@@ -107,30 +140,33 @@ export default function CandidateDetailPage() {
       </div>
 
       <div ref={cardRef} className="bg-background rounded-xl">
-        {/* Hero */}
-        <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-6 flex flex-col sm:flex-row items-center sm:items-start gap-5">
-          <CandidatePhoto
-            candidateId={c.id}
-            name={c.urn_name}
-            partyNumber={c.party.number}
-            size="xl"
-          />
-          <div className="flex-1 min-w-0 text-center sm:text-left">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+        {/* Hero — mobile: foto menor, layout horizontal compacto */}
+        <div className="relative overflow-hidden mn-glass mn-glow rounded-xl p-4 sm:p-6 flex flex-row sm:flex-row items-start gap-4 sm:gap-5">
+          <div className="shrink-0">
+            <CandidatePhoto
+              candidateId={c.id}
+              name={c.urn_name}
+              partyNumber={c.party.number}
+              size="lg"
+              className="sm:!w-32 sm:!h-32"
+            />
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <p className="text-[10px] sm:text-xs uppercase tracking-wider text-muted-foreground">
               {c.office_name} · {c.state} · {c.election.year}
             </p>
-            <h1 className="text-2xl font-bold mt-0.5">{c.urn_name}</h1>
-            <p className="text-sm text-muted-foreground">{c.name}</p>
-            <div className="mt-2 flex items-center gap-2 justify-center sm:justify-start">
+            <h1 className="text-lg sm:text-2xl font-bold mt-0.5 leading-tight">{c.urn_name}</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground truncate">{c.name}</p>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
               <ResultBadge status={c.result_status} />
             </div>
-            <div className="mt-3 flex items-center gap-2 justify-center sm:justify-start">
+            <div className="mt-2 sm:mt-3 flex items-center gap-2">
               <PartyLogo number={c.party.number} abbreviation={c.party.abbreviation} size="sm" />
-              <div className="text-left">
-                <p className="font-semibold text-sm">
+              <div className="text-left min-w-0">
+                <p className="font-semibold text-xs sm:text-sm">
                   {c.party.abbreviation} · {c.number}
                 </p>
-                <p className="text-xs text-muted-foreground truncate max-w-[220px]">
+                <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
                   {c.party.name}
                 </p>
               </div>
@@ -141,14 +177,14 @@ export default function CandidateDetailPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div className="rounded-lg border bg-card/60 p-4 text-center">
-            <p className="text-3xl font-bold text-primary">
-              {numberFmt.format(data.total_votes)}
+            <p className="text-3xl font-bold text-primary tabular-nums">
+              <AnimatedNumber value={data.total_votes} />
             </p>
             <p className="text-xs text-muted-foreground">Total de votos</p>
           </div>
           <div className="rounded-lg border bg-card/60 p-4 text-center">
-            <p className="text-3xl font-bold">
-              {numberFmt.format(data.municipalities_with_votes)}
+            <p className="text-3xl font-bold tabular-nums">
+              <AnimatedNumber value={data.municipalities_with_votes} />
             </p>
             <p className="text-xs text-muted-foreground">Municípios</p>
           </div>
@@ -181,20 +217,28 @@ export default function CandidateDetailPage() {
             Votos por município
           </p>
           <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
-            {data.results.slice(0, 100).map((r) => (
-              <li
-                key={r.municipality.id}
-                className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
-              >
-                <span className="truncate">
-                  {r.municipality.name}{" "}
-                  <span className="text-muted-foreground">/{r.municipality.state}</span>
-                </span>
-                <span className="font-mono font-semibold shrink-0">
-                  {numberFmt.format(r.votes)}
-                </span>
-              </li>
-            ))}
+            {data.results.slice(0, 100).map((r, i) => {
+              const top = data.results[0]?.votes || 1;
+              return (
+                <li
+                  key={r.municipality.id}
+                  className="px-4 py-2.5 text-sm"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate">
+                      {r.municipality.name}{" "}
+                      <span className="text-muted-foreground">/{r.municipality.state}</span>
+                    </span>
+                    <span className="font-mono font-semibold shrink-0 tabular-nums">
+                      {numberFmt.format(r.votes)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5">
+                    <VoteBar value={r.votes} max={top} rank={i + 1} />
+                  </div>
+                </li>
+              );
+            })}
           </ul>
           {data.results.length > 100 && (
             <p className="text-xs text-muted-foreground pt-2">
@@ -237,11 +281,103 @@ export default function CandidateDetailPage() {
             </ul>
           </div>
         )}
+
+        {/* Top bairros (so aparece quando ha dados — capitais sincronizadas) */}
+        {bairros && bairros.items.length > 0 && (
+          <div className="mt-5 mn-fade-in">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              Top 20 bairros com mais votos
+            </p>
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+              {bairros.items.map((b, i) => {
+                const top = bairros.items[0]?.votes || 1;
+                const pct = (b.votes / top) * 100;
+                const penetration = b.electors_total > 0
+                  ? (b.votes / b.electors_total) * 100
+                  : 0;
+                return (
+                  <li key={`${b.neighborhood}-${i}`} className="px-4 py-2.5">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate flex items-center gap-2 min-w-0">
+                        <span className="text-primary font-bold text-xs w-6 tabular-nums shrink-0">
+                          {i + 1}º
+                        </span>
+                        <span className="truncate">{b.neighborhood}</span>
+                      </span>
+                      <span className="font-mono font-semibold shrink-0 tabular-nums">
+                        {numberFmt.format(b.votes)}
+                      </span>
+                    </div>
+                    <div className="mt-1 ml-8">
+                      <VoteBar value={b.votes} max={top} rank={i + 1} />
+                    </div>
+                    {b.electors_total > 0 && (
+                      <p className="ml-8 mt-1 text-[11px] text-muted-foreground">
+                        {b.places_count} {b.places_count === 1 ? "local" : "locais"} ·{" "}
+                        {penetration.toFixed(1)}% dos eleitores do bairro
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </div>
 
       {showMap && (
         <CandidateMapModal results={data} onClose={() => setShowMap(false)} />
       )}
     </div>
+  );
+}
+
+// ----------------------------------------------------------------- pdf
+
+function DossierDownload({ candidateId, urnName }: { candidateId: string; urnName: string }) {
+  const [loading, setLoading] = useState(false);
+
+  async function download() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+      const token = getToken();
+      const res = await fetch(`${base}/v1/tse/candidates/${candidateId}/dossier.pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) throw new Error(`http ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const safe = urnName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dossie-${safe}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Não foi possível gerar o dossiê PDF.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={download}
+      disabled={loading}
+      title="Baixar dossiê PDF do candidato"
+      aria-label="Baixar dossie PDF"
+      className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card text-sm hover:border-primary/60 hover:bg-accent/40 transition-colors disabled:opacity-60"
+    >
+      {loading ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <FileDown className="w-4 h-4" />
+      )}
+      <span className="hidden sm:inline">Dossiê PDF</span>
+    </button>
   );
 }

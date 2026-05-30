@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet.heat"; // side-effect — registra L.heatLayer
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, useMap } from "react-leaflet";
 import { Flame, MapPinned } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,6 +25,7 @@ import {
   type HeatmapResponse,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ThemedTileLayer } from "./ThemedTileLayer";
 
 // Tipos não-tipados do leaflet.heat
 declare module "leaflet" {
@@ -84,18 +85,14 @@ export default function ContactsMap() {
   }, [mode]);
 
   return (
-    <div className="relative h-[calc(100vh-3.5rem)] w-full">
+    <div className="relative w-full h-[calc(100dvh-3.5rem-64px-env(safe-area-inset-bottom))] md:h-[calc(100dvh-3.5rem)]">
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
         scrollWheelZoom
         className="h-full w-full"
       >
-        <TileLayer
-          // OpenStreetMap — gratuito, sem chave de API. Atribuicao obrigatoria.
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <ThemedTileLayer />
 
         {mode === "contacts" &&
           contacts.map((c) =>

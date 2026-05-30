@@ -10,12 +10,13 @@
  * Reusa GET /tse/municipalities (busca) + /municipalities/{id}/top-candidates
  * (que agora retorna total_votes pra calcular %).
  */
-import { ArrowLeft, Loader2, Search, Vote, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Search, Vote, X } from "lucide-react";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
+import { downloadCsv } from "@/lib/csv";
 import type {
   Page,
   TseMunicipality,
@@ -27,6 +28,9 @@ import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { ExportShare } from "@/components/tse/ExportShare";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { VoteBar } from "@/components/ui/VoteBar";
+import { PresentButton } from "@/components/ui/PresentButton";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", {
@@ -142,7 +146,7 @@ export default function EleicaoAnalysisPage() {
   }, [selectedMuni, office, year]);
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
       <Link
         href="/dashboard/analises"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
@@ -364,22 +368,23 @@ function ResultsPanel({
   return (
     <div ref={panelRef} className="bg-background rounded-xl p-1">
       {/* Header resultado */}
-      <div className="rounded-xl border bg-card p-4 mb-4 flex items-center gap-4">
-        <StateFlag uf={muni.state} size="lg" className="!w-14 !h-10 shadow shrink-0" />
-        <div className="flex-1">
-          <p className="text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-2">
-            <Vote className="w-4 h-4" /> Resultado da eleição
+      <div className="relative overflow-hidden mn-glass mn-glow rounded-xl p-3 sm:p-4 mb-4 flex items-start sm:items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
+        <StateFlag uf={muni.state} size="lg" className="!w-12 sm:!w-14 !h-8 sm:!h-10 shadow shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] sm:text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-1.5">
+            <Vote className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Resultado
           </p>
-          <h2 className="text-lg font-bold mt-1">
+          <h2 className="text-base sm:text-lg font-bold mt-0.5 leading-tight">
             {year === "2022"
               ? "Eleições Gerais 2022"
               : "Eleições Municipais 2024"}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground truncate">
             {officeName} · {muni.name}/{muni.state}
           </p>
         </div>
-        <div data-html2canvas-ignore className="flex items-center gap-3">
+        <div data-html2canvas-ignore className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          <PresentButton />
           <FavoriteStar
             fav={{
               kind: "municipality",
@@ -389,6 +394,45 @@ function ResultsPanel({
               state: muni.state,
             }}
           />
+          <button
+            onClick={() => {
+              if (!results || results.results.length === 0) return;
+              const total = results.total_votes || 1;
+              const rows = results.results.map((r, i) => ({
+                rank: i + 1,
+                urna: r.candidate.urn_name,
+                nome: r.candidate.name,
+                numero: r.candidate.number,
+                partido: r.candidate.party.abbreviation,
+                votos: r.votes,
+                pct: ((r.votes / total) * 100).toFixed(2).replace(".", ","),
+                situacao: r.candidate.result_status ?? "",
+              }));
+              downloadCsv(
+                `eleicao-${muni.name}-${officeName}-${year}`
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-"),
+                [
+                  { key: "rank", label: "#" },
+                  { key: "urna", label: "Nome de urna" },
+                  { key: "nome", label: "Nome" },
+                  { key: "numero", label: "Número" },
+                  { key: "partido", label: "Partido" },
+                  { key: "votos", label: "Votos" },
+                  { key: "pct", label: "% válidos" },
+                  { key: "situacao", label: "Situação" },
+                ],
+                rows,
+              );
+            }}
+            disabled={!results || results.results.length === 0}
+            className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card text-sm hover:border-primary/60 transition-colors disabled:opacity-50"
+            aria-label="Exportar ranking em CSV"
+            title="Exportar CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">CSV</span>
+          </button>
           <ExportShare
             targetRef={panelRef}
             filename={`eleicao-${muni.name}-${officeName}-${year}`
@@ -404,16 +448,16 @@ function ResultsPanel({
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             Votos nominais
           </p>
-          <p className="text-2xl font-bold mt-0.5 text-primary">
-            {numberFmt.format(results.total_votes)}
+          <p className="text-2xl font-bold mt-0.5 text-primary tabular-nums">
+            <AnimatedNumber value={results.total_votes} />
           </p>
         </div>
         <div className="rounded-lg border bg-card/60 px-4 py-3">
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             Candidatos
           </p>
-          <p className="text-2xl font-bold mt-0.5">
-            {numberFmt.format(results.total_results)}
+          <p className="text-2xl font-bold mt-0.5 tabular-nums">
+            <AnimatedNumber value={results.total_results} />
           </p>
         </div>
       </div>
@@ -428,35 +472,43 @@ function ResultsPanel({
         </div>
         {results.results.map((r, i) => {
           const pct = (r.votes / total) * 100;
+          const top = results.results[0]?.votes || 1;
           return (
             <div
               key={r.candidate.id}
-              className="flex items-center gap-3 px-4 py-2.5"
+              className="px-4 py-2.5"
             >
-              <span className="w-8 font-bold text-primary tabular-nums">
-                {i + 1}º
-              </span>
-              <CandidatePhoto
-                candidateId={r.candidate.id}
-                name={r.candidate.urn_name}
-                partyNumber={r.candidate.party.number}
-                size="sm"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold truncate flex items-center gap-2">
-                  <span className="truncate">{r.candidate.urn_name}</span>
-                  <ResultBadge status={r.candidate.result_status} size="sm" />
-                </p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {r.candidate.party.abbreviation} · {r.candidate.number}
-                </p>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="w-7 sm:w-8 font-bold text-primary tabular-nums text-sm shrink-0">
+                  {i + 1}º
+                </span>
+                <CandidatePhoto
+                  candidateId={r.candidate.id}
+                  name={r.candidate.urn_name}
+                  partyNumber={r.candidate.party.number}
+                  size="sm"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold truncate flex items-center gap-2 text-sm sm:text-base">
+                    <span className="truncate">{r.candidate.urn_name}</span>
+                    <ResultBadge status={r.candidate.result_status} size="sm" />
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
+                    {r.candidate.party.abbreviation} · {r.candidate.number}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono font-bold tabular-nums text-sm sm:text-base leading-none">
+                    {numberFmt.format(r.votes)}
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground tabular-nums mt-0.5">
+                    {pctFmt.format(pct)}%
+                  </p>
+                </div>
               </div>
-              <span className="w-20 text-right font-mono font-bold tabular-nums">
-                {numberFmt.format(r.votes)}
-              </span>
-              <span className="w-14 text-right text-sm text-muted-foreground tabular-nums">
-                {pctFmt.format(pct)}%
-              </span>
+              <div className="mt-1.5 ml-9 sm:ml-11">
+                <VoteBar value={r.votes} max={top} rank={i + 1} />
+              </div>
             </div>
           );
         })}

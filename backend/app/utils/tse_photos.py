@@ -34,6 +34,40 @@ def _cdn_base(year: int) -> str:
 
 CACHE_DIR = Path("/var/marenostrum/tse_photos")
 
+
+def webp_cache_path(year: int, uf: str, sq_candidato: int) -> Path:
+    """Caminho do cache da versao WebP da foto."""
+    return CACHE_DIR / str(year) / uf.upper() / f"{sq_candidato}.webp"
+
+
+def get_or_make_webp(uf: str, sq_candidato: int, year: int, jpeg_bytes: bytes) -> bytes:
+    """Le WebP do cache; se nao existir, converte do JPEG e salva.
+
+    WebP fica 40-60% menor que JPEG na mesma qualidade visual. Em listas
+    longas (rankings, eleicao panel com 50+ fotos) e economia significativa.
+    """
+    wp = webp_cache_path(year, uf, sq_candidato)
+    if wp.is_file():
+        try:
+            return wp.read_bytes()
+        except Exception:
+            pass  # corrompido — re-gera abaixo
+    try:
+        from io import BytesIO
+        from PIL import Image
+        img = Image.open(BytesIO(jpeg_bytes)).convert("RGB")
+        buf = BytesIO()
+        img.save(buf, format="WEBP", quality=82, method=4)
+        data = buf.getvalue()
+        wp.parent.mkdir(parents=True, exist_ok=True)
+        tmp = wp.with_suffix(".webp.tmp")
+        tmp.write_bytes(data)
+        tmp.replace(wp)  # atomico
+        return data
+    except Exception as e:
+        log.warning("webp_conversion_failed", err=str(e)[:160])
+        return jpeg_bytes  # fallback: serve JPEG
+
 # TTL do RemoteZip handle (central directory cacheado).
 # Apos isso, recriamos pra liberar memoria e pegar updates do CDN.
 _HANDLE_TTL_S = 3600  # 1h

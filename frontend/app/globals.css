@@ -45,6 +45,41 @@
 
     --radius: 0.625rem;
   }
+
+  /* ---- Tema CLARO (champanhe sobre creme) ----
+   * Ativado adicionando `class="light"` no <html>.
+   * Mantemos o dourado de marca mas com fundos creme e texto carvão.
+   */
+  .light {
+    --background: 42 30% 97%;
+    --foreground: 36 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 36 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 36 25% 12%;
+
+    /* Dourado mais profundo no claro pra contraste */
+    --primary: 38 65% 42%;
+    --primary-foreground: 45 50% 98%;
+
+    --secondary: 42 25% 92%;
+    --secondary-foreground: 36 25% 18%;
+
+    --muted: 42 20% 93%;
+    --muted-foreground: 36 12% 40%;
+
+    --accent: 42 30% 90%;
+    --accent-foreground: 36 25% 18%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 38 22% 84%;
+    --input: 38 22% 84%;
+    --ring: 38 65% 42%;
+  }
 }
 
 @layer base {
@@ -61,6 +96,11 @@
     background-image:
       radial-gradient(ellipse 80% 60% at 50% -10%, hsl(42 40% 16% / 0.5), transparent 60%),
       radial-gradient(ellipse 60% 40% at 50% 110%, hsl(40 30% 12% / 0.4), transparent 60%);
+  }
+  .light body {
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(42 60% 86% / 0.55), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 50% 110%, hsl(40 50% 90% / 0.45), transparent 60%);
   }
 
   /* Scrollbar discreta dark */
@@ -94,4 +134,205 @@
 }
 .mn-hover:hover {
   transform: translateY(-2px);
+}
+
+/* ---- Shimmer dourado pra Skeletons ---- */
+@keyframes mn-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.mn-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(42 40% 30% / 0.4) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: mn-shimmer 1.8s ease-in-out infinite;
+}
+.light .mn-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(42 60% 72% / 0.6) 50%,
+    hsl(var(--muted)) 100%
+  );
+}
+
+/* ---- Glassmorphism utility (vidro fosco com glow gold) ---- */
+.mn-glass {
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  border: 1px solid hsl(var(--border) / 0.7);
+  box-shadow:
+    inset 0 1px 0 hsl(42 60% 80% / 0.05),
+    0 1px 0 hsl(0 0% 0% / 0.2),
+    0 10px 30px -10px hsl(42 60% 30% / 0.25);
+}
+.light .mn-glass {
+  background: hsl(var(--card) / 0.78);
+  box-shadow:
+    inset 0 1px 0 hsl(0 0% 100% / 0.6),
+    0 10px 30px -10px hsl(42 60% 50% / 0.22);
+}
+
+/* Glow sutil dourado no canto */
+.mn-glow::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -10%;
+  width: 60%;
+  height: 140%;
+  background: radial-gradient(closest-side, hsl(42 60% 55% / 0.18), transparent 70%);
+  pointer-events: none;
+}
+
+/* Fade in/out com slide pra carrosseis */
+@keyframes mn-slide-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.mn-slide-in {
+  animation: mn-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---- Pulsing marker (top municipios nos mapas) ---- */
+@keyframes mn-pulse-ring {
+  0%   { transform: scale(0.85); opacity: 0.85; }
+  100% { transform: scale(2.2);  opacity: 0; }
+}
+.mn-pulse-wrap {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+.mn-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: hsl(42 70% 55% / 0.55);
+  animation: mn-pulse-ring 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.mn-pulse-dot {
+  position: absolute;
+  inset: 4px;
+  border-radius: 999px;
+  background: hsl(42 70% 55%);
+  box-shadow: 0 0 0 2px hsl(0 0% 100% / 0.85), 0 2px 6px hsl(36 30% 8% / 0.5);
+}
+
+/* ---- Sonner toaster: empurra acima da BottomNav no mobile ---- */
+@media (max-width: 767px) {
+  /* O container do sonner usa data-sonner-toaster. Forcamos o bottom
+     pra ficar acima da BottomNav (64px + safe-area + folga). */
+  [data-sonner-toaster][data-y-position="bottom"] {
+    bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+  }
+  /* Top-right no mobile: garante que nao fique cortado pela notch */
+  [data-sonner-toaster][data-y-position="top"] {
+    top: calc(16px + env(safe-area-inset-top)) !important;
+  }
+}
+
+/* ---- Sticky header shrink no mobile ao scrollar ---- */
+@media (max-width: 767px) {
+  [data-dash-header] img {
+    transition: height 0.2s ease, max-width 0.2s ease;
+  }
+  [data-dash-header][data-scrolled="true"] img {
+    height: 1.5rem;
+    max-width: 7rem;
+  }
+  /* Busca global mobile some quando scrolla — pra ganhar espaco vertical */
+  [data-dash-header] > div > div:has(> [data-mobile-search]) {
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
+    overflow: hidden;
+    max-height: 4rem;
+  }
+  [data-dash-header][data-scrolled="true"] > div > div:has(> [data-mobile-search]) {
+    max-height: 0;
+    opacity: 0;
+    padding-bottom: 0;
+    padding-top: 0;
+  }
+}
+
+/* ---- Selects mais bonitos no mobile (o sistema ja abre como bottom sheet) ---- */
+@media (max-width: 767px) {
+  select {
+    /* Remove a seta nativa pra inserir uma propria mais bonita */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23C9A24B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 36px !important;
+  }
+}
+
+/* ---- Mobile touch targets + form sizing ---- */
+@media (max-width: 767px) {
+  /* Inputs/selects/buttons com altura confortavel pro polegar.
+     iOS recomenda 44px, Material 48px. Usamos 44px (h-11 = 2.75rem) */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px; /* evita zoom automatico do iOS Safari ao focar */
+  }
+  /* Botoes principais com touch target maior */
+  button:not([data-no-mobile-touch]) {
+    min-height: 40px;
+  }
+  /* Linhas de ranking (cidades/zonas/candidatos) ficam mais densas */
+  [data-rank-row] {
+    min-height: 56px;
+  }
+}
+
+/* ---- Modo apresentacao (TV/projetor) ---- */
+.presenting [data-dash-header],
+.presenting [data-bottom-nav] {
+  display: none !important;
+}
+.presenting main {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+.presenting .max-w-4xl,
+.presenting .max-w-7xl,
+.presenting .max-w-2xl {
+  max-width: 100% !important;
+  padding-left: 3.5rem !important;
+  padding-right: 3.5rem !important;
+}
+.present-chip {
+  position: fixed;
+  bottom: 1rem;
+  right: 1.25rem;
+  z-index: 9999;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 4px 12px -4px hsl(0 0% 0% / 0.3);
+}
+
+/* Tooltip do Leaflet — visual MareNostrum */
+.leaflet-tooltip.mn-tip {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: 600 11px/1.2 ui-sans-serif, system-ui, sans-serif;
+  box-shadow: 0 8px 24px -8px hsl(36 30% 4% / 0.6);
+}
+.leaflet-tooltip.mn-tip::before {
+  border-top-color: hsl(var(--border));
 }

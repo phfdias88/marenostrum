@@ -8,6 +8,7 @@ HTTP) traduz pra status via register_exception_handlers.
 Geocoding: chamado em BackgroundTask do FastAPI quando o endereco mudou e
 nao veio lat/lng explicito. Roda DEPOIS da resposta — UX nao espera Nominatim.
 """
+from datetime import date as _date, timedelta
 from uuid import UUID
 
 import structlog
@@ -20,10 +21,12 @@ from app.models.interaction import Interaction
 from app.repositories.contact import ContactRepository
 from app.repositories.interaction import InteractionRepository
 from app.schemas.contact import (
+    BirthdayContact,
     ContactCreate,
     ContactUpdate,
     ImportResult,
     ImportRowError,
+    TagItem,
 )
 from app.utils.csv_import import parse_csv
 from app.utils.geocoding import geocode_and_persist_contact
@@ -117,26 +120,73 @@ class ContactService:
         limit: int = 50,
         offset: int = 0,
         search: str | None = None,
+        tag: str | None = None,
     ) -> tuple[list[Contact], int]:
-        """Retorna (items, total) com filtro opcional por nome (ILIKE)."""
+        """Retorna (items, total) com filtro opcional por nome (ILIKE) + tag."""
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
         # Normaliza: string vazia/whitespace = sem filtro
         search = search.strip() if search else None
         if search == "":
             search = None
+        tag = tag.strip().lower() if tag else None
+        if tag == "":
+            tag = None
 
         items = self._repo.list_paginated(
             tenant_id=self._ctx.tenant_id,
             limit=limit,
             offset=offset,
             search=search,
+            tag=tag,
         )
         total = self._repo.count(
             tenant_id=self._ctx.tenant_id,
             search=search,
+            tag=tag,
         )
         return items, total
+
+    # ----------------------------------------------------- Tags & Birthdays
+
+    def list_tag_summary(self) -> list[TagItem]:
+        """Lista tags distintas no tenant + contagem de uso."""
+        rows = self._repo.list_tag_summary(tenant_id=self._ctx.tenant_id)
+        return [TagItem(tag=t, count=n) for (t, n) in rows]
+
+    def list_birthdays(self, *, days_ahead: int = 0) -> list[BirthdayContact]:
+        """
+        Aniversariantes hoje (days_ahead=0) ou janela futura.
+        Ex: days_ahead=6 = hoje + proximos 6 dias = semana.
+        """
+        # Usa data UTC; pra Brasil real UTC-3 ja' garante "hoje"
+        # razoavel pro cidadao (corte e' a meia-noite UTC ~ 21h BR).
+        ref = _date.today()
+        rows = self._repo.list_birthdays(
+            tenant_id=self._ctx.tenant_id,
+            ref_date=ref,
+            days_ahead=days_ahead,
+        )
+        out: list[BirthdayContact] = []
+        for c, delta in rows:
+            age = None
+            if c.birth_date and c.birth_date.year > 1900:
+                # idade que completa na proxima ocorrencia
+                upcoming_year = (ref + timedelta(days=delta)).year
+                age = upcoming_year - c.birth_date.year
+            out.append(
+                BirthdayContact(
+                    id=c.id,
+                    full_name=c.full_name,
+                    phone=c.phone,
+                    email=c.email,
+                    birth_date=c.birth_date,  # type: ignore[arg-type]
+                    days_until=delta,
+                    age_turning=age,
+                    tags=list(c.tags or []),
+                )
+            )
+        return out
 
     def list_for_map(self) -> list[Contact]:
         return self._repo.list_with_coords(tenant_id=self._ctx.tenant_id)
