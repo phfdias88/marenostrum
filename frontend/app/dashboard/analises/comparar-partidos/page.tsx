@@ -17,22 +17,10 @@ import type { TseParty, TsePartyPerformanceResponse, TsePartyPerformanceItem } f
 import { TSE_STATES } from "@/lib/types";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ExportShare } from "@/components/tse/ExportShare";
-
 const MAX = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
-const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
-  "2024": [
-    { value: "11", label: "Prefeito" },
-    { value: "13", label: "Vereador" },
-  ],
-  "2022": [
-    { value: "3", label: "Governador" },
-    { value: "5", label: "Senador" },
-    { value: "6", label: "Deputado Federal" },
-    { value: "7", label: "Deputado Estadual" },
-  ],
-};
+import { OFFICES_BY_YEAR, YEAR_OPTIONS } from "@/lib/elections";
 
 export default function CompararPartidosPage() {
   const [year, setYear] = useState("2024");
@@ -134,10 +122,7 @@ export default function CompararPartidosPage() {
             setYear(v);
             setOffice(OFFICES_BY_YEAR[v][0].value);
           }}
-          options={[
-            { value: "2024", label: "2024 (Municipal)" },
-            { value: "2022", label: "2022 (Federal/Estadual)" },
-          ]}
+          options={YEAR_OPTIONS}
           className="md:col-span-4"
         />
         <Select

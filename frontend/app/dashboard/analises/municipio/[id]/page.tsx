@@ -30,18 +30,24 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const pctFmt = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 
+const _MUNI = [
+  { value: "11", label: "Prefeito" },
+  { value: "13", label: "Vereador" },
+];
+const _FED = [
+  { value: "3", label: "Governador" },
+  { value: "5", label: "Senador" },
+  { value: "6", label: "Deputado Federal" },
+  { value: "7", label: "Deputado Estadual" },
+  { value: "1", label: "Presidente" },
+];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
-  "2024": [
-    { value: "11", label: "Prefeito" },
-    { value: "13", label: "Vereador" },
-  ],
-  "2022": [
-    { value: "3", label: "Governador" },
-    { value: "5", label: "Senador" },
-    { value: "6", label: "Deputado Federal" },
-    { value: "7", label: "Deputado Estadual" },
-    { value: "1", label: "Presidente" },
-  ],
+  "2024": _MUNI,
+  "2022": _FED,
+  "2020": _MUNI,
+  "2018": _FED,
+  "2016": _MUNI,
+  "2014": _FED,
 };
 
 export default function MunicipioDetailPage() {
@@ -191,10 +197,10 @@ export default function MunicipioDetailPage() {
               setYear(v);
               setOffice(OFFICES_BY_YEAR[v][0].value);
             }}
-            options={[
-              { value: "2024", label: "2024 (Municipal)" },
-              { value: "2022", label: "2022 (Federal/Estadual)" },
-            ]}
+            options={Object.keys(OFFICES_BY_YEAR).map((y) => ({
+              value: y,
+              label: `${y} (${["2024", "2020", "2016"].includes(y) ? "Municipal" : "Federal/Estadual"})`,
+            }))}
             className="md:col-span-5"
           />
           <Select

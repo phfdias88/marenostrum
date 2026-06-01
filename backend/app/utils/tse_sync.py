@@ -142,9 +142,11 @@ for _uf in ALL_UFS:
 CACHE_DIR = Path("/tmp/tse_cache")
 MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
-# Flush parcial do vote_acc quando passar disso (evita OOM no container 768MB).
-# 800k chaves × ~80B ≈ 64MB no dict — folga confortavel.
-VOTE_ACC_MAX = 800_000
+# Flush parcial do vote_acc quando passar disso (evita OOM).
+# Reduzido de 800k -> 400k (Wave 4): datasets federais grandes (2018/2014)
+# tem mais chaves (candidato×municipio) por causa de presidente em todas
+# as UFs. Flush mais frequente = menor pico de RAM. ~400k × 150B ≈ 60MB.
+VOTE_ACC_MAX = 400_000
 DOWNLOAD_TIMEOUT_S = 1800  # 30min — 2022 e' grande
 
 
@@ -350,9 +352,24 @@ def _process_candidato_munzona(
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
     }
-    candidates_by_sq: dict[int, UUID] = {
-        c.sq_candidato: c.id for c in db.execute(select(Candidate)).scalars()
-    }
+    # OTIMIZACAO DE MEMORIA (Wave 4): so' carregamos candidatos do ANO sendo
+    # importado. SQ_CANDIDATO e' unico por eleicao — anos diferentes nunca
+    # colidem. Carregar a tabela inteira (~1M apos historico) custava ~177MB
+    # de baseline e causava OOM nos datasets federais grandes (2018/2014).
+    # Filtrando por job.year, anos novos comecam com dict vazio.
+    _year_election_ids = [
+        e.id for e in db.execute(
+            select(Election.id).where(Election.year == job.year)
+        ).scalars()
+    ]
+    if _year_election_ids:
+        candidates_by_sq: dict[int, UUID] = {
+            c.sq_candidato: c.id for c in db.execute(
+                select(Candidate).where(Candidate.election_id.in_(_year_election_ids))
+            ).scalars()
+        }
+    else:
+        candidates_by_sq = {}
 
     # Vote results agregado em memória: (candidate_id, municipality_id) → votes
     vote_acc: dict[tuple[UUID, UUID], int] = {}

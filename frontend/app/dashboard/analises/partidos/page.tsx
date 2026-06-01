@@ -95,17 +95,23 @@ function TabBtn({
 
 // ----------------------------------------------------------------- desempenho
 
+const _PM = [
+  { value: "11", label: "Prefeito" },
+  { value: "13", label: "Vereador" },
+];
+const _PF = [
+  { value: "3", label: "Governador" },
+  { value: "5", label: "Senador" },
+  { value: "6", label: "Deputado Federal" },
+  { value: "7", label: "Deputado Estadual" },
+];
 const PERF_OFFICES: Record<string, { value: string; label: string }[]> = {
-  "2024": [
-    { value: "11", label: "Prefeito" },
-    { value: "13", label: "Vereador" },
-  ],
-  "2022": [
-    { value: "3", label: "Governador" },
-    { value: "5", label: "Senador" },
-    { value: "6", label: "Deputado Federal" },
-    { value: "7", label: "Deputado Estadual" },
-  ],
+  "2024": _PM,
+  "2022": _PF,
+  "2020": _PM,
+  "2018": _PF,
+  "2016": _PM,
+  "2014": _PF,
 };
 
 function PartyPerformance({
@@ -150,10 +156,10 @@ function PartyPerformance({
             setYear(v);
             setOffice(PERF_OFFICES[v][0].value);
           }}
-          options={[
-            { value: "2024", label: "2024 (Municipal)" },
-            { value: "2022", label: "2022 (Federal/Estadual)" },
-          ]}
+          options={Object.keys(PERF_OFFICES).map((y) => ({
+            value: y,
+            label: `${y} (${["2024", "2020", "2016"].includes(y) ? "Municipal" : "Federal/Estadual"})`,
+          }))}
           className="md:col-span-3"
         />
         <Select

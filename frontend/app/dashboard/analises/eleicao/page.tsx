@@ -47,24 +47,35 @@ function useDebounce<T>(v: T, ms: number): T {
   return d;
 }
 
-// Cargos disponiveis por ano (2024 = municipal; 2022 = federal/estadual)
+// Cargos por tipo de pleito. Lista completa (inclui Presidente e Dep.
+// Distrital pros anos gerais). Municipal = prefeito/vereador.
+const MUNI_OFFICES = [
+  { value: "11", label: "Prefeito" },
+  { value: "13", label: "Vereador" },
+];
+const FED_OFFICES = [
+  { value: "1", label: "Presidente" },
+  { value: "3", label: "Governador" },
+  { value: "5", label: "Senador" },
+  { value: "6", label: "Deputado Federal" },
+  { value: "7", label: "Deputado Estadual" },
+  { value: "8", label: "Deputado Distrital" },
+];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
-  "2024": [
-    { value: "11", label: "Prefeito" },
-    { value: "13", label: "Vereador" },
-  ],
-  "2022": [
-    { value: "1", label: "Presidente" },
-    { value: "3", label: "Governador" },
-    { value: "5", label: "Senador" },
-    { value: "6", label: "Deputado Federal" },
-    { value: "7", label: "Deputado Estadual" },
-    { value: "8", label: "Deputado Distrital" },
-  ],
+  "2024": MUNI_OFFICES,
+  "2022": FED_OFFICES,
+  "2020": MUNI_OFFICES,
+  "2018": FED_OFFICES,
+  "2016": MUNI_OFFICES,
+  "2014": FED_OFFICES,
 };
 const YEAR_OPTIONS = [
   { value: "2024", label: "2024 (Municipal)" },
   { value: "2022", label: "2022 (Federal/Estadual)" },
+  { value: "2020", label: "2020 (Municipal)" },
+  { value: "2018", label: "2018 (Federal/Estadual)" },
+  { value: "2016", label: "2016 (Municipal)" },
+  { value: "2014", label: "2014 (Federal/Estadual)" },
 ];
 
 export default function EleicaoAnalysisPage() {

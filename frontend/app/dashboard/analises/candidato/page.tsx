@@ -45,6 +45,7 @@ function useDebounce<T>(value: T, ms: number): T {
 }
 
 export default function CandidatoAnalysisPage() {
+  const [year, setYear] = useState<string>(""); // "" = todos os anos
   const [state, setState] = useState<string>("MG");
   const [office, setOffice] = useState<string>("11"); // prefeito
   const [search, setSearch] = useState("");
@@ -82,6 +83,7 @@ export default function CandidatoAnalysisPage() {
     setExporting(true);
     try {
       const params = new URLSearchParams({ limit: "1000", offset: "0" });
+      if (year) params.set("year", year);
       if (state) params.set("state", state);
       if (office) params.set("office_code", office);
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -118,7 +120,7 @@ export default function CandidatoAnalysisPage() {
   }
 
   // Reset page quando filtros mudam
-  useEffect(() => setPage(0), [state, office, debouncedSearch, electedOnly, selectedMuni]);
+  useEffect(() => setPage(0), [year, state, office, debouncedSearch, electedOnly, selectedMuni]);
 
   // Fetch lista
   useEffect(() => {
@@ -126,6 +128,7 @@ export default function CandidatoAnalysisPage() {
       limit: String(PAGE_SIZE),
       offset: String(page * PAGE_SIZE),
     });
+    if (year) params.set("year", year);
     if (state) params.set("state", state);
     if (office) params.set("office_code", office);
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -141,7 +144,7 @@ export default function CandidatoAnalysisPage() {
         setData({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 });
       })
       .finally(() => setLoading(false));
-  }, [state, office, debouncedSearch, page, electedOnly, selectedMuni]);
+  }, [year, state, office, debouncedSearch, page, electedOnly, selectedMuni]);
 
   // Fetch detalhe (votos por municipio)
   useEffect(() => {
@@ -185,12 +188,27 @@ export default function CandidatoAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise de Candidato</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Busque qualquer candidato registrado no TSE 2024.
+          Busque qualquer candidato registrado no TSE — eleições de 2014 a 2024.
         </p>
       </header>
 
       {/* Filtros */}
       <section className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-6">
+        <Select
+          label="Ano"
+          value={year}
+          onChange={setYear}
+          options={[
+            { value: "", label: "Todos" },
+            { value: "2024", label: "2024" },
+            { value: "2022", label: "2022" },
+            { value: "2020", label: "2020" },
+            { value: "2018", label: "2018" },
+            { value: "2016", label: "2016" },
+            { value: "2014", label: "2014" },
+          ]}
+          className="md:col-span-2"
+        />
         <Select
           label="UF"
           value={state}
@@ -214,7 +232,7 @@ export default function CandidatoAnalysisPage() {
           ]}
           className="md:col-span-3"
         />
-        <div className="md:col-span-7">
+        <div className="md:col-span-5">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
             Buscar
           </label>

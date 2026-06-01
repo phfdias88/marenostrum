@@ -17,21 +17,31 @@ import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { YEAR_OPTIONS } from "@/lib/elections";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
+// Ranking usa ordem propria (vereador/dep primeiro = mais disputado) +
+// inclui Presidente nos anos gerais. Cargos: 13=ver, 11=pref, 6=depfed,
+// 7=depest, 5=sen, 3=gov, 1=pres.
+const MUNI = [
+  { value: "13", label: "Vereador" },
+  { value: "11", label: "Prefeito" },
+];
+const FED = [
+  { value: "6", label: "Deputado Federal" },
+  { value: "7", label: "Deputado Estadual" },
+  { value: "5", label: "Senador" },
+  { value: "3", label: "Governador" },
+  { value: "1", label: "Presidente" },
+];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
-  "2024": [
-    { value: "13", label: "Vereador" },
-    { value: "11", label: "Prefeito" },
-  ],
-  "2022": [
-    { value: "6", label: "Deputado Federal" },
-    { value: "7", label: "Deputado Estadual" },
-    { value: "5", label: "Senador" },
-    { value: "3", label: "Governador" },
-    { value: "1", label: "Presidente" },
-  ],
+  "2024": MUNI,
+  "2022": FED,
+  "2020": MUNI,
+  "2018": FED,
+  "2016": MUNI,
+  "2014": FED,
 };
 
 export default function RankingPage() {
@@ -122,10 +132,7 @@ export default function RankingPage() {
             setYear(v);
             setOffice(OFFICES_BY_YEAR[v][0].value);
           }}
-          options={[
-            { value: "2024", label: "2024" },
-            { value: "2022", label: "2022" },
-          ]}
+          options={YEAR_OPTIONS}
           className="md:col-span-3"
         />
         <Select
