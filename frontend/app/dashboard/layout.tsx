@@ -80,34 +80,41 @@ export default function DashboardLayout({
   }, [router, pathname]);
 
   // Sticky header shrink + direcao do scroll pra auto-hide.
+  // Throttle via requestAnimationFrame: o handler de scroll roda em TODO
+  // evento (mesmo passive), mas so' processamos 1x por frame (~16ms) e
+  // usamos functional setState pra registrar o listener UMA vez (sem
+  // re-registrar a cada mudanca de estado). React faz bail-out quando o
+  // valor nao muda, entao nao ha re-render desnecessario.
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
-    let lastDirChange = 0;
-    function onScroll() {
+    let ticking = false;
+    function process() {
+      ticking = false;
       const y = window.scrollY;
       const dy = y - lastY.current;
 
-      // Shrink quando passa de 12px
-      const next = y > 12;
-      if (next !== (lastY.current > 12)) setScrolled(next);
+      // Shrink quando passa de 12px (functional → bail-out automatico)
+      setScrolled((prev) => {
+        const next = y > 12;
+        return prev === next ? prev : next;
+      });
 
-      // Auto-hide: scrolla pra baixo > 8px -> esconde, pra cima > 8px -> mostra.
-      // Pequeno threshold pra nao flicker em jitter.
+      // Auto-hide: desce >8px e ja passou do header → esconde; sobe → mostra.
       if (Math.abs(dy) > 8) {
-        if (dy > 0 && y > 80) {
-          // descendo + ja passou do header
-          if (!hidden) setHidden(true);
-        } else if (dy < 0) {
-          if (hidden) setHidden(false);
-        }
-        lastDirChange = y;
+        if (dy > 0 && y > 80) setHidden((h) => (h ? h : true));
+        else if (dy < 0) setHidden((h) => (h ? false : h));
       }
       lastY.current = y;
     }
+    function onScroll() {
+      if (!ticking) {
+        ticking = true;
+        window.requestAnimationFrame(process);
+      }
+    }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hidden]);
+  }, []);
 
   function logout() {
     clearAuth();
