@@ -71,17 +71,19 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(force = false) {
+    // force=true (pull-to-refresh): ignora o cache em memória e vai à rede.
+    const o = force ? { skipCache: true } : {};
     const total = (path: string) =>
-      api<{ total: number }>(path).then((r) => r.total).catch(() => 0);
+      api<{ total: number }>(path, o).then((r) => r.total).catch(() => 0);
     try {
       const [m, c, dOpen, dProg, dRes, mapC] = await Promise.all([
-        api<Me>("/v1/auth/me"),
+        api<Me>("/v1/auth/me", o),
         total("/v1/contacts?limit=1"),
         total("/v1/demands?status=aberta&limit=1"),
         total("/v1/demands?status=em_andamento&limit=1"),
         total("/v1/demands?status=resolvida&limit=1"),
-        api<unknown[]>("/v1/contacts/map").then((r) => r.length).catch(() => 0),
+        api<unknown[]>("/v1/contacts/map", o).then((r) => r.length).catch(() => 0),
       ]);
       setMe(m);
       setStats({
@@ -116,7 +118,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <PullToRefresh onRefresh={load}>
+    <PullToRefresh onRefresh={() => load(true)}>
     <section className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 sm:space-y-8">
       {/* Hero header */}
       <header className="space-y-1">
