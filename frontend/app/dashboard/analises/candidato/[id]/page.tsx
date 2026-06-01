@@ -225,10 +225,14 @@ export default function CandidateDetailPage() {
                   className="px-4 py-2.5 text-sm"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate">
+                    <Link
+                      href={`/dashboard/analises/municipio/${r.municipality.id}`}
+                      className="truncate hover:text-primary hover:underline"
+                      title="Ver análise completa do município"
+                    >
                       {r.municipality.name}{" "}
                       <span className="text-muted-foreground">/{r.municipality.state}</span>
-                    </span>
+                    </Link>
                     <span className="font-mono font-semibold shrink-0 tabular-nums">
                       {numberFmt.format(r.votes)}
                     </span>
