@@ -58,6 +58,27 @@ export default function DashboardLayout({
       });
   }, [router]);
 
+  // Prefetch das rotas do menu quando o browser estiver ocioso — o primeiro
+  // clique em qualquer seção fica instantâneo (bundle da rota ja' baixado).
+  // requestIdleCallback evita competir com o render inicial; fallback p/ Safari.
+  useEffect(() => {
+    const ric =
+      (window as unknown as {
+        requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+      }).requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1200));
+    const id = ric(() => {
+      for (const { href } of NAV) {
+        if (href !== pathname) router.prefetch(href);
+      }
+    }, { timeout: 3000 });
+    return () => {
+      const cic = (window as unknown as {
+        cancelIdleCallback?: (h: number) => void;
+      }).cancelIdleCallback;
+      if (cic) cic(id as number);
+    };
+  }, [router, pathname]);
+
   // Sticky header shrink + direcao do scroll pra auto-hide.
   const [hidden, setHidden] = useState(false);
   useEffect(() => {
