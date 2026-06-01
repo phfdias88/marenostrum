@@ -29,14 +29,68 @@ export function ttlFor(path: string): number {
   return 30 * 1000;
 }
 
-export function getCached(key: string): unknown | undefined {
-  const e = memCache.get(key);
-  if (!e) return undefined;
-  if (Date.now() > e.expires) {
-    memCache.delete(key);
+// ---- Persistência opcional em sessionStorage (só dados TSE) --------------
+// O memCache morre no reload (F5/nova aba). Pra dados TSE — públicos e
+// imutáveis — persistimos em sessionStorage: F5 e reabrir aba na mesma
+// sessão servem instantâneo, sem re-buscar do backend.
+// Guards: só TSE, só respostas pequenas (<120KB serializado), try/catch
+// pra nunca quebrar em quota cheia / modo privado.
+const SS_PREFIX = "mn:apicache:";
+const SS_MAX_BYTES = 120 * 1024;
+
+function ssGet(key: string): Entry | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(SS_PREFIX + key);
+    if (!raw) return undefined;
+    const e = JSON.parse(raw) as Entry;
+    if (Date.now() > e.expires) {
+      window.sessionStorage.removeItem(SS_PREFIX + key);
+      return undefined;
+    }
+    return e;
+  } catch {
     return undefined;
   }
-  return e.data;
+}
+
+function ssSet(key: string, entry: Entry): void {
+  if (typeof window === "undefined") return;
+  // Só persiste TSE (imutável). Dados de tenant ficam só em memória.
+  if (!key.startsWith("/v1/tse/")) return;
+  try {
+    const raw = JSON.stringify(entry);
+    if (raw.length > SS_MAX_BYTES) return; // grande demais (ex: winners-map)
+    window.sessionStorage.setItem(SS_PREFIX + key, raw);
+  } catch {
+    // QuotaExceeded / modo privado: limpa o namespace e desiste silenciosamente.
+    try {
+      for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+        const k = window.sessionStorage.key(i);
+        if (k && k.startsWith(SS_PREFIX)) window.sessionStorage.removeItem(k);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+export function getCached(key: string): unknown | undefined {
+  const e = memCache.get(key);
+  if (e) {
+    if (Date.now() > e.expires) {
+      memCache.delete(key);
+      return undefined;
+    }
+    return e.data;
+  }
+  // Miss em memória: tenta sessionStorage (sobrevive a reload).
+  const ss = ssGet(key);
+  if (ss) {
+    memCache.set(key, ss); // re-hidrata o memCache
+    return ss.data;
+  }
+  return undefined;
 }
 
 export function setCached(key: string, data: unknown, ttlMs: number): void {
@@ -45,7 +99,9 @@ export function setCached(key: string, data: unknown, ttlMs: number): void {
     const oldest = memCache.keys().next().value;
     if (oldest) memCache.delete(oldest);
   }
-  memCache.set(key, { data, expires: Date.now() + ttlMs });
+  const entry: Entry = { data, expires: Date.now() + ttlMs };
+  memCache.set(key, entry);
+  ssSet(key, entry);
 }
 
 export function getInflight(key: string): Promise<unknown> | undefined {
@@ -68,6 +124,22 @@ export function bustCache(prefixes: string[]): void {
   for (const key of Array.from(memCache.keys())) {
     if (prefixes.some((p) => key.startsWith(p))) {
       memCache.delete(key);
+    }
+  }
+  // Limpa tambem o sessionStorage (consistencia; relevante se algum dia
+  // um recurso persistido for invalidado).
+  if (typeof window !== "undefined") {
+    try {
+      for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+        const k = window.sessionStorage.key(i);
+        if (!k || !k.startsWith(SS_PREFIX)) continue;
+        const bare = k.slice(SS_PREFIX.length);
+        if (prefixes.some((p) => bare.startsWith(p))) {
+          window.sessionStorage.removeItem(k);
+        }
+      }
+    } catch {
+      /* ignore */
     }
   }
 }
