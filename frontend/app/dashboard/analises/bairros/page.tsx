@@ -367,8 +367,12 @@ function NeighborhoodResult({
         <ArrowLeft className="w-4 h-4" /> Trocar candidato
       </button>
 
-      {/* Header candidato */}
-      <div className="flex items-center gap-3 mb-4 rounded-lg border bg-card p-3">
+      {/* Header candidato — clicável pra abrir a página completa dele */}
+      <Link
+        href={`/dashboard/analises/candidato/${candidate.id}`}
+        className="flex items-center gap-3 mb-4 rounded-lg border bg-card p-3 hover:bg-accent/40 hover:border-primary/40 transition-colors group"
+        title="Ver página completa do candidato"
+      >
         <CandidatePhoto
           candidateId={candidate.id}
           name={candidate.urn_name}
@@ -384,6 +388,9 @@ function NeighborhoodResult({
             {candidate.party.abbreviation} · {candidate.number} ·{" "}
             {candidate.office_name} · {muni.name}/{muni.state}
           </p>
+          <span className="text-[11px] text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+            Ver página completa →
+          </span>
         </div>
         {data && (
           <div className="text-right shrink-0">
@@ -395,7 +402,7 @@ function NeighborhoodResult({
             </p>
           </div>
         )}
-      </div>
+      </Link>
 
       {loading ? (
         <div className="py-16 text-center">
