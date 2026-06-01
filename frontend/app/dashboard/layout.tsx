@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/tse/GlobalSearch";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { BottomNav } from "@/components/nav/BottomNav";
+import { RouteProgress } from "@/components/ui/RouteProgress";
 
 type Me = { full_name: string; tenant_name: string };
 
@@ -94,6 +95,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
+      <RouteProgress />
       <header
         data-dash-header
         data-scrolled={scrolled ? "true" : "false"}

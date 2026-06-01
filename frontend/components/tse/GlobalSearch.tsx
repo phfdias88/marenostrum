@@ -51,6 +51,33 @@ export function GlobalSearch() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
+  // Atalho global Cmd/Ctrl+K → abre + foca a busca de qualquer página.
+  // Padrao consagrado (Linear, GitHub, Vercel). "/" tambem abre, exceto
+  // quando ja' digitando num campo.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const cmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      const target = e.target as HTMLElement | null;
+      const typing =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      const slash = e.key === "/" && !typing;
+      if (cmdK || slash) {
+        e.preventDefault();
+        setOpen(true);
+        // foco no input certo conforme viewport
+        setTimeout(() => {
+          if (window.innerWidth < 768) mobileInputRef.current?.focus();
+          else inputRef.current?.focus();
+        }, 30);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   // Quando abre no mobile (md:hidden), trava o scroll do body
   useEffect(() => {
     if (open && typeof window !== "undefined" && window.innerWidth < 768) {
@@ -132,7 +159,7 @@ export function GlobalSearch() {
         className="w-full pl-9 pr-9 py-2 rounded-md bg-background border border-border text-sm
                    focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
-      {q && (
+      {q ? (
         <button
           onClick={() => {
             setQ("");
@@ -143,6 +170,11 @@ export function GlobalSearch() {
         >
           <X className="w-4 h-4" />
         </button>
+      ) : (
+        // Hint do atalho — some quando o usuario comeca a digitar
+        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden md:inline-flex items-center gap-0.5 rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground pointer-events-none">
+          ⌘K
+        </kbd>
       )}
 
       {/* === MOBILE FULL-SCREEN OVERLAY === */}
