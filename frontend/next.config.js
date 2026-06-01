@@ -17,9 +17,12 @@ module.exports = {
     // maiores ofensores: `import { X } from "lucide-react"` puxava o barrel
     // inteiro. Next reescreve pra imports diretos por icone/modulo, cortando
     // KBs grandes do bundle de cada rota.
+    // NOTA: @tanstack/react-table foi REMOVIDO desta lista — o build ESM
+    // dele (index.esm.js) quebra o parser do Next 14.2 com este otimizador
+    // ("'import' and 'export' may appear only with 'sourceType: module'").
+    // lucide-react é o maior ganho de qualquer forma.
     optimizePackageImports: [
       'lucide-react',
-      '@tanstack/react-table',
       '@radix-ui/react-alert-dialog',
       '@radix-ui/react-dialog',
       '@radix-ui/react-dropdown-menu',
