@@ -41,7 +41,7 @@ type Slide = {
 const FALLBACK: Slide[] = [
   {
     kicker: "Inteligência eleitoral",
-    title: "Explore os dados públicos do TSE",
+    title: "Explore o cenário eleitoral brasileiro",
     subtitle: "454 mil candidatos, 5.571 municípios, votos por bairro e zona.",
     cta: { label: "Abrir Análises", href: "/dashboard/analises" },
     icon: Vote,

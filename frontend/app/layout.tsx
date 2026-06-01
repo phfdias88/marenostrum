@@ -5,7 +5,7 @@ import "./globals.css";
 const _SITE_NAME = "MareNostrum";
 const _TITLE = "MareNostrum — Inteligência política e eleitoral";
 const _DESC =
-  "Gestão de campanhas, CRM eleitoral e análise de dados públicos do TSE.";
+  "Gestão de campanhas, CRM eleitoral e inteligência de dados eleitorais.";
 
 export const metadata: Metadata = {
   title: { default: _TITLE, template: "%s · MareNostrum" },

@@ -93,7 +93,7 @@ export function PresentButton({ className }: { className?: string }) {
             MARENOSTRUM
           </span>
           <span className="text-muted-foreground text-[10px] ml-2">
-            · dados públicos TSE
+            · Inteligência de Dados &amp; Consultoria
           </span>
         </div>
       )}

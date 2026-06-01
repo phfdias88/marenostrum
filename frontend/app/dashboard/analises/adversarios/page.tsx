@@ -317,7 +317,7 @@ function ComparisonReport({
         </div>
 
         <p className="text-[10px] text-muted-foreground text-right">
-          MareNostrum · dados públicos TSE
+          MareNostrum · Inteligência de Dados &amp; Consultoria
         </p>
       </div>
     </section>
