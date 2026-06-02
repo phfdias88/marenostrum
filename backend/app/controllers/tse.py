@@ -50,6 +50,8 @@ from app.schemas.tse import (
     TimelineItem,
     TimelineWinner,
     TrajectoryItem,
+    PartyEvolutionItem,
+    PartyEvolutionResponse,
     PartyPerformanceItem,
     PartyPerformanceResponse,
     PartyRead,
@@ -252,6 +254,64 @@ def list_parties(
 ) -> list[PartyRead]:
     items = db.execute(select(Party).order_by(Party.number)).scalars().all()
     return [PartyRead.model_validate(p) for p in items]
+
+
+@router.get(
+    "/parties/{number}/evolution",
+    response_model=PartyEvolutionResponse,
+    summary="Evolução do partido por eleição (eleitos/candidatos/votos por ano)",
+    description=(
+        "Soma todos os cargos por ano. Permite ver crescimento/declínio do "
+        "partido ao longo das eleições disponíveis (2014–2024)."
+    ),
+)
+def party_evolution(
+    number: int,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> PartyEvolutionResponse:
+    party = db.execute(
+        select(Party).where(Party.number == number)
+    ).scalars().first()
+    if party is None:
+        raise NotFoundError("Partido não encontrado")
+
+    # Todos os party_ids com essa sigla/numero (migrações históricas podem ter
+    # gerado >1 registro pro mesmo número). Agrega todos.
+    party_ids = [
+        p.id for p in db.execute(
+            select(Party).where(Party.number == number)
+        ).scalars()
+    ]
+
+    rows = db.execute(
+        select(
+            Election.year,
+            func.count(Candidate.id).label("cands"),
+            func.count(Candidate.id)
+            .filter(Candidate.result_status.like("ELEITO%"))
+            .label("eleitos"),
+            func.coalesce(func.sum(Candidate.total_votes), 0).label("votos"),
+        )
+        .join(Election, Candidate.election_id == Election.id)
+        .where(Candidate.party_id.in_(party_ids))
+        .group_by(Election.year)
+        .order_by(Election.year.asc())
+    ).all()
+
+    items = [
+        PartyEvolutionItem(
+            year=int(r.year),
+            elected_count=int(r.eleitos),
+            candidates_count=int(r.cands),
+            total_votes=int(r.votos),
+        )
+        for r in rows
+    ]
+    return PartyEvolutionResponse(
+        party=PartyRead.model_validate(party),
+        items=items,
+    )
 
 
 @router.get(

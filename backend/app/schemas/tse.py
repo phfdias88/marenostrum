@@ -125,6 +125,20 @@ class PartyPerformanceItem(BaseModel):
     candidates_count: int
 
 
+class PartyEvolutionItem(BaseModel):
+    """Desempenho de um partido numa eleição (ano), somando todos os cargos."""
+    year: int
+    elected_count: int
+    candidates_count: int
+    total_votes: int
+
+
+class PartyEvolutionResponse(BaseModel):
+    """Evolução do partido ao longo das eleições disponíveis (2014–2024)."""
+    party: PartyRead
+    items: list[PartyEvolutionItem]  # ordenado por ano asc
+
+
 class WinnerMapPoint(BaseModel):
     """Municipio + partido/candidato vencedor (pra mapa colorido)."""
     municipality_id: UUID

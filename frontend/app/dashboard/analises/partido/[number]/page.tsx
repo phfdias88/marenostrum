@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type {
   TseParty,
+  TsePartyEvolution,
   TsePartyPerformanceResponse,
   TseTopCandidatesResponse,
 } from "@/lib/types";
@@ -63,6 +64,7 @@ export default function PartyDetailPage() {
   const [perfLoading, setPerfLoading] = useState(true);
   const [top, setTop] = useState<TseTopCandidatesResponse | null>(null);
   const [topLoading, setTopLoading] = useState(true);
+  const [evolution, setEvolution] = useState<TsePartyEvolution | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -79,6 +81,16 @@ export default function PartyDetailPage() {
         if (!p) setNotFound(true);
       })
       .catch(() => { if (!cancelled) setNotFound(true); });
+    return () => { cancelled = true; };
+  }, [num]);
+
+  // Evolução do partido ao longo das eleições (não depende dos filtros)
+  useEffect(() => {
+    let cancelled = false;
+    setEvolution(null);
+    api<TsePartyEvolution>(`/v1/tse/parties/${num}/evolution`)
+      .then((d) => { if (!cancelled) setEvolution(d); })
+      .catch(() => { if (!cancelled) setEvolution(null); });
     return () => { cancelled = true; };
   }, [num]);
 
@@ -237,6 +249,11 @@ export default function PartyDetailPage() {
           </p>
         )}
 
+        {/* Evolução do partido ao longo das eleições */}
+        {evolution && evolution.items.length > 1 && (
+          <PartyEvolution evolution={evolution} />
+        )}
+
         {/* Top candidatos */}
         <div className="mt-6">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
@@ -349,6 +366,67 @@ function Select({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+// ------------------------------------------------------- evolução do partido
+
+function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
+  const fmt = new Intl.NumberFormat("pt-BR");
+  const maxElected = Math.max(1, ...evolution.items.map((i) => i.elected_count));
+  // Tendência: compara 1ª e última eleição com eleitos.
+  const first = evolution.items[0];
+  const last = evolution.items[evolution.items.length - 1];
+  const delta = last.elected_count - first.elected_count;
+
+  return (
+    <div className="mt-6">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        Evolução do partido · {first.year}–{last.year}
+      </p>
+      <div className="rounded-lg border bg-card p-4 space-y-2.5">
+        {evolution.items.map((it) => {
+          const pct = (it.elected_count / maxElected) * 100;
+          const muni = [2024, 2020, 2016].includes(it.year);
+          return (
+            <div key={it.year}>
+              <div className="flex items-center justify-between gap-2 text-sm mb-0.5">
+                <span className="flex items-center gap-2">
+                  <span className="font-bold tabular-nums text-primary w-12">{it.year}</span>
+                  <span className="text-[10px] text-muted-foreground uppercase">
+                    {muni ? "Municipal" : "Geral"}
+                  </span>
+                </span>
+                <span className="text-sm">
+                  <strong className="font-mono tabular-nums">{fmt.format(it.elected_count)}</strong>{" "}
+                  <span className="text-muted-foreground text-xs">eleitos</span>
+                  <span className="text-muted-foreground text-xs">
+                    {" "}· {fmt.format(it.candidates_count)} cand.
+                  </span>
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+        <p className="text-xs text-muted-foreground pt-1">
+          {delta > 0 ? (
+            <span className="text-emerald-600">
+              ▲ Cresceu {fmt.format(delta)} eleitos de {first.year} a {last.year}.
+            </span>
+          ) : delta < 0 ? (
+            <span className="text-rose-500">
+              ▼ Caiu {fmt.format(Math.abs(delta))} eleitos de {first.year} a {last.year}.
+            </span>
+          ) : (
+            <span>Estável entre {first.year} e {last.year}.</span>
+          )}
+          {" "}Comparação entre tipos de pleito (municipal × geral) é só referência.
+        </p>
+      </div>
     </div>
   );
 }

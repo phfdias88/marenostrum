@@ -258,6 +258,19 @@ export type TseCandidateTrajectory = {
   items: TseTrajectoryItem[];
 };
 
+/** Evolução do partido por eleição (2014–2024). */
+export type TsePartyEvolutionItem = {
+  year: number;
+  elected_count: number;
+  candidates_count: number;
+  total_votes: number;
+};
+
+export type TsePartyEvolution = {
+  party: TseParty;
+  items: TsePartyEvolutionItem[];
+};
+
 export type TseTopCandidateInMunicipality = {
   candidate: TseCandidate;
   votes: number;
