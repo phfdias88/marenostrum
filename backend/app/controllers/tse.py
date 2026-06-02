@@ -35,6 +35,7 @@ from app.schemas.tse import (
     CandidateByNeighborhoodResponse,
     CandidateRead,
     CandidateResultsResponse,
+    CandidateTrajectoryResponse,
     CandidateZoneVotesResponse,
     ElectionRead,
     ElectionStatsResponse,
@@ -48,6 +49,7 @@ from app.schemas.tse import (
     MunicipalityZonesResponse,
     TimelineItem,
     TimelineWinner,
+    TrajectoryItem,
     PartyPerformanceItem,
     PartyPerformanceResponse,
     PartyRead,
@@ -435,6 +437,62 @@ def candidate_results(
         results=results,
         total_votes=total,
         municipalities_with_votes=len(results),
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/trajectory",
+    response_model=CandidateTrajectoryResponse,
+    summary="Trajetória eleitoral da pessoa (mesma pessoa em várias eleições)",
+    description=(
+        "Encontra todas as candidaturas da MESMA pessoa (match por nome civil "
+        "completo, case/acento-insensível) ao longo das eleições disponíveis "
+        "(2014–2024), ordenadas do mais recente pro mais antigo. Permite ver a "
+        "evolução de cargo, partido e votos de um político ao longo de 10 anos."
+    ),
+)
+def candidate_trajectory(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> CandidateTrajectoryResponse:
+    base = db.get(Candidate, candidate_id)
+    if base is None:
+        raise NotFoundError("Candidato não encontrado")
+
+    # Match por nome civil completo (NM_CANDIDATO) normalizado — estável entre
+    # eleições (nome de urna muda mais). f_unaccent + lower pra robustez.
+    # Index ix_tse_candidates_name_unaccent_trgm acelera o filtro.
+    norm = func.lower(func.f_unaccent(base.name))
+    stmt = (
+        select(Candidate, Election, Party)
+        .join(Election, Candidate.election_id == Election.id)
+        .join(Party, Candidate.party_id == Party.id)
+        .where(func.lower(func.f_unaccent(Candidate.name)) == norm)
+        .order_by(Election.year.desc(), Candidate.office_code.asc())
+    )
+    rows = db.execute(stmt).all()
+
+    items = [
+        TrajectoryItem(
+            candidate_id=c.id,
+            year=e.year,
+            office_code=c.office_code,
+            office_name=c.office_name,
+            state=c.state,
+            party_abbreviation=p.abbreviation,
+            party_number=p.number,
+            number=c.number,
+            total_votes=c.total_votes,
+            result_status=c.result_status,
+        )
+        for c, e, p in rows
+    ]
+
+    return CandidateTrajectoryResponse(
+        name=base.name,
+        current_id=base.id,
+        items=items,
     )
 
 

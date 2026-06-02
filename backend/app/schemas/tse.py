@@ -265,3 +265,31 @@ class TimelineItem(BaseModel):
 class MunicipalityTimelineResponse(BaseModel):
     municipality: MunicipalityRead
     items: list[TimelineItem]
+
+
+# ----------------------------------------------------- Trajetória (histórico)
+
+
+class TrajectoryItem(BaseModel):
+    """Uma candidatura da mesma pessoa numa eleição (ano)."""
+    candidate_id: UUID
+    year: int
+    office_code: int
+    office_name: str
+    state: str
+    party_abbreviation: str
+    party_number: int
+    number: int
+    total_votes: int | None = None
+    result_status: str | None = None
+
+
+class CandidateTrajectoryResponse(BaseModel):
+    """
+    Histórico eleitoral da mesma pessoa (match por nome civil completo),
+    ordenado do mais recente pro mais antigo. `current_id` é o candidato
+    consultado (pra destacar na UI).
+    """
+    name: str
+    current_id: UUID
+    items: list[TrajectoryItem]

@@ -16,6 +16,7 @@ import { getToken } from "@/lib/auth";
 import type {
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
+  TseCandidateTrajectory,
   TseCandidateZoneVotes,
 } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
@@ -42,6 +43,7 @@ export default function CandidateDetailPage() {
   const [showMap, setShowMap] = useState(false);
   const [zones, setZones] = useState<TseCandidateZoneVotes | null>(null);
   const [bairros, setBairros] = useState<TseCandidateByNeighborhoodResponse | null>(null);
+  const [trajectory, setTrajectory] = useState<TseCandidateTrajectory | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,6 +57,12 @@ export default function CandidateDetailPage() {
     setData(null);
     setZones(null);
     setBairros(null);
+    setTrajectory(null);
+
+    // Trajetória eleitoral — mesma pessoa em outras eleições (2014–2024)
+    api<TseCandidateTrajectory>(`/v1/tse/candidates/${id}/trajectory`)
+      .then((d) => { if (!cancelled) setTrajectory(d); })
+      .catch(() => { if (!cancelled) setTrajectory(null); });
 
     api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`)
       .then((d) => { if (!cancelled) setData(d); })
@@ -211,6 +219,11 @@ export default function CandidateDetailPage() {
           </button>
         )}
 
+        {/* Trajetória eleitoral — só aparece se a pessoa tem 2+ candidaturas */}
+        {trajectory && trajectory.items.length > 1 && (
+          <TrajectorySection trajectory={trajectory} currentId={id} />
+        )}
+
         {/* Votos por municipio */}
         <div className="mt-5">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
@@ -334,6 +347,85 @@ export default function CandidateDetailPage() {
       {showMap && (
         <CandidateMapModal results={data} onClose={() => setShowMap(false)} />
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ trajetória
+
+function TrajectorySection({
+  trajectory,
+  currentId,
+}: {
+  trajectory: TseCandidateTrajectory;
+  currentId: string;
+}) {
+  const elected = (s: string | null) => (s ?? "").toUpperCase().startsWith("ELEITO");
+  return (
+    <div className="mt-5 mn-fade-in">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        Trajetória eleitoral · {trajectory.items.length} candidaturas
+      </p>
+      <ol className="relative rounded-lg border bg-card divide-y divide-border overflow-hidden">
+        {trajectory.items.map((t) => {
+          const isCurrent = t.candidate_id === currentId;
+          const won = elected(t.result_status);
+          const inner = (
+            <>
+              <span className="text-base font-bold tabular-nums w-12 shrink-0 text-primary">
+                {t.year}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {t.office_name}{" "}
+                  <span className="text-muted-foreground font-normal">
+                    · {t.party_abbreviation} · {t.state}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  nº {t.number}
+                  {t.total_votes != null && (
+                    <> · {numberFmt.format(t.total_votes)} votos</>
+                  )}
+                </p>
+              </div>
+              <span
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
+                  won
+                    ? "bg-emerald-500/20 text-emerald-600"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {t.result_status
+                  ? won
+                    ? "ELEITO"
+                    : "NÃO ELEITO"
+                  : "—"}
+              </span>
+            </>
+          );
+          // O candidato atual não vira link (já estamos nele); os outros sim.
+          return (
+            <li key={t.candidate_id}>
+              {isCurrent ? (
+                <div className="px-4 py-2.5 flex items-center gap-3 bg-primary/5 border-l-2 border-primary">
+                  {inner}
+                </div>
+              ) : (
+                <Link
+                  href={`/dashboard/analises/candidato/${t.candidate_id}`}
+                  className="px-4 py-2.5 flex items-center gap-3 hover:bg-accent/40 transition-colors"
+                >
+                  {inner}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        Mesma pessoa (nome civil) nas eleições de 2014 a 2024. Clique num ano para abrir.
+      </p>
     </div>
   );
 }

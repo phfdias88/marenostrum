@@ -238,6 +238,26 @@ export type TseCandidateResults = {
   municipalities_with_votes: number;
 };
 
+/** Trajetória eleitoral — mesma pessoa em várias eleições (2014–2024). */
+export type TseTrajectoryItem = {
+  candidate_id: string;
+  year: number;
+  office_code: number;
+  office_name: string;
+  state: string;
+  party_abbreviation: string;
+  party_number: number;
+  number: number;
+  total_votes: number | null;
+  result_status: string | null;
+};
+
+export type TseCandidateTrajectory = {
+  name: string;
+  current_id: string;
+  items: TseTrajectoryItem[];
+};
+
 export type TseTopCandidateInMunicipality = {
   candidate: TseCandidate;
   votes: number;
