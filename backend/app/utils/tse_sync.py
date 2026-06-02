@@ -374,6 +374,9 @@ def _process_candidato_munzona(
     # Vote results agregado em memória: (candidate_id, municipality_id) → votes
     vote_acc: dict[tuple[UUID, UUID], int] = {}
 
+    # SQ_CANDIDATO → status final do 2º turno (sobrescreve "2º TURNO" no fim)
+    runoff_status: dict[int, str] = {}
+
     # Buffers a inserir
     elections_buf: list[dict] = []
     parties_buf: list[dict] = []
@@ -432,6 +435,18 @@ def _process_candidato_munzona(
                 "updated_at": now,
             })
 
+        # ---------- Status final de 2º turno ----------
+        # O candidato é criado na 1ª linha vista (geralmente 1º turno, status
+        # "2º TURNO"). Pra quem foi a 2º turno, o resultado REAL (ELEITO/NÃO
+        # ELEITO) só está nas linhas de NR_TURNO=2. Capturamos esse status pra
+        # sobrescrever no fim — senão presidente/governador eleito em 2º turno
+        # fica eternamente com status "2º TURNO".
+        _sq_turno = _i(row.get("SQ_CANDIDATO"))
+        if _sq_turno and _i(row.get("NR_TURNO")) == 2:
+            _st2 = _s(row.get("DS_SIT_TOT_TURNO"), 40) or None
+            if _st2:
+                runoff_status[_sq_turno] = _st2
+
         # ---------- Candidate ----------
         sq = _i(row.get("SQ_CANDIDATO"))
         if sq and sq not in candidates_by_sq and party_number and election_code:
@@ -488,6 +503,22 @@ def _process_candidato_munzona(
     # Flush final do vote_acc remanescente
     _flush_vote_results(db, vote_acc, job)
     vote_acc.clear()
+
+    # Sobrescreve o result_status dos candidatos que foram a 2º turno com o
+    # resultado REAL daquele turno (ELEITO / NÃO ELEITO). Sem isso, presidente
+    # ou governador eleito no 2º turno ficaria com status "2º TURNO".
+    if runoff_status:
+        from sqlalchemy import bindparam, update as _update
+
+        params = [{"_sq": sq, "_st": st} for sq, st in runoff_status.items()]
+        stmt = (
+            _update(Candidate)
+            .where(Candidate.sq_candidato == bindparam("_sq"))
+            .values(result_status=bindparam("_st"))
+        )
+        db.execute(stmt, params)
+        db.commit()
+        log.info("tse_runoff_status_applied", count=len(params))
 
 
 def _flush_dim_buffers(
