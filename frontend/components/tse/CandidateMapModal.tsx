@@ -44,8 +44,22 @@ type Props = {
 type Mode = "municipio" | "bairro";
 
 export function CandidateMapModal({ results, onClose }: Props) {
-  const [mode, setMode] = useState<Mode>("municipio");
   const c = results.candidate;
+
+  // Padrão BAIRRO pra candidatos municipais (prefeito=11, vereador=13): é a
+  // granularidade que importa pra eles. Federais/estaduais (espalhados pelo
+  // estado/país) começam em município. Se o bairro não tiver dado, cai de
+  // volta pra município automaticamente (ver efeito abaixo).
+  const isMunicipal = c.office_code === 11 || c.office_code === 13;
+  const [mode, setMode] = useState<Mode>(isMunicipal ? "bairro" : "municipio");
+  // Marca se o usuário escolheu o modo manualmente (pra não sobrescrever o
+  // fallback em cima da escolha dele).
+  const [userPicked, setUserPicked] = useState(false);
+
+  function pick(m: Mode) {
+    setUserPicked(true);
+    setMode(m);
+  }
 
   // Quando o candidato tem voto em apenas 1 municipio, ja seleciona ele
   // automaticamente como filtro pro bairro view.
@@ -67,12 +81,21 @@ export function CandidateMapModal({ results, onClose }: Props) {
     api<TseCandidateByNeighborhoodResponse>(
       `/v1/tse/candidates/${c.id}/by-neighborhood${params.size ? "?" + params.toString() : ""}`,
     )
-      .then(setNeighborhood)
-      .catch((err) =>
-        setNbError(err instanceof ApiError ? err.message : "Erro"),
-      )
+      .then((d) => {
+        setNeighborhood(d);
+        // Fallback: se entramos em bairro por padrão (não por escolha do
+        // usuário) e não há dado de bairro, volta pra município — evita
+        // abrir direto numa tela "indisponível".
+        if (!userPicked && (!d || d.items.length === 0)) {
+          setMode("municipio");
+        }
+      })
+      .catch((err) => {
+        setNbError(err instanceof ApiError ? err.message : "Erro");
+        if (!userPicked) setMode("municipio");
+      })
       .finally(() => setNbLoading(false));
-  }, [mode, c.id, singleMuniId, neighborhood]);
+  }, [mode, c.id, singleMuniId, neighborhood, userPicked]);
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 grid place-items-center p-4">
@@ -107,13 +130,13 @@ export function CandidateMapModal({ results, onClose }: Props) {
             <div className="flex gap-1 bg-background border border-border rounded-md p-0.5">
               <ModeBtn
                 active={mode === "municipio"}
-                onClick={() => setMode("municipio")}
+                onClick={() => pick("municipio")}
                 icon={<MapPin className="w-3.5 h-3.5" />}
                 label="Município"
               />
               <ModeBtn
                 active={mode === "bairro"}
-                onClick={() => setMode("bairro")}
+                onClick={() => pick("bairro")}
                 icon={<Building2 className="w-3.5 h-3.5" />}
                 label="Bairro"
               />
