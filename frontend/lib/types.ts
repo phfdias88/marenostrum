@@ -25,6 +25,16 @@ export type Contact = {
 /** Tag + contagem (resposta de GET /v1/contacts/tags). */
 export type ContactTag = { tag: string; count: number };
 
+/** Template de mensagem WhatsApp (resposta de /v1/templates). */
+export type MessageTemplate = {
+  id: string;
+  title: string;
+  body: string;
+  category: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Aniversariante (resposta de GET /v1/contacts/birthdays). */
 export type BirthdayContact = {
   id: string;

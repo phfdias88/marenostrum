@@ -31,6 +31,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
+import { WhatsAppSender } from "@/components/contacts/WhatsAppSender";
 import { InteractionTimeline } from "@/components/contacts/InteractionTimeline";
 import { ContactDemandsList } from "@/components/demands/ContactDemandsList";
 import { Activity } from "lucide-react";
@@ -162,10 +163,13 @@ export default function ContactDetailPage() {
                 )}
               </dl>
             </div>
-            <Button variant="outline" onClick={() => setEditing(true)}>
-              <Pencil />
-              Editar
-            </Button>
+            <div className="flex items-center gap-2">
+              <WhatsAppSender contact={contact} />
+              <Button variant="outline" onClick={() => setEditing(true)}>
+                <Pencil />
+                Editar
+              </Button>
+            </div>
           </div>
         )}
       </header>

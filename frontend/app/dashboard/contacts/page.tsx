@@ -6,7 +6,8 @@
  *  - paginacao server-side
  *  - acoes Editar (mesmo dialog) e Excluir (AlertDialog de confirmacao)
  */
-import { Plus, Search, Upload, X } from "lucide-react";
+import { MessageSquarePlus, Plus, Search, Upload, X } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -128,6 +129,10 @@ export default function ContactsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/dashboard/templates" className={cn(buttonVariants({ variant: "outline" }))}>
+            <MessageSquarePlus />
+            Templates
+          </Link>
           <ImportContactsDialog onImported={refresh}>
             <Button variant="outline">
               <Upload />
