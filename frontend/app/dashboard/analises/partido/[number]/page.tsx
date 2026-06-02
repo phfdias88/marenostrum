@@ -375,10 +375,17 @@ function Select({
 function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
   const fmt = new Intl.NumberFormat("pt-BR");
   const maxElected = Math.max(1, ...evolution.items.map((i) => i.elected_count));
-  // Tendência: compara 1ª e última eleição com eleitos.
+  const isMuni = (y: number) => [2024, 2020, 2016].includes(y);
   const first = evolution.items[0];
   const last = evolution.items[evolution.items.length - 1];
-  const delta = last.elected_count - first.elected_count;
+
+  // Tendência HONESTA: compara a última eleição com a anterior do MESMO tipo
+  // (municipal×municipal ou geral×geral) — senão 2014 federal vs 2024
+  // municipal daria número sem sentido.
+  const sameType = evolution.items.filter((i) => isMuni(i.year) === isMuni(last.year));
+  const prevSame = sameType.length >= 2 ? sameType[sameType.length - 2] : null;
+  const delta = prevSame ? last.elected_count - prevSame.elected_count : 0;
+  const tipo = isMuni(last.year) ? "municipais" : "gerais";
 
   return (
     <div className="mt-6">
@@ -412,20 +419,21 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
             </div>
           );
         })}
-        <p className="text-xs text-muted-foreground pt-1">
-          {delta > 0 ? (
-            <span className="text-emerald-600">
-              ▲ Cresceu {fmt.format(delta)} eleitos de {first.year} a {last.year}.
-            </span>
-          ) : delta < 0 ? (
-            <span className="text-rose-500">
-              ▼ Caiu {fmt.format(Math.abs(delta))} eleitos de {first.year} a {last.year}.
-            </span>
-          ) : (
-            <span>Estável entre {first.year} e {last.year}.</span>
-          )}
-          {" "}Comparação entre tipos de pleito (municipal × geral) é só referência.
-        </p>
+        {prevSame && (
+          <p className="text-xs text-muted-foreground pt-1">
+            {delta > 0 ? (
+              <span className="text-emerald-600">
+                ▲ Cresceu {fmt.format(delta)} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+              </span>
+            ) : delta < 0 ? (
+              <span className="text-rose-500">
+                ▼ Caiu {fmt.format(Math.abs(delta))} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+              </span>
+            ) : (
+              <span>Estável nas eleições {tipo} ({prevSame.year}→{last.year}).</span>
+            )}
+          </p>
+        )}
       </div>
     </div>
   );
