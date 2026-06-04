@@ -18,6 +18,7 @@ import type {
   TseCandidateResults,
   TseCandidateTrajectory,
   TseCandidateZoneVotes,
+  TseOpportunityResponse,
 } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
@@ -44,6 +45,7 @@ export default function CandidateDetailPage() {
   const [zones, setZones] = useState<TseCandidateZoneVotes | null>(null);
   const [bairros, setBairros] = useState<TseCandidateByNeighborhoodResponse | null>(null);
   const [trajectory, setTrajectory] = useState<TseCandidateTrajectory | null>(null);
+  const [opportunities, setOpportunities] = useState<TseOpportunityResponse | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,6 +60,12 @@ export default function CandidateDetailPage() {
     setZones(null);
     setBairros(null);
     setTrajectory(null);
+    setOpportunities(null);
+
+    // Radar de oportunidades (eleitorado x votos) — esconde se sem dados
+    api<TseOpportunityResponse>(`/v1/tse/candidates/${id}/opportunities`)
+      .then((d) => { if (!cancelled) setOpportunities(d); })
+      .catch(() => { if (!cancelled) setOpportunities(null); });
 
     // Trajetória eleitoral — mesma pessoa em outras eleições (2014–2024)
     api<TseCandidateTrajectory>(`/v1/tse/candidates/${id}/trajectory`)
@@ -224,6 +232,13 @@ export default function CandidateDetailPage() {
           <TrajectorySection trajectory={trajectory} currentId={id} />
         )}
 
+        {/* Radar de oportunidades — onde crescer vs redutos */}
+        {opportunities &&
+          (opportunities.opportunities.length > 0 ||
+            opportunities.strongholds.length > 0) && (
+            <OpportunityRadar data={opportunities} />
+          )}
+
         {/* Votos por municipio */}
         <div className="mt-5">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
@@ -347,6 +362,99 @@ export default function CandidateDetailPage() {
       {showMap && (
         <CandidateMapModal results={data} onClose={() => setShowMap(false)} />
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------ radar de oportunidades
+
+function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunityResponse }) {
+  const pctFmt = (n: number) => n.toFixed(1).replace(".", ",");
+  return (
+    <div className="mt-5 mn-fade-in">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        Radar de oportunidades · onde buscar voto
+      </p>
+
+      {/* Resumo */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="rounded-lg border bg-card p-3 text-center">
+          <p className="text-lg font-bold text-primary">
+            {numberFmt.format(data.total_electorate_reached)}
+          </p>
+          <p className="text-[11px] text-muted-foreground">Eleitorado alcançado</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3 text-center">
+          <p className="text-lg font-bold">{pctFmt(data.avg_penetration_pct)}%</p>
+          <p className="text-[11px] text-muted-foreground">Penetração média</p>
+        </div>
+        <div className="rounded-lg border bg-card p-3 text-center">
+          <p className="text-lg font-bold text-emerald-600">
+            {numberFmt.format(
+              data.opportunities.reduce((s, o) => s + o.available, 0),
+            )}
+          </p>
+          <p className="text-[11px] text-muted-foreground">Eleitores a conquistar</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Onde crescer */}
+        {data.opportunities.length > 0 && (
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <p className="px-3 py-2 text-xs font-semibold bg-emerald-500/10 text-emerald-700 border-b border-border">
+              ▲ Onde crescer (eleitorado grande, baixa penetração)
+            </p>
+            <ul className="divide-y divide-border">
+              {data.opportunities.map((o) => (
+                <li key={o.municipality_id} className="px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {o.name}<span className="text-muted-foreground">/{o.state}</span>
+                    </span>
+                    <span className="text-xs text-emerald-600 font-semibold shrink-0">
+                      +{numberFmt.format(o.available)} disp.
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {numberFmt.format(o.electorate)} eleitores · você tem {pctFmt(o.penetration_pct)}%
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Redutos */}
+        {data.strongholds.length > 0 && (
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <p className="px-3 py-2 text-xs font-semibold bg-primary/10 text-primary border-b border-border">
+              ★ Seus redutos (maior penetração — consolidar)
+            </p>
+            <ul className="divide-y divide-border">
+              {data.strongholds.map((s) => (
+                <li key={s.municipality_id} className="px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {s.name}<span className="text-muted-foreground">/{s.state}</span>
+                    </span>
+                    <span className="text-xs text-primary font-semibold shrink-0">
+                      {pctFmt(s.penetration_pct)}%
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {numberFmt.format(s.votes)} votos de {numberFmt.format(s.electorate)} eleitores
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        Cruzamento dos seus votos com o eleitorado registrado por município.
+        Penetração = votos ÷ eleitorado.
+      </p>
     </div>
   );
 }

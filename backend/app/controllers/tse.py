@@ -47,6 +47,8 @@ from app.schemas.tse import (
     MunicipalityTimelineResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
+    OpportunityMunicipality,
+    OpportunityResponse,
     TimelineItem,
     TimelineWinner,
     TrajectoryItem,
@@ -439,6 +441,112 @@ def list_candidates(
         ))
 
     return Page[CandidateRead](items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    "/candidates/{candidate_id}/opportunities",
+    response_model=OpportunityResponse,
+    summary="Radar de oportunidades: eleitorado x votos (redutos vs crescer)",
+    description=(
+        "Cruza os votos do candidato por município com o eleitorado registrado "
+        "(IBGE/TSE). Identifica REDUTOS (maior penetração — consolidar) e "
+        "OPORTUNIDADES (maior eleitorado com baixa penetração — onde crescer). "
+        "É o 'onde buscar voto' que transforma histórico em estratégia."
+    ),
+)
+def candidate_opportunities(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> OpportunityResponse:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato não encontrado")
+
+    # Eleitorado mais recente por município (pode haver >1 ano na tabela).
+    latest_elect = (
+        select(
+            MunicipalityElectorate.municipality_id.label("mid"),
+            func.max(MunicipalityElectorate.year).label("y"),
+        )
+        .group_by(MunicipalityElectorate.municipality_id)
+        .subquery()
+    )
+
+    # Votos do candidato × eleitorado, por município.
+    rows = db.execute(
+        select(
+            Municipality.id,
+            Municipality.name,
+            Municipality.state,
+            VoteResult.votes,
+            MunicipalityElectorate.total,
+        )
+        .join(VoteResult, VoteResult.municipality_id == Municipality.id)
+        .join(
+            latest_elect,
+            latest_elect.c.mid == Municipality.id,
+        )
+        .join(
+            MunicipalityElectorate,
+            (MunicipalityElectorate.municipality_id == Municipality.id)
+            & (MunicipalityElectorate.year == latest_elect.c.y),
+        )
+        .where(VoteResult.candidate_id == candidate_id)
+    ).all()
+
+    items: list[OpportunityMunicipality] = []
+    total_votes = 0
+    total_elect = 0
+    for mid, name, state, votes, elect in rows:
+        votes = int(votes or 0)
+        elect = int(elect or 0)
+        total_votes += votes
+        total_elect += elect
+        pen = (votes / elect * 100) if elect > 0 else 0.0
+        items.append(
+            OpportunityMunicipality(
+                municipality_id=mid,
+                name=name,
+                state=state,
+                electorate=elect,
+                votes=votes,
+                penetration_pct=round(pen, 2),
+                available=max(0, elect - votes),
+                category="neutro",
+            )
+        )
+
+    avg_pen = (total_votes / total_elect * 100) if total_elect > 0 else 0.0
+
+    # Redutos: maior penetração (consolidar a base). Mín. de relevância: 500
+    # eleitores pra não pegar cidade minúscula com 1 voto = 50%.
+    relevant = [i for i in items if i.electorate >= 500]
+    strongholds = sorted(relevant, key=lambda i: i.penetration_pct, reverse=True)[:10]
+    for s in strongholds:
+        s.category = "reduto"
+
+    # Oportunidades: maior eleitorado disponível (eleitorado grande × baixa
+    # penetração). Score = available × (1 - penetração normalizada). Ordena por
+    # eleitores "a conquistar" mas penaliza onde já domina.
+    sids = {s.municipality_id for s in strongholds}
+    opp_pool = [i for i in relevant if i.municipality_id not in sids]
+    opportunities = sorted(
+        opp_pool,
+        key=lambda i: i.available * (1 - min(i.penetration_pct, 50) / 100),
+        reverse=True,
+    )[:10]
+    for o in opportunities:
+        o.category = "crescer"
+
+    return OpportunityResponse(
+        candidate_id=candidate.id,
+        total_electorate_reached=total_elect,
+        total_votes=total_votes,
+        avg_penetration_pct=round(avg_pen, 2),
+        strongholds=strongholds,
+        opportunities=opportunities,
+    )
 
 
 @router.get(

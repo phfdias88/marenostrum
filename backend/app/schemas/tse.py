@@ -207,6 +207,36 @@ class SyncJobCreated(BaseModel):
     status: SyncJobStatus
 
 
+# ----------------------------------------- Radar de Oportunidades / Caminho
+
+
+class OpportunityMunicipality(BaseModel):
+    """Município no radar do candidato: eleitorado x votos = penetração."""
+    municipality_id: UUID
+    name: str
+    state: str
+    electorate: int            # eleitorado registrado (último ano disponível)
+    votes: int                 # votos do candidato nesse município
+    penetration_pct: float     # votos / eleitorado * 100
+    available: int             # eleitorado - votos (eleitores "a conquistar")
+    category: str              # "reduto" | "crescer" | "neutro"
+
+
+class OpportunityResponse(BaseModel):
+    """
+    Radar de oportunidades do candidato:
+    - redutos: onde tem maior penetração (consolidar)
+    - crescer: maior eleitorado com baixa penetração (atacar)
+    - resumo: eleitorado total alcançável + penetração média
+    """
+    candidate_id: UUID
+    total_electorate_reached: int   # soma do eleitorado dos municípios com voto
+    total_votes: int
+    avg_penetration_pct: float
+    strongholds: list[OpportunityMunicipality]   # redutos (top penetração)
+    opportunities: list[OpportunityMunicipality]  # crescer (eleitorado x baixa penetração)
+
+
 class ElectorateResponse(BaseModel):
     """Perfil do eleitorado de um município (gênero/idade/escolaridade)."""
     municipality: MunicipalityRead

@@ -285,6 +285,27 @@ export type TseCandidateTrajectory = {
   items: TseTrajectoryItem[];
 };
 
+/** Radar de oportunidades — eleitorado x votos por município. */
+export type TseOpportunityMunicipality = {
+  municipality_id: string;
+  name: string;
+  state: string;
+  electorate: number;
+  votes: number;
+  penetration_pct: number;
+  available: number;
+  category: "reduto" | "crescer" | "neutro";
+};
+
+export type TseOpportunityResponse = {
+  candidate_id: string;
+  total_electorate_reached: number;
+  total_votes: number;
+  avg_penetration_pct: number;
+  strongholds: TseOpportunityMunicipality[];
+  opportunities: TseOpportunityMunicipality[];
+};
+
 /** Evolução do partido por eleição (2014–2024). */
 export type TsePartyEvolutionItem = {
   year: number;
