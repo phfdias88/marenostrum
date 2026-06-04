@@ -513,8 +513,13 @@ function SearchModal({
                     {c.urn_name}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {c.party.abbreviation} · {c.office_name} · {c.state}
+                    {c.party.abbreviation} · {c.office_name} · {c.state} · {c.election.year}
                   </p>
+                  {c.name && c.name.toLowerCase() !== c.urn_name.toLowerCase() && (
+                    <p className="text-[10px] text-muted-foreground/70 truncate">
+                      {c.name}
+                    </p>
+                  )}
                 </div>
                 {picking === c.id ? (
                   <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />

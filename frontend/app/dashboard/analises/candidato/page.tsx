@@ -381,7 +381,9 @@ export default function CandidatoAnalysisPage() {
                 </div>
                 <div className="text-right text-xs shrink-0">
                   <p className="font-medium">{c.office_name}</p>
-                  <p className="text-muted-foreground">{c.state}</p>
+                  <p className="text-muted-foreground">
+                    {c.state} · {c.election.year}
+                  </p>
                 </div>
               </button>
             ))}

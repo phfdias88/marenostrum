@@ -541,6 +541,11 @@ function SearchModal({
                     {c.number} · {c.party.abbreviation} · {c.office_name} ·{" "}
                     {c.state} · {c.election.year}
                   </p>
+                  {c.name && c.name.toLowerCase() !== c.urn_name.toLowerCase() && (
+                    <p className="text-[10px] text-muted-foreground/70 truncate">
+                      {c.name}
+                    </p>
+                  )}
                 </div>
               </button>
             ))}
