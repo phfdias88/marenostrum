@@ -35,6 +35,23 @@ export type MessageTemplate = {
   updated_at: string;
 };
 
+/** Evento da agenda parlamentar/campanha (resposta de /v1/agenda). */
+export type AgendaEvent = {
+  id: string;
+  title: string;
+  description: string | null;
+  starts_at: string; // ISO datetime
+  location_name: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  category: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Aniversariante (resposta de GET /v1/contacts/birthdays). */
 export type BirthdayContact = {
   id: string;

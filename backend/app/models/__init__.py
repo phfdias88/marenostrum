@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.contact import Contact, ContactType
 from app.models.demand import Demand, DemandStatus
+from app.models.agenda_event import AgendaEvent
 from app.models.interaction import Interaction
 from app.models.message_template import MessageTemplate
 from app.models.monitored_candidate import MonitoredCandidate
@@ -25,6 +26,7 @@ __all__ = [
     "ContactType",
     "Demand",
     "DemandStatus",
+    "AgendaEvent",
     "Interaction",
     "MessageTemplate",
     "MonitoredCandidate",

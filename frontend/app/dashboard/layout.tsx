@@ -9,6 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
+  CalendarClock,
   ClipboardList,
   LayoutDashboard,
   LineChart,
@@ -33,6 +34,7 @@ const NAV = [
   { href: "/dashboard/analytics", label: "Painel", icon: LineChart },
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
   { href: "/dashboard/demandas", label: "Demandas", icon: ClipboardList },
+  { href: "/dashboard/agenda", label: "Agenda", icon: CalendarClock },
   { href: "/dashboard/map", label: "Mapa da Campanha", icon: MapPinned },
 ];
 
