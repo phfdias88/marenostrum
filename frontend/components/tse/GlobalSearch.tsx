@@ -320,8 +320,15 @@ function ResultList({
               <div className="flex-1 min-w-0">
                 <p className={titleCls}>{c.urn_name}</p>
                 <p className={subCls}>
-                  {c.party.abbreviation} · {c.office_name} · {c.state}
+                  {c.party.abbreviation} · {c.office_name} · {c.state} · {c.election.year}
                 </p>
+                {/* Nome civil — desambigua homônimos (vários candidatos com o
+                    mesmo nome de urna são pessoas diferentes). */}
+                {c.name && c.name.toLowerCase() !== c.urn_name.toLowerCase() && (
+                  <p className="text-[10px] text-muted-foreground/70 truncate">
+                    {c.name}
+                  </p>
+                )}
               </div>
               <span className="text-primary font-mono text-xs shrink-0">
                 {c.number}
