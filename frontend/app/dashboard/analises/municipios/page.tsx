@@ -265,6 +265,13 @@ function MunicipalityDrill({
         />
       </div>
 
+      {data?.year && (
+        <p className="text-xs text-muted-foreground mb-3 -mt-2">
+          Mais votados na eleição de <span className="font-semibold text-foreground">{data.year}</span>
+          {" "}· para outros anos, abra a página completa.
+        </p>
+      )}
+
       {loading ? (
         <CandidateListSkeleton rows={6} />
       ) : !data || data.results.length === 0 ? (

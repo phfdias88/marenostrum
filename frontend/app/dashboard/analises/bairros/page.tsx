@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import type {
   Page,
   TseCandidate,
+  TseCandidateByNeighborhoodItem,
   TseCandidateByNeighborhoodResponse,
   TseMunicipality,
   TseMunicipalityResults,
@@ -49,8 +50,15 @@ function useDebounce<T>(v: T, ms: number): T {
 }
 
 export default function BairrosPage() {
-  const [state, setState] = useState("MG");
+  const [state, setState] = useState("RJ");
   const [office, setOffice] = useState("11");
+
+  // Lembra a última UF usada — o usuário quase sempre repete o território.
+  // Carrega via effect (não no initializer) pra não quebrar o prerender.
+  useEffect(() => {
+    const saved = window.localStorage.getItem("mn:last-uf");
+    if (saved && (TSE_STATES as readonly string[]).includes(saved)) setState(saved);
+  }, []);
   const [muni, setMuni] = useState<TseMunicipality | null>(null);
   const [candidate, setCandidate] = useState<TseCandidate | null>(null);
 
@@ -82,6 +90,7 @@ export default function BairrosPage() {
           value={state}
           onChange={(v) => {
             setState(v);
+            window.localStorage.setItem("mn:last-uf", v);
             setMuni(null);
             setCandidate(null);
           }}
@@ -358,6 +367,28 @@ function NeighborhoodResult({
 
   const maxVotes = data?.items[0]?.votes ?? 1;
 
+  // Cruzamento Censo: "Oportunidade" = bairro no top 50% de população onde a
+  // penetração do candidato está no quartil inferior DELE MESMO (regra por
+  // ranking — funciona igual pra campeão de votos e pra candidato pequeno).
+  const censusStats = (() => {
+    const matched = (data?.items ?? []).filter(
+      (n) => n.census_population && n.penetration_pct != null,
+    );
+    if (matched.length < 8) return null;
+    const pens = matched.map((n) => n.penetration_pct as number).sort((a, b) => a - b);
+    const pops = matched.map((n) => n.census_population as number).sort((a, b) => a - b);
+    return {
+      q25Pen: pens[Math.floor(pens.length / 4)],
+      medPop: pops[Math.floor(pops.length / 2)],
+    };
+  })();
+  const isOpportunity = (n: TseCandidateByNeighborhoodItem) =>
+    !!censusStats &&
+    !!n.census_population &&
+    n.penetration_pct != null &&
+    n.census_population >= censusStats.medPop &&
+    n.penetration_pct <= censusStats.q25Pen;
+
   return (
     <div>
       <button
@@ -442,8 +473,16 @@ function NeighborhoodResult({
                 return (
                   <li key={n.neighborhood} className="p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-sm truncate">
-                        {i + 1}. {n.neighborhood}
+                      <span className="font-semibold text-sm truncate flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">{i + 1}. {n.neighborhood}</span>
+                        {isOpportunity(n) && (
+                          <span
+                            className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30"
+                            title="Bairro populoso com baixa penetração — potencial de crescimento"
+                          >
+                            💡 oportunidade
+                          </span>
+                        )}
                       </span>
                       <span className="font-mono font-bold text-sm shrink-0">
                         {numberFmt.format(n.votes)}
@@ -457,6 +496,29 @@ function NeighborhoodResult({
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       {n.places_count} local(is)
+                      {n.census_population ? (
+                        <>
+                          {" · "}
+                          <span title="População residente (IBGE Censo 2022)">
+                            {numberFmt.format(n.census_population)} moradores
+                          </span>
+                          {n.penetration_pct != null && (
+                            <>
+                              {" · "}
+                              <span
+                                className={
+                                  isOpportunity(n)
+                                    ? "text-amber-400 font-semibold"
+                                    : "text-foreground/80 font-medium"
+                                }
+                                title="Votos ÷ eleitores aptos dos locais de votação deste bairro"
+                              >
+                                {String(n.penetration_pct).replace(".", ",")}% dos eleitores
+                              </span>
+                            </>
+                          )}
+                        </>
+                      ) : null}
                     </p>
                   </li>
                 );

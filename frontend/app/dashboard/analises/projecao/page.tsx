@@ -167,7 +167,16 @@ export default function ProjecaoPage() {
     api<TseMunicipalityResults>(
       `/v1/tse/municipalities/${selectedMuni.id}/top-candidates?${p.toString()}`,
     )
-      .then(setResults)
+      .then((d) => {
+        setResults(d);
+        // Auto-preenche o nº de cadeiras com o total REALMENTE eleito nessa
+        // cidade/cargo (ex: BH elege 41 vereadores, não 13). Sem isso, um
+        // número genérico distorce o quociente eleitoral e o resultado.
+        const elected = d.results.filter((r) =>
+          (r.candidate.result_status ?? "").toUpperCase().startsWith("ELEITO"),
+        ).length;
+        if (elected > 0) setSeats(elected);
+      })
       .catch(() => setResults(null))
       .finally(() => setLoading(false));
   }, [selectedMuni, office, year]);
@@ -264,6 +273,11 @@ export default function ProjecaoPage() {
             onChange={(e) => setSeats(Math.max(1, parseInt(e.target.value) || 1))}
             className="w-full mt-1 py-2 px-3 rounded-md bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
+          {results && (
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Preenchido com o nº real de eleitos na cidade. Edite para simular.
+            </p>
+          )}
         </div>
         <div className="md:col-span-2">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">UF</label>

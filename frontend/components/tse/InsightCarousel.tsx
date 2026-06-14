@@ -80,16 +80,21 @@ export function InsightCarousel() {
   const [active, setActive] = useState(0);
 
   useEffect(() => {
-    const next: Slide[] = [...FALLBACK];
-
-    // top candidato eleito 2024 prefeito
-    api<TseTopCandidatesResponse>(
-      "/v1/tse/stats/top-candidates?year=2024&office_code=11&elected_only=true&limit=1",
-    )
-      .then((r) => {
-        const it = r.items[0];
-        if (!it) return;
-        next.unshift({
+    // As 2 chamadas saem em PARALELO; montamos os slides numa passada só
+    // (1 re-render, ordem determinística — antes cada .then re-renderizava
+    // e a ordem dos slides dependia de qual resposta chegava primeiro).
+    Promise.allSettled([
+      api<TseTopCandidatesResponse>(
+        "/v1/tse/stats/top-candidates?year=2024&office_code=11&elected_only=true&limit=1",
+      ),
+      api<TsePartyPerformanceResponse>(
+        "/v1/tse/stats/party-performance?year=2024&office_code=11",
+      ),
+    ]).then(([topRes, partyRes]) => {
+      const next: Slide[] = [];
+      if (topRes.status === "fulfilled" && topRes.value.items[0]) {
+        const it = topRes.value.items[0];
+        next.push({
           kicker: "Candidato em destaque",
           title: it.candidate.urn_name,
           subtitle: `${it.candidate.party.abbreviation} · ${it.candidate.office_name} · ${it.candidate.state}`,
@@ -101,17 +106,10 @@ export function InsightCarousel() {
           icon: Crown,
           tone: "gold",
         });
-        setSlides([...next]);
-      })
-      .catch(() => {});
-
-    // partido com mais eleitos prefeito 2024
-    api<TsePartyPerformanceResponse>(
-      "/v1/tse/stats/party-performance?year=2024&office_code=11",
-    )
-      .then((r) => {
-        const it = r.items[0];
-        if (!it) return;
+      }
+      next.push(...FALLBACK);
+      if (partyRes.status === "fulfilled" && partyRes.value.items[0]) {
+        const it = partyRes.value.items[0];
         next.push({
           kicker: "Partido em alta",
           title: `${it.party.abbreviation} lidera prefeituras 2024`,
@@ -124,20 +122,17 @@ export function InsightCarousel() {
           icon: TrendingUp,
           tone: "emerald",
         });
-        setSlides([...next]);
-      })
-      .catch(() => {});
-
-    // mapa do Brasil colorido
-    next.push({
-      kicker: "Visualização",
-      title: "Brasil colorido por partido vencedor",
-      subtitle: "Veja o mapa nacional pintado pelo partido que venceu cada cidade.",
-      cta: { label: "Abrir mapa", href: "/dashboard/analises/mapa" },
-      icon: MapPinned,
-      tone: "blue",
+      }
+      next.push({
+        kicker: "Visualização",
+        title: "Brasil colorido por partido vencedor",
+        subtitle: "Veja o mapa nacional pintado pelo partido que venceu cada cidade.",
+        cta: { label: "Abrir mapa", href: "/dashboard/analises/mapa" },
+        icon: MapPinned,
+        tone: "blue",
+      });
+      setSlides(next);
     });
-    setSlides([...next]);
   }, []);
 
   // Auto-rotate

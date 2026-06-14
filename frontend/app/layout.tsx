@@ -65,7 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Pre-connect ao backend e ao tile do mapa — economiza ~100-300ms
             no primeiro request, especialmente em mobile/3G/4G. */}
         <link rel="preconnect" href="https://srv1412083.hstgr.cloud" />
-        <link rel="dns-prefetch" href="https://a.basemaps.cartocdn.com" />
+        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com" />
         <link rel="dns-prefetch" href="https://cdn.tse.jus.br" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

@@ -306,6 +306,82 @@ export type TseOpportunityResponse = {
   opportunities: TseOpportunityMunicipality[];
 };
 
+/** Perfil socioeconômico/demográfico do território do candidato. */
+export type TseElectorateProfile = {
+  candidate_id: string;
+  state: string;
+  municipalities_with_votes: number;
+  municipalities_covered: number;
+  coverage_pct: number;
+  by_gender: Record<string, number>;
+  by_age: Record<string, number>;
+  by_education: Record<string, number>;
+  baseline_by_gender: Record<string, number>;
+  baseline_by_age: Record<string, number>;
+  baseline_by_education: Record<string, number>;
+  highlights: string[];
+};
+
+/** Caminho da vitória: déficit de votos e onde buscá-los. */
+export type TsePathTarget = {
+  municipality_id: string;
+  name: string;
+  state: string;
+  available: number;
+  suggested: number;
+  penetration_pct: number;
+};
+
+export type TsePathToVictory = {
+  candidate_id: string;
+  office_name: string;
+  scope: "nacional" | "estadual" | "municipal" | "proporcional";
+  candidate_votes: number;
+  is_winner: boolean;
+  winner_name: string | null;
+  winner_votes: number;
+  gap: number;
+  margin: number | null;
+  available_electorate: number;
+  targets: TsePathTarget[];
+  note: string | null;
+};
+
+/** Confronto estratégico por IA entre candidato e adversário (Maré IA). */
+export type TseAiCompareH2HItem = {
+  municipio: string;
+  voce: number;
+  adversario: number;
+  vantagem?: number;
+  desvantagem?: number;
+};
+
+export type TseAiCompare = {
+  panorama: string;
+  quem_lidera: string;
+  minhas_vantagens: string[];
+  vantagens_adversario: string[];
+  onde_atacar: string[];
+  onde_defender: string[];
+  recomendacao_final: string;
+  confronto?: {
+    municipios_disputados: number;
+    a_lidera_em: TseAiCompareH2HItem[];
+    adversario_lidera_em: TseAiCompareH2HItem[];
+  } | null;
+};
+
+/** Relatório estratégico gerado por IA (Gemini) sobre o candidato. */
+export type TseAiReport = {
+  diagnostico: string;
+  score_viabilidade: number;
+  score_justificativa: string;
+  pontos_fortes: string[];
+  onde_crescer: string[];
+  narrativas: string[];
+  acoes_prioritarias: string[];
+};
+
 /** Evolução do partido por eleição (2014–2024). */
 export type TsePartyEvolutionItem = {
   year: number;
@@ -331,6 +407,7 @@ export type TseMunicipalityResults = {
   total_votes: number;
   office_code: number | null;
   office_name: string | null;
+  year: number | null;
 };
 
 export type TseElectorate = {
@@ -406,6 +483,10 @@ export type TseCandidateByNeighborhoodItem = {
   electors_total: number;
   avg_lat: number | null;
   avg_lng: number | null;
+  // Cruzamento Censo IBGE 2022 (null = município sem censo ou bairro sem match)
+  census_population?: number | null;
+  census_households?: number | null;
+  penetration_pct?: number | null;
 };
 
 export type TseCandidateByNeighborhoodResponse = {

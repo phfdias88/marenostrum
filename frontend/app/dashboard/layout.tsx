@@ -12,13 +12,14 @@ import {
   CalendarClock,
   ClipboardList,
   LayoutDashboard,
+  Layers,
   LineChart,
   MapPinned,
   Users,
 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import { clearAuth } from "@/lib/auth";
+import { clearAuth, refreshTokenCookie } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/tse/GlobalSearch";
@@ -26,7 +27,15 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { BottomNav } from "@/components/nav/BottomNav";
 import { RouteProgress } from "@/components/ui/RouteProgress";
 
-type Me = { full_name: string; tenant_name: string };
+type Me = {
+  full_name: string;
+  tenant_name: string;
+  census_enabled?: boolean;
+  // Sessão deslizante: /me devolve um token novo quando o atual passa
+  // da metade da validade — trocamos o cookie sem o usuário perceber.
+  refreshed_token?: string | null;
+  refreshed_expires_in?: number | null;
+};
 
 const NAV = [
   { href: "/dashboard", label: "Visão geral", icon: LayoutDashboard },
@@ -37,6 +46,9 @@ const NAV = [
   { href: "/dashboard/agenda", label: "Agenda", icon: CalendarClock },
   { href: "/dashboard/map", label: "Mapa da Campanha", icon: MapPinned },
 ];
+
+// Item do módulo Censo — só aparece se o owner liberou (me.census_enabled).
+const CENSO_NAV = { href: "/dashboard/censo", label: "Censo", icon: Layers };
 
 export default function DashboardLayout({
   children,
@@ -51,7 +63,12 @@ export default function DashboardLayout({
 
   useEffect(() => {
     api<Me>("/v1/auth/me")
-      .then(setMe)
+      .then((m) => {
+        setMe(m);
+        if (m.refreshed_token && m.refreshed_expires_in) {
+          refreshTokenCookie(m.refreshed_token, m.refreshed_expires_in);
+        }
+      })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) {
           clearAuth();
@@ -123,6 +140,9 @@ export default function DashboardLayout({
     router.replace("/login");
   }
 
+  // Menu: acrescenta o módulo Censo só se o owner liberou para este usuário.
+  const navItems = me?.census_enabled ? [...NAV, CENSO_NAV] : NAV;
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <RouteProgress />
@@ -140,19 +160,28 @@ export default function DashboardLayout({
           {/* Linha 1: marca + usuário/sair */}
           <div className="h-14 flex items-center justify-between gap-3">
             <Link href="/dashboard" className="flex items-center shrink-0">
-              {/* Logo horizontal oficial (M + MARENOSTRUM) */}
+              {/* Logo horizontal oficial — variante por tema (texto branco no
+                  dark, grafite no light; o M dourado é o mesmo) */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo-wordmark.png"
                 alt="MareNostrum"
-                className="h-7 sm:h-8 w-auto object-contain"
+                className="h-7 sm:h-8 w-auto object-contain hidden dark:block"
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo-wordmark-light.png"
+                alt="MareNostrum"
+                className="h-7 sm:h-8 w-auto object-contain dark:hidden"
               />
             </Link>
 
-            {/* Nav inline só no desktop (lg+). shrink-0 evita encolher
-                e roubar largura da busca quando layout aperta. */}
+            {/* Nav inline só no desktop (lg+). O container é max-w-7xl
+                (1280px), então com o item Censo os 8 rótulos NUNCA cabem
+                junto da busca — em qualquer monitor. Por isso: só ícones
+                (tooltip no hover) e o item ATIVO mantém o rótulo. */}
             <nav className="hidden lg:flex items-center gap-1 shrink-0">
-              {NAV.map(({ href, label, icon: Icon }) => {
+              {navItems.map(({ href, label, icon: Icon }) => {
                 const active =
                   pathname === href ||
                   (href !== "/dashboard" && pathname.startsWith(href));
@@ -160,6 +189,7 @@ export default function DashboardLayout({
                   <Link
                     key={href}
                     href={href}
+                    title={label}
                     className={cn(
                       "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors whitespace-nowrap",
                       active
@@ -167,8 +197,8 @@ export default function DashboardLayout({
                         : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
                     )}
                   >
-                    <Icon className="h-4 w-4" />
-                    {label}
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className={active ? "inline" : "hidden"}>{label}</span>
                   </Link>
                 );
               })}
@@ -209,7 +239,7 @@ export default function DashboardLayout({
           {/* Nav com scroll horizontal — so em tablets (md-lg). No mobile
               quem manda e o BottomNav, fica mais limpo. */}
           <nav className="hidden md:flex lg:hidden items-center gap-1 overflow-x-auto pb-2 -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {NAV.map(({ href, label, icon: Icon }) => {
+            {navItems.map(({ href, label, icon: Icon }) => {
               const active =
                 pathname === href ||
                 (href !== "/dashboard" && pathname.startsWith(href));
@@ -238,7 +268,7 @@ export default function DashboardLayout({
         {children}
       </main>
 
-      <BottomNav hidden={hidden} />
+      <BottomNav hidden={hidden} censusEnabled={!!me?.census_enabled} />
     </div>
   );
 }

@@ -5,20 +5,38 @@
  * URL compartilhável com tudo: foto, resultado, perfil (patrimônio/finanças/
  * redes), votos por município, mapa, favoritar, exportar.
  */
-import { ArrowLeft, FileDown, Loader2, Map as MapIcon, UserX } from "lucide-react";
+import {
+  ArrowLeft,
+  FileDown,
+  Loader2,
+  Map as MapIcon,
+  Shield,
+  Sparkles,
+  Swords,
+  Target,
+  TrendingUp,
+  Trophy,
+  UserX,
+} from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type {
+  Page,
+  TseAiCompare,
+  TseAiReport,
+  TseCandidate,
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
   TseCandidateTrajectory,
   TseCandidateZoneVotes,
+  TseElectorateProfile,
   TseOpportunityResponse,
+  TsePathToVictory,
 } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
@@ -46,8 +64,15 @@ export default function CandidateDetailPage() {
   const [bairros, setBairros] = useState<TseCandidateByNeighborhoodResponse | null>(null);
   const [trajectory, setTrajectory] = useState<TseCandidateTrajectory | null>(null);
   const [opportunities, setOpportunities] = useState<TseOpportunityResponse | null>(null);
+  const [profile, setProfile] = useState<TseElectorateProfile | null>(null);
+  const [path, setPath] = useState<TsePathToVictory | null>(null);
+  // PERF: as seções abaixo da dobra (radar, território, caminho, zona, bairro)
+  // só carregam quando o usuário rola ou após um curto fallback — assim o
+  // primeiro render dispara só 2 chamadas (resultados + trajetória) em vez de 7.
+  const [deferred, setDeferred] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
+  // Essenciais (acima da dobra) — disparam imediatamente.
   useEffect(() => {
     if (!id) return;
     // Reset imediato — sem isso, ao trocar de candidato A→B, voce ve
@@ -61,11 +86,10 @@ export default function CandidateDetailPage() {
     setBairros(null);
     setTrajectory(null);
     setOpportunities(null);
-
-    // Radar de oportunidades (eleitorado x votos) — esconde se sem dados
-    api<TseOpportunityResponse>(`/v1/tse/candidates/${id}/opportunities`)
-      .then((d) => { if (!cancelled) setOpportunities(d); })
-      .catch(() => { if (!cancelled) setOpportunities(null); });
+    setProfile(null);
+    setPath(null);
+    setDeferred(false);
+    setShowMap(false);
 
     // Trajetória eleitoral — mesma pessoa em outras eleições (2014–2024)
     api<TseCandidateTrajectory>(`/v1/tse/candidates/${id}/trajectory`)
@@ -76,24 +100,56 @@ export default function CandidateDetailPage() {
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    // Votos por zona (404/vazio = dataset nao sincronizado → esconde)
-    api<TseCandidateZoneVotes>(`/v1/tse/candidates/${id}/by-zone`)
-      .then((d) => { if (!cancelled) setZones(d); })
-      .catch(() => { if (!cancelled) setZones(null); });
-    // Top bairros (so existe pra capitais grandes com voting_places enriquecidos)
-    api<TseCandidateByNeighborhoodResponse>(
-      `/v1/tse/candidates/${id}/by-neighborhood?limit=20`,
-    )
-      .then((d) => { if (!cancelled) setBairros(d); })
-      .catch(() => { if (!cancelled) setBairros(null); });
-
-    // Limpa estados "abertos" ao trocar de candidato.
-    setShowMap(false);
 
     return () => {
       cancelled = true;
     };
   }, [id]);
+
+  // Dispara o carregamento "deferido" ao rolar OU após 1s (fallback) —
+  // garante que as seções carreguem mesmo sem rolar.
+  useEffect(() => {
+    if (!id) return;
+    let done = false;
+    const trigger = () => {
+      if (done) return;
+      done = true;
+      setDeferred(true);
+      window.removeEventListener("scroll", trigger);
+    };
+    window.addEventListener("scroll", trigger, { passive: true, once: true });
+    const t = setTimeout(trigger, 1000);
+    return () => {
+      window.removeEventListener("scroll", trigger);
+      clearTimeout(t);
+    };
+  }, [id]);
+
+  // Seções abaixo da dobra — só quando deferido.
+  useEffect(() => {
+    if (!id || !deferred) return;
+    let cancelled = false;
+    api<TsePathToVictory>(`/v1/tse/candidates/${id}/path-to-victory`)
+      .then((d) => { if (!cancelled) setPath(d); })
+      .catch(() => { if (!cancelled) setPath(null); });
+    api<TseOpportunityResponse>(`/v1/tse/candidates/${id}/opportunities`)
+      .then((d) => { if (!cancelled) setOpportunities(d); })
+      .catch(() => { if (!cancelled) setOpportunities(null); });
+    api<TseElectorateProfile>(`/v1/tse/candidates/${id}/electorate-profile`)
+      .then((d) => { if (!cancelled) setProfile(d); })
+      .catch(() => { if (!cancelled) setProfile(null); });
+    api<TseCandidateZoneVotes>(`/v1/tse/candidates/${id}/by-zone`)
+      .then((d) => { if (!cancelled) setZones(d); })
+      .catch(() => { if (!cancelled) setZones(null); });
+    api<TseCandidateByNeighborhoodResponse>(
+      `/v1/tse/candidates/${id}/by-neighborhood?limit=20`,
+    )
+      .then((d) => { if (!cancelled) setBairros(d); })
+      .catch(() => { if (!cancelled) setBairros(null); });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, deferred]);
 
   if (loading) {
     return (
@@ -227,6 +283,12 @@ export default function CandidateDetailPage() {
           </button>
         )}
 
+        {/* Relatório estratégico por IA — gerado sob demanda (economiza cota) */}
+        <AiReportSection candidateId={id} />
+
+        {/* Confronto estratégico com adversário (Maré IA) */}
+        <CompareSection candidateId={id} candidateName={c.urn_name} />
+
         {/* Trajetória eleitoral — só aparece se a pessoa tem 2+ candidaturas */}
         {trajectory && trajectory.items.length > 1 && (
           <TrajectorySection trajectory={trajectory} currentId={id} />
@@ -238,6 +300,16 @@ export default function CandidateDetailPage() {
             opportunities.strongholds.length > 0) && (
             <OpportunityRadar data={opportunities} />
           )}
+
+        {/* Caminho da vitória — quantos votos faltam pra vencer */}
+        {path && path.scope !== "proporcional" && (
+          <PathToVictorySection data={path} />
+        )}
+
+        {/* Perfil do território — de que tipo de eleitorado vem o voto */}
+        {profile && profile.municipalities_covered > 0 && (
+          <ElectorateProfileSection data={profile} />
+        )}
 
         {/* Votos por municipio */}
         <div className="mt-5">
@@ -361,6 +433,534 @@ export default function CandidateDetailPage() {
 
       {showMap && (
         <CandidateMapModal results={data} onClose={() => setShowMap(false)} />
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------ relatório estratégico (IA)
+
+function ScoreRing({ score }: { score: number }) {
+  // Cor por faixa de viabilidade
+  const color =
+    score >= 70 ? "text-emerald-500" : score >= 40 ? "text-amber-500" : "text-rose-500";
+  const r = 26;
+  const circ = 2 * Math.PI * r;
+  const dash = (Math.min(100, Math.max(0, score)) / 100) * circ;
+  return (
+    <div className="relative w-[68px] h-[68px] shrink-0">
+      <svg viewBox="0 0 68 68" className="w-full h-full -rotate-90">
+        <circle cx="34" cy="34" r={r} fill="none" strokeWidth="6" className="stroke-muted" />
+        <circle
+          cx="34"
+          cy="34"
+          r={r}
+          fill="none"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circ}`}
+          className={`${color} transition-all duration-700`}
+          stroke="currentColor"
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className={`text-lg font-bold tabular-nums ${color}`}>{score}</span>
+      </div>
+    </div>
+  );
+}
+
+function AiBlock({
+  title,
+  items,
+  icon,
+  accent,
+}: {
+  title: string;
+  items: string[];
+  icon: ReactNode;
+  accent: string;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <p className={`px-3 py-2 text-xs font-semibold border-b border-border flex items-center gap-1.5 ${accent}`}>
+        {icon} {title}
+      </p>
+      <ul className="divide-y divide-border">
+        {items.map((it, i) => (
+          <li key={i} className="px-3 py-2 text-sm flex gap-2">
+            <span className="text-muted-foreground shrink-0">•</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AiReportSection({ candidateId }: { candidateId: string }) {
+  const [report, setReport] = useState<TseAiReport | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function generate() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const d = await api<TseAiReport>(`/v1/tse/candidates/${candidateId}/ai-report`);
+      setReport(d);
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message ? e.message : "Não foi possível gerar o relatório.";
+      toast.error(msg.replace(/^http \d+:?\s*/i, "") || "Não foi possível gerar o relatório.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!report) {
+    return (
+      <div className="mt-5" data-html2canvas-ignore>
+        <button
+          onClick={generate}
+          disabled={loading}
+          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg border border-primary/40 bg-gradient-to-r from-primary/10 to-amber-500/10 hover:border-primary/70 transition-colors disabled:opacity-70 font-medium"
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Maré IA analisando os dados…
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 text-primary" /> Consultar a Maré IA
+            </>
+          )}
+        </button>
+        <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
+          <span className="font-semibold text-foreground">Maré IA</span> · especialista em vantagem
+          eleitoral. Análise sobre os dados reais de votação: diagnóstico, score de viabilidade,
+          narrativas e ações prioritárias.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 mn-fade-in">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+        <Sparkles className="w-3.5 h-3.5 text-primary" /> Maré IA · Especialista em Vantagem Eleitoral
+      </p>
+
+      {/* Diagnóstico + score */}
+      <div className="rounded-lg border bg-card p-4 flex items-center gap-4 mb-3">
+        <ScoreRing score={report.score_viabilidade} />
+        <div className="min-w-0">
+          <p className="text-sm">{report.diagnostico}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            <span className="font-semibold">Viabilidade {report.score_viabilidade}/100</span> ·{" "}
+            {report.score_justificativa}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <AiBlock
+          title="Pontos fortes"
+          items={report.pontos_fortes}
+          icon={<TrendingUp className="w-3.5 h-3.5" />}
+          accent="bg-primary/10 text-primary"
+        />
+        <AiBlock
+          title="Onde crescer"
+          items={report.onde_crescer}
+          icon={<TrendingUp className="w-3.5 h-3.5" />}
+          accent="bg-emerald-500/10 text-emerald-700"
+        />
+        <AiBlock
+          title="Narrativas de campanha"
+          items={report.narrativas}
+          icon={<Sparkles className="w-3.5 h-3.5" />}
+          accent="bg-amber-500/10 text-amber-700"
+        />
+        <AiBlock
+          title="Ações prioritárias"
+          items={report.acoes_prioritarias}
+          icon={<TrendingUp className="w-3.5 h-3.5" />}
+          accent="bg-sky-500/10 text-sky-700"
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        Gerado pela <span className="font-semibold text-foreground">Maré IA</span> a partir dos
+        dados reais do TSE. Use como apoio à decisão — valide com sua equipe.
+      </p>
+    </div>
+  );
+}
+
+// ------------------------------------------ confronto estratégico (Maré IA)
+
+function CompareSection({
+  candidateId,
+  candidateName,
+}: {
+  candidateId: string;
+  candidateName: string;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<TseCandidate[]>([]);
+  const [adversary, setAdversary] = useState<TseCandidate | null>(null);
+  const [report, setReport] = useState<TseAiCompare | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 3) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api<Page<TseCandidate>>(`/v1/tse/candidates?search=${encodeURIComponent(term)}&limit=8`)
+        .then((r) => {
+          if (!cancelled) setResults(r.items.filter((c) => c.id !== candidateId));
+        })
+        .catch(() => {
+          if (!cancelled) setResults([]);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [q, candidateId]);
+
+  async function generate(adv: TseCandidate) {
+    setAdversary(adv);
+    setResults([]);
+    setQ("");
+    setReport(null);
+    setLoading(true);
+    try {
+      const d = await api<TseAiCompare>(
+        `/v1/tse/candidates/${candidateId}/ai-compare/${adv.id}`,
+      );
+      setReport(d);
+    } catch (e) {
+      const msg = e instanceof Error && e.message ? e.message : "Não foi possível gerar o confronto.";
+      toast.error(msg.replace(/^http \d+:?\s*/i, "") || "Não foi possível gerar o confronto.");
+      setAdversary(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-5" data-html2canvas-ignore>
+      {!open && !report ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg border border-rose-500/40 bg-gradient-to-r from-rose-500/10 to-primary/10 hover:border-rose-500/70 transition-colors font-medium"
+        >
+          <Swords className="w-4 h-4 text-rose-500" /> Confronto com adversário (Maré IA)
+        </button>
+      ) : (
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Swords className="w-3.5 h-3.5 text-rose-500" /> Confronto estratégico · {candidateName} ×{" "}
+            {adversary ? adversary.urn_name : "?"}
+          </p>
+
+          {!report && (
+            <div className="relative">
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Buscar adversário pelo nome…"
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:border-primary/60 outline-none"
+              />
+              {results.length > 0 && (
+                <ul className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-72 overflow-auto divide-y divide-border">
+                  {results.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => generate(c)}
+                        className="w-full text-left px-3 py-2 hover:bg-accent/40 transition-colors"
+                      >
+                        <p className="text-sm font-medium">{c.urn_name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {c.office_name} · {c.party.abbreviation} · {c.state} · {c.election.year}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {loading && (
+                <p className="mt-2 text-sm text-muted-foreground inline-flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Maré IA comparando os dois…
+                </p>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Compara votos, redutos e perfil dos dois candidatos e indica onde atacar e defender.
+              </p>
+            </div>
+          )}
+
+          {report && (
+            <div className="mn-fade-in">
+              <div className="rounded-lg border bg-background p-3 mb-3">
+                <p className="text-sm">{report.panorama}</p>
+                <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                  Quem lidera: {report.quem_lidera}
+                </p>
+                {report.confronto && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {report.confronto.municipios_disputados.toLocaleString("pt-BR")} municípios
+                    disputados em comum
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <AiBlock
+                  title="Suas vantagens"
+                  items={report.minhas_vantagens}
+                  icon={<TrendingUp className="w-3.5 h-3.5" />}
+                  accent="bg-primary/10 text-primary"
+                />
+                <AiBlock
+                  title="Forças do adversário"
+                  items={report.vantagens_adversario}
+                  icon={<Shield className="w-3.5 h-3.5" />}
+                  accent="bg-muted text-muted-foreground"
+                />
+                <AiBlock
+                  title="Onde atacar"
+                  items={report.onde_atacar}
+                  icon={<Swords className="w-3.5 h-3.5" />}
+                  accent="bg-rose-500/10 text-rose-700"
+                />
+                <AiBlock
+                  title="Onde defender"
+                  items={report.onde_defender}
+                  icon={<Shield className="w-3.5 h-3.5" />}
+                  accent="bg-sky-500/10 text-sky-700"
+                />
+              </div>
+              <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 mt-3">
+                <p className="text-xs font-semibold text-primary mb-0.5">Recomendação final</p>
+                <p className="text-sm">{report.recomendacao_final}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setReport(null);
+                  setAdversary(null);
+                }}
+                className="mt-2 text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Comparar com outro adversário
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------ perfil do território (eleitorado)
+
+function ProfileBars({
+  title,
+  cand,
+  base,
+  order,
+}: {
+  title: string;
+  cand: Record<string, number>;
+  base: Record<string, number>;
+  order: string[];
+}) {
+  const keys = order.filter((k) => k in cand || k in base);
+  const maxV = Math.max(1, ...keys.map((k) => Math.max(cand[k] ?? 0, base[k] ?? 0)));
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <p className="text-xs font-semibold mb-2">{title}</p>
+      <ul className="space-y-2">
+        {keys.map((k) => {
+          const cv = cand[k] ?? 0;
+          const bv = base[k] ?? 0;
+          const delta = Math.round((cv - bv) * 10) / 10;
+          return (
+            <li key={k} className="text-xs">
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <span className="truncate">{k}</span>
+                <span className="tabular-nums shrink-0">
+                  <span className="font-semibold text-primary">{cv.toFixed(1)}%</span>
+                  {Math.abs(delta) >= 0.1 && (
+                    <span
+                      className={`ml-1.5 ${delta > 0 ? "text-emerald-600" : "text-muted-foreground"}`}
+                    >
+                      {delta > 0 ? "+" : "−"}
+                      {Math.abs(delta).toFixed(1)}
+                    </span>
+                  )}
+                </span>
+              </div>
+              {/* barra do candidato + marcador da média estadual */}
+              <div className="relative h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full"
+                  style={{ width: `${(cv / maxV) * 100}%` }}
+                />
+                <div
+                  className="absolute top-0 h-full w-0.5 bg-foreground/50"
+                  style={{ left: `${(bv / maxV) * 100}%` }}
+                  title={`Média ${title.toLowerCase()} no estado: ${bv.toFixed(1)}%`}
+                />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function ElectorateProfileSection({ data }: { data: TseElectorateProfile }) {
+  const AGE_ORDER = ["16-17", "18-24", "25-34", "35-44", "45-59", "60-69", "70+"];
+  const EDU_ORDER = ["Analfabeto", "Lê e escreve", "Fundamental", "Médio", "Superior"];
+  const GENDER_ORDER = ["Feminino", "Masculino"];
+  return (
+    <div className="mt-5 mn-fade-in">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+        Perfil do território · de onde vem o seu voto
+      </p>
+
+      {data.highlights.length > 0 && (
+        <div className="rounded-lg border bg-card p-3 mb-3">
+          <p className="text-xs font-semibold mb-1.5">
+            Destaques frente à média de {data.state}
+          </p>
+          <ul className="flex flex-wrap gap-1.5">
+            {data.highlights.map((h, i) => (
+              <li
+                key={i}
+                className="text-[11px] px-2 py-1 rounded-full bg-primary/10 text-primary"
+              >
+                {h}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <ProfileBars
+          title="Faixa etária"
+          cand={data.by_age}
+          base={data.baseline_by_age}
+          order={AGE_ORDER}
+        />
+        <ProfileBars
+          title="Escolaridade"
+          cand={data.by_education}
+          base={data.baseline_by_education}
+          order={EDU_ORDER}
+        />
+        <ProfileBars
+          title="Gênero"
+          cand={data.by_gender}
+          base={data.baseline_by_gender}
+          order={GENDER_ORDER}
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5">
+        Perfil do eleitorado (TSE) dos municípios onde você teve votos, ponderado pela sua votação.
+        A barra é o seu território; o traço marca a média de {data.state}. Cobertura:{" "}
+        {data.municipalities_covered} de {data.municipalities_with_votes} municípios.
+      </p>
+    </div>
+  );
+}
+
+// ------------------------------------------------ caminho da vitória
+
+function PathToVictorySection({ data }: { data: TsePathToVictory }) {
+  const scopeLabel =
+    data.scope === "nacional" ? "no Brasil" : data.scope === "estadual" ? "no estado" : "na cidade";
+  return (
+    <div className="mt-5 mn-fade-in">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+        <Target className="w-3.5 h-3.5 text-primary" /> Caminho da vitória
+      </p>
+
+      {data.is_winner ? (
+        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4 flex items-center gap-3">
+          <Trophy className="w-8 h-8 text-emerald-500 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-700">
+              Venceu a disputa {scopeLabel} 🎉
+            </p>
+            {data.margin != null && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Margem de {numberFmt.format(data.margin)} votos sobre o 2º colocado.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="rounded-lg border bg-card p-3 text-center">
+              <p className="text-lg font-bold text-primary">{numberFmt.format(data.candidate_votes)}</p>
+              <p className="text-[11px] text-muted-foreground">Seus votos</p>
+            </div>
+            <div className="rounded-lg border bg-card p-3 text-center">
+              <p className="text-lg font-bold text-rose-600">+{numberFmt.format(data.gap)}</p>
+              <p className="text-[11px] text-muted-foreground">Faltam pra vencer</p>
+            </div>
+            <div className="rounded-lg border bg-card p-3 text-center">
+              <p className="text-lg font-bold tabular-nums">{numberFmt.format(data.winner_votes)}</p>
+              <p className="text-[11px] text-muted-foreground truncate" title={data.winner_name ?? ""}>
+                {data.winner_name ? `${data.winner_name} (1º)` : "Vencedor"}
+              </p>
+            </div>
+          </div>
+
+          {data.targets.length > 0 && (
+            <div className="rounded-lg border bg-card overflow-hidden">
+              <p className="px-3 py-2 text-xs font-semibold bg-primary/10 text-primary border-b border-border">
+                Onde buscar os {numberFmt.format(data.gap)} votos (maior folga de eleitorado)
+              </p>
+              <ul className="divide-y divide-border">
+                {data.targets.map((t) => (
+                  <li key={t.municipality_id} className="px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">
+                        {t.name}<span className="text-muted-foreground">/{t.state}</span>
+                      </span>
+                      {t.suggested > 0 && (
+                        <span className="text-xs text-primary font-semibold shrink-0">
+                          buscar ~{numberFmt.format(t.suggested)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {numberFmt.format(t.available)} eleitores disponíveis · você tem{" "}
+                      {t.penetration_pct.toFixed(1).replace(".", ",")}%
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Meta = votos do 1º colocado + 1. A distribuição é proporcional à folga de eleitorado
+            (eleitorado − seus votos) por município. Use como referência de esforço.
+          </p>
+        </>
       )}
     </div>
   );

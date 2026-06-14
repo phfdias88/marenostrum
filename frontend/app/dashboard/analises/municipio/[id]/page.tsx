@@ -218,7 +218,7 @@ export default function MunicipioDetailPage() {
             label="Votos nominais (cargo)"
             value={loading ? null : totalVotes}
             accent="text-primary"
-            hint={["11", "1", "3"].includes(office) ? "soma 1º + 2º turno (quando houve)" : undefined}
+            hint={["11", "1", "3"].includes(office) ? "votação de 1º turno" : undefined}
           />
           <Stat label="Candidatos com votos" value={loading ? null : data?.total_results ?? 0} />
         </div>

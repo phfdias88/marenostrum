@@ -10,6 +10,7 @@
 import {
   BarChart3,
   ClipboardList,
+  Layers,
   LayoutDashboard,
   LineChart,
   MapPinned,
@@ -34,8 +35,18 @@ const TABS: Tab[] = [
   { href: "/dashboard/map", label: "Mapa", icon: MapPinned },
 ];
 
-export function BottomNav({ hidden = false }: { hidden?: boolean }) {
+// Módulo Censo (IBGE) — só entra na barra se o owner liberou pro usuário.
+const CENSO_TAB: Tab = { href: "/dashboard/censo", label: "Censo", icon: Layers };
+
+export function BottomNav({
+  hidden = false,
+  censusEnabled = false,
+}: {
+  hidden?: boolean;
+  censusEnabled?: boolean;
+}) {
   const pathname = usePathname();
+  const tabs = censusEnabled ? [...TABS, CENSO_TAB] : TABS;
 
   return (
     <nav
@@ -47,8 +58,8 @@ export function BottomNav({ hidden = false }: { hidden?: boolean }) {
       }
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.25rem)" }}
     >
-      <ul className="grid grid-cols-5">
-        {TABS.map(({ href, label, icon: Icon }) => {
+      <ul className={tabs.length === 6 ? "grid grid-cols-6" : "grid grid-cols-5"}>
+        {tabs.map(({ href, label, icon: Icon }) => {
           const active =
             pathname === href ||
             (href !== "/dashboard" && pathname.startsWith(href));

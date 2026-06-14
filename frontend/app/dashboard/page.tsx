@@ -8,12 +8,15 @@
  */
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
+  Circle,
   ClipboardList,
   Clock,
   Loader2,
   MapPinned,
   Plus,
+  Rocket,
   TrendingUp,
   Upload,
   Users,
@@ -185,6 +188,52 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Primeiros passos — só aparece enquanto o CRM está começando
+          (sem contatos OU sem demandas). Explica os zeros dos cards e
+          converte melhor que um painel vazio. */}
+      {stats && (stats.contacts === 0 ||
+        stats.demandsOpen + stats.demandsInProgress + stats.demandsResolved === 0) && (
+        <section className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] to-transparent p-5 sm:p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="grid place-items-center w-10 h-10 rounded-xl bg-primary/15 text-primary">
+              <Rocket className="w-5 h-5" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Primeiros passos</h2>
+              <p className="text-sm text-muted-foreground">
+                Em 3 passos sua campanha está rodando no MareNostrum.
+              </p>
+            </div>
+          </div>
+          <ol className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <OnboardingStep
+              n={1}
+              done={stats.contacts > 0}
+              title="Traga seus contatos"
+              description="Importe a planilha de apoiadores (CSV) ou cadastre o primeiro eleitor."
+              href="/dashboard/contacts"
+              icon={Users}
+            />
+            <OnboardingStep
+              n={2}
+              done={stats.demandsOpen + stats.demandsInProgress + stats.demandsResolved > 0}
+              title="Registre uma demanda"
+              description="Pedidos de eleitores viram demandas com prazo, status e responsável."
+              href="/dashboard/demandas"
+              icon={ClipboardList}
+            />
+            <OnboardingStep
+              n={3}
+              done={false}
+              title="Explore as análises"
+              description="Votação por bairro, comparações e projeções com dados oficiais do TSE."
+              href="/dashboard/analises"
+              icon={BarChart3}
+            />
+          </ol>
+        </section>
+      )}
+
       {/* Ações rápidas */}
       <section>
         <div className="flex items-end justify-between mb-3">
@@ -351,6 +400,55 @@ function KpiCard({
     </Link>
   ) : (
     content
+  );
+}
+
+function OnboardingStep({
+  n,
+  done,
+  title,
+  description,
+  href,
+  icon: Icon,
+}: {
+  n: number;
+  done: boolean;
+  title: string;
+  description: string;
+  href: string;
+  icon: LucideIcon;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className={cn(
+          "group flex flex-col h-full rounded-xl border p-4 transition-all",
+          done
+            ? "border-emerald-500/30 bg-emerald-500/[0.06]"
+            : "border-border bg-card hover:border-primary hover:shadow-sm",
+        )}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          {done ? (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          ) : (
+            <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
+          )}
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Passo {n}
+          </span>
+          <Icon className="w-4 h-4 text-primary ml-auto shrink-0" />
+        </div>
+        <p className={cn("font-medium", done && "line-through opacity-70")}>{title}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{description}</p>
+        {!done && (
+          <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary font-medium">
+            Começar <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </span>
+        )}
+      </Link>
+    </li>
   );
 }
 

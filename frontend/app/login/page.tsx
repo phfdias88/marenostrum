@@ -62,17 +62,21 @@ function LoginForm() {
       <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
-        {/* Marca — logo horizontal oficial.
-            No tema claro o logo (gold + branco) ficava invisivel no fundo
-            creme. Container charcoal escuro com padding garante contraste
-            consistente nos 2 temas. */}
+        {/* Marca — logo horizontal oficial, variante por tema (texto branco
+            no dark, grafite no light; o M dourado é o mesmo). */}
         <div className="flex flex-col items-center mb-6 sm:mb-8">
-          <div className="bg-[hsl(36,7%,12%)] rounded-2xl px-6 py-4 shadow-lg shadow-black/20 border border-primary/30">
+          <div className="dark:bg-[hsl(36,7%,12%)] rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-wordmark.png"
               alt="MareNostrum — Inteligência de dados & consultoria"
-              className="w-44 sm:w-56 max-w-full h-auto object-contain"
+              className="w-44 sm:w-56 max-w-full h-auto object-contain hidden dark:block"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo-wordmark-light.png"
+              alt="MareNostrum — Inteligência de dados & consultoria"
+              className="w-44 sm:w-56 max-w-full h-auto object-contain dark:hidden"
             />
           </div>
         </div>
@@ -113,10 +117,6 @@ function LoginForm() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
-
-        <p className="text-center text-xs text-muted-foreground mt-4 sm:mt-5">
-          Dados eleitorais públicos · Fonte: TSE
-        </p>
       </div>
     </main>
   );

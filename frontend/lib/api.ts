@@ -95,8 +95,12 @@ async function _doFetch<T>(
   // - GET em /v1/tse/* (dados publicos historicos): "default" → respeita
   //   Cache-Control do backend (max-age + stale-while-revalidate).
   // - Resto (POST/PUT/DELETE ou GETs de tenant): "no-store" → sempre fresco.
-  const isTseRead = method === "GET" && path.startsWith("/v1/tse/");
-  const cacheMode: RequestCache = isTseRead ? "default" : "no-store";
+  // Dados públicos/estáticos (TSE histórico, Censo IBGE): respeitam o
+  // Cache-Control do backend → re-carregar fica instantâneo.
+  const isPublicRead =
+    method === "GET" &&
+    (path.startsWith("/v1/tse/") || path.startsWith("/v1/census/"));
+  const cacheMode: RequestCache = isPublicRead ? "default" : "no-store";
 
   // Remove chaves nao-padrao do RequestInit antes de passar ao fetch.
   const { skipCache: _sk, body: _b, ...rest } = opts;

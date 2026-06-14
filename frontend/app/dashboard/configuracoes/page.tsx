@@ -13,6 +13,7 @@ import {
   Check,
   Copy,
   KeyRound,
+  Layers,
   Loader2,
   Plus,
   Power,
@@ -36,6 +37,7 @@ type TeamUser = {
   full_name: string;
   role: string;
   is_active: boolean;
+  census_enabled?: boolean;
   created_at: string;
 };
 
@@ -455,6 +457,23 @@ function UserRow({
     }
   }
 
+  async function toggleCensus() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api<null>(`/v1/auth/users/${user.id}/census`, {
+        method: "POST",
+        body: { enabled: !user.census_enabled },
+      });
+      toast.success(user.census_enabled ? "Censo bloqueado." : "Censo liberado.");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Erro.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="px-4 py-3 flex items-center gap-3">
       <div className="flex-1 min-w-0">
@@ -470,6 +489,23 @@ function UserRow({
           {user.email} · {ROLE_LABELS[user.role] ?? user.role}
         </p>
       </div>
+
+      {/* Liberação do módulo Censo (IBGE) — vale pra qualquer membro, inclusive o owner */}
+      <button
+        onClick={toggleCensus}
+        disabled={busy}
+        title={user.census_enabled ? "Censo liberado — clique para bloquear" : "Liberar o módulo Censo para este usuário"}
+        className={
+          "shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-50 " +
+          (user.census_enabled
+            ? "border-primary bg-primary/15 text-primary font-semibold"
+            : "border-border text-muted-foreground hover:border-primary/50")
+        }
+      >
+        <Layers className="w-3.5 h-3.5" />
+        Censo {user.census_enabled ? "✓" : ""}
+      </button>
+
       {user.role !== "owner" && (
         <div className="flex items-center gap-1">
           <button

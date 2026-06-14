@@ -8,7 +8,7 @@
  * - dropdown com resultados; clique navega pra página dedicada
  * - Esc fecha, clique fora fecha
  */
-import { ArrowLeft, Building2, Loader2, MapPin, Search, User, X } from "lucide-react";
+import { ArrowLeft, Building2, Layers, Loader2, MapPin, Search, User, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -17,6 +17,10 @@ import type { Page, TseCandidate, TseMunicipality, TseParty } from "@/lib/types"
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { StateFlag } from "@/components/tse/StateFlag";
+
+// Bairro/distrito do módulo Censo — backend devolve [] se o usuário
+// não tem o módulo liberado, então a seção simplesmente não aparece.
+type CensusArea = { cd_mun: string; nm_mun: string; nome: string; kind: string; uf: string };
 
 function useDebounce<T>(v: T, ms: number): T {
   const [d, setD] = useState(v);
@@ -35,6 +39,7 @@ export function GlobalSearch() {
   const [loading, setLoading] = useState(false);
   const [cands, setCands] = useState<TseCandidate[]>([]);
   const [munis, setMunis] = useState<TseMunicipality[]>([]);
+  const [areas, setAreas] = useState<CensusArea[]>([]);
   const [allParties, setAllParties] = useState<TseParty[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -115,6 +120,7 @@ export function GlobalSearch() {
     if (term.length < 2) {
       setCands([]);
       setMunis([]);
+      setAreas([]);
       setLoading(false);
       return;
     }
@@ -123,10 +129,12 @@ export function GlobalSearch() {
     Promise.allSettled([
       api<Page<TseCandidate>>(`/v1/tse/candidates?search=${enc}&limit=6`),
       api<Page<TseMunicipality>>(`/v1/tse/municipalities?search=${enc}&limit=5`),
+      api<CensusArea[]>(`/v1/census/search-areas?q=${enc}`),
     ])
-      .then(([c, m]) => {
+      .then(([c, m, a]) => {
         setCands(c.status === "fulfilled" ? c.value.items : []);
         setMunis(m.status === "fulfilled" ? m.value.items : []);
+        setAreas(a.status === "fulfilled" ? a.value : []);
       })
       .finally(() => setLoading(false));
   }, [debounced]);
@@ -134,10 +142,20 @@ export function GlobalSearch() {
   function go(href: string) {
     setOpen(false);
     setQ("");
+    // Censo: a página lê ?mun=&area= só na montagem — se já estamos nela,
+    // o router.push não remonta; navegação completa resolve (dados em cache).
+    if (
+      href.startsWith("/dashboard/censo?") &&
+      window.location.pathname === "/dashboard/censo"
+    ) {
+      window.location.href = href;
+      return;
+    }
     router.push(href);
   }
 
-  const hasResults = cands.length > 0 || munis.length > 0 || parties.length > 0;
+  const hasResults =
+    cands.length > 0 || munis.length > 0 || parties.length > 0 || areas.length > 0;
 
   // Renderizado em 2 modos:
   // - Desktop (md+): input inline + dropdown absoluto abaixo
@@ -170,12 +188,7 @@ export function GlobalSearch() {
         >
           <X className="w-4 h-4" />
         </button>
-      ) : (
-        // Hint do atalho — some quando o usuario comeca a digitar
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden md:inline-flex items-center gap-0.5 rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground pointer-events-none">
-          ⌘K
-        </kbd>
-      )}
+      ) : null}
 
       {/* === MOBILE FULL-SCREEN OVERLAY === */}
       {open && (
@@ -233,6 +246,7 @@ export function GlobalSearch() {
                 cands={cands}
                 parties={parties}
                 munis={munis}
+                areas={areas}
                 onGo={go}
                 router={router}
                 mobile
@@ -259,6 +273,7 @@ export function GlobalSearch() {
                 cands={cands}
                 parties={parties}
                 munis={munis}
+                areas={areas}
                 onGo={go}
                 router={router}
               />
@@ -276,6 +291,7 @@ function ResultList({
   cands,
   parties,
   munis,
+  areas,
   onGo,
   router,
   mobile = false,
@@ -283,6 +299,7 @@ function ResultList({
   cands: TseCandidate[];
   parties: TseParty[];
   munis: TseMunicipality[];
+  areas: CensusArea[];
   onGo: (href: string) => void;
   router: ReturnType<typeof useRouter>;
   mobile?: boolean;
@@ -357,6 +374,33 @@ function ResultList({
               <span className="text-primary font-mono text-xs shrink-0">
                 {p.number}
               </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {areas.length > 0 && (
+        <div>
+          <p className={sectCls}>
+            <Layers className={mobile ? "w-3.5 h-3.5" : "w-3 h-3"} /> Bairros · Censo
+          </p>
+          {areas.map((a) => (
+            <button
+              key={`${a.cd_mun}:${a.nome}`}
+              onClick={() =>
+                onGo(`/dashboard/censo?mun=${a.cd_mun}&area=${encodeURIComponent(a.nome)}`)
+              }
+              onMouseEnter={() => router.prefetch("/dashboard/censo")}
+              className={itemCls}
+            >
+              <span className="grid place-items-center w-8 h-8 rounded-md bg-primary/15 text-primary shrink-0">
+                <Layers className="w-4 h-4" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className={titleCls}>{a.nome}</p>
+                <p className={subCls}>
+                  {a.kind} · {a.nm_mun} · {a.uf}
+                </p>
+              </div>
             </button>
           ))}
         </div>

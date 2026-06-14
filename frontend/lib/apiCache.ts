@@ -24,6 +24,8 @@ const inflight = new Map<string, Promise<unknown>>();
 export function ttlFor(path: string): number {
   // Dados TSE históricos não mudam — cache agressivo de 5 min em memória.
   if (path.startsWith("/v1/tse/")) return 5 * 60 * 1000;
+  // Censo IBGE é estático — voltar pro mesmo município não re-baixa nada.
+  if (path.startsWith("/v1/census/")) return 10 * 60 * 1000;
   // Dados do tenant (contatos, demandas, monitorados): 30s — fresco o
   // suficiente, mas back-nav imediato dentro da janela.
   return 30 * 1000;
