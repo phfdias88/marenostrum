@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.controllers.auth import router as auth_router
+from app.controllers.census import router as census_router
 from app.controllers.contact import router as contact_router
 from app.controllers.agenda_event import router as agenda_router
 from app.controllers.demand import router as demand_router
@@ -20,4 +21,5 @@ api_router.include_router(tse_router)
 api_router.include_router(monitored_router)
 api_router.include_router(template_router)
 api_router.include_router(agenda_router)
+api_router.include_router(census_router)
 api_router.include_router(webhook_router)

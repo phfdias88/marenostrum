@@ -30,3 +30,10 @@ slowapi==0.1.9
 # Brotli e 20-25% menor que gzip pra payloads JSON. Aceita "br" no
 # Accept-Encoding. Browser cai pra gzip se nao suportar.
 brotli-asgi==1.4.0
+
+# IBGE shapefile reader (POC dados censitários) — pure-Python, sem GDAL.
+pyshp==2.3.1
+
+# Serializacao JSON em Rust — 5-10x mais rapido que json.dumps pra payloads
+# grandes (GeoJSON do censo, rankings TSE). Usado como default_response_class.
+orjson==3.10.12

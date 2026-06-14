@@ -4,11 +4,12 @@ Controller TSE — sync + leitura de dados públicos eleitorais.
 Endpoints autenticados (qualquer usuário com JWT vê os mesmos dados —
 não há filtro de tenant porque dados TSE são públicos).
 """
+import unicodedata
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.utils.agg_cache import agg_get, agg_set
@@ -45,10 +46,15 @@ from app.schemas.tse import (
     MunicipalityRead,
     MunicipalityResultsResponse,
     MunicipalityTimelineResponse,
+    AiCompareReport,
+    AiReport,
+    ElectorateProfileResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
     OpportunityMunicipality,
     OpportunityResponse,
+    PathTarget,
+    PathToVictoryResponse,
     TimelineItem,
     TimelineWinner,
     TrajectoryItem,
@@ -351,6 +357,7 @@ def list_candidates(
                 select(Election.id).where(Election.year == year)
             )
         )
+    search_order = None
     if search:
         # Busca acento-insensivel por PALAVRA, hibrida:
         #
@@ -380,6 +387,34 @@ def list_candidates(
                 | func.f_unaccent(Candidate.urn_name).op("~*")(func.f_unaccent(pattern))
             )
         )
+        # RELEVÂNCIA: nome de urna exato > prefixo > palavra na urna > só no
+        # nome civil. Desempata por cargo (presidente>...>vereador) e eleito,
+        # pra que o candidato "famoso" daquele sobrenome apareça no topo —
+        # senão a ordenação alfabética enterrava (ex: MARCELO CRIVELLA atrás
+        # de ADRIANA CRIVELLA).
+        _urn_n = func.lower(func.f_unaccent(Candidate.urn_name))
+        _raw_n = func.f_unaccent(raw)
+        _relevance = case(
+            (_urn_n == _raw_n, 0),
+            (_urn_n.like(func.concat(_raw_n, "%")), 1),
+            (func.f_unaccent(Candidate.urn_name).op("~*")(func.f_unaccent(pattern)), 2),
+            else_=3,
+        )
+        _office_rank = case(
+            (Candidate.office_code == 1, 0),
+            (Candidate.office_code == 3, 1),
+            (Candidate.office_code == 5, 2),
+            (Candidate.office_code == 11, 3),
+            (Candidate.office_code == 6, 4),
+            (Candidate.office_code == 7, 5),
+            (Candidate.office_code == 8, 6),
+            (Candidate.office_code == 13, 7),
+            else_=8,
+        )
+        _elected_rank = case(
+            (Candidate.result_status.like("ELEITO%"), 0), else_=1
+        )
+        search_order = [_relevance, _elected_rank, _office_rank, Candidate.urn_name]
 
     if party_number is not None:
         party_id_subq = select(Party.id).where(Party.number == party_number)
@@ -405,9 +440,10 @@ def list_candidates(
     capped_subq = stmt.with_only_columns(Candidate.id).limit(COUNT_CAP + 1).subquery()
     total = int(db.execute(select(func.count()).select_from(capped_subq)).scalar_one())
 
-    # Paginação
+    # Paginação — com busca, ordena por relevância; senão, alfabético.
+    order_cols = search_order if search_order is not None else [Candidate.urn_name]
     rows = db.execute(
-        stmt.order_by(Candidate.urn_name).limit(limit).offset(offset)
+        stmt.order_by(*order_cols).limit(limit).offset(offset)
     ).scalars().all()
 
     # Hidrata party + election em batch (evita N+1)
@@ -546,6 +582,384 @@ def candidate_opportunities(
         avg_penetration_pct=round(avg_pen, 2),
         strongholds=strongholds,
         opportunities=opportunities,
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/path-to-victory",
+    response_model=PathToVictoryResponse,
+    summary="Caminho da vitória (quantos votos faltam e onde buscá-los)",
+    description=(
+        "Para cargos majoritários (presidente/governador/prefeito): compara o "
+        "candidato com o vencedor da disputa, calcula o déficit de votos e "
+        "distribui essa meta pelos municípios com maior folga de eleitorado. "
+        "Para proporcionais, aponta a Projeção de Votos."
+    ),
+)
+def candidate_path_to_victory(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> PathToVictoryResponse:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato não encontrado")
+    election = db.get(Election, candidate.election_id)
+    office = candidate.office_code
+
+    cand_votes = int(
+        db.execute(
+            select(func.coalesce(func.sum(VoteResult.votes), 0)).where(
+                VoteResult.candidate_id == candidate_id
+            )
+        ).scalar()
+        or 0
+    )
+    is_elected = str(candidate.result_status or "").upper().startswith("ELEITO")
+
+    # Cargos proporcionais: a "vitória" depende de quociente/coligação.
+    if office not in (1, 3, 11):
+        return PathToVictoryResponse(
+            candidate_id=candidate.id,
+            office_name=candidate.office_name,
+            scope="proporcional",
+            candidate_votes=cand_votes,
+            is_winner=is_elected,
+            note=(
+                "Cargo proporcional: a eleição depende do quociente eleitoral e "
+                "das coligações. Use a Projeção de Votos para simular cadeiras."
+            ),
+        )
+
+    year = election.year if election else None
+    scope = {1: "nacional", 3: "estadual", 11: "municipal"}[office]
+
+    # Município do candidato (prefeito roda em 1 cidade).
+    muni_id = None
+    if office == 11:
+        muni_id = db.execute(
+            select(VoteResult.municipality_id)
+            .where(VoteResult.candidate_id == candidate_id)
+            .order_by(VoteResult.votes.desc())
+            .limit(1)
+        ).scalar()
+
+    # Ranking da disputa (mesmo ano+cargo+escopo), por votação de 1º turno.
+    rk = (
+        select(
+            VoteResult.candidate_id,
+            Candidate.urn_name,
+            func.sum(VoteResult.votes).label("v"),
+        )
+        .join(Candidate, Candidate.id == VoteResult.candidate_id)
+        .join(Election, Election.id == Candidate.election_id)
+        .where(Candidate.office_code == office, Election.year == year)
+    )
+    if office == 3:
+        rk = rk.where(Candidate.state == candidate.state)
+    if office == 11 and muni_id is not None:
+        rk = rk.where(VoteResult.municipality_id == muni_id)
+    rk = (
+        rk.group_by(VoteResult.candidate_id, Candidate.urn_name)
+        .order_by(func.sum(VoteResult.votes).desc())
+        .limit(3)
+    )
+    top = db.execute(rk).all()  # [(cid, urn, votes), ...]
+
+    winner_name = top[0].urn_name if top else None
+    winner_votes = int(top[0].v) if top else 0
+    is_winner = bool(top and top[0].candidate_id == candidate_id)
+    gap = 0 if is_winner else max(0, winner_votes - cand_votes + 1)
+    margin = None
+    if is_winner and len(top) > 1:
+        margin = int(top[0].v) - int(top[1].v)
+
+    # Folga de eleitorado por município (onde buscar os votos que faltam).
+    latest_elect = (
+        select(
+            MunicipalityElectorate.municipality_id.label("mid"),
+            func.max(MunicipalityElectorate.year).label("y"),
+        )
+        .group_by(MunicipalityElectorate.municipality_id)
+        .subquery()
+    )
+    folga_rows = db.execute(
+        select(
+            Municipality.id,
+            Municipality.name,
+            Municipality.state,
+            VoteResult.votes,
+            MunicipalityElectorate.total,
+        )
+        .join(VoteResult, VoteResult.municipality_id == Municipality.id)
+        .join(latest_elect, latest_elect.c.mid == Municipality.id)
+        .join(
+            MunicipalityElectorate,
+            (MunicipalityElectorate.municipality_id == Municipality.id)
+            & (MunicipalityElectorate.year == latest_elect.c.y),
+        )
+        .where(VoteResult.candidate_id == candidate_id)
+    ).all()
+
+    pool = []
+    available_total = 0
+    for mid, name, state, votes, elect in folga_rows:
+        votes = int(votes or 0)
+        elect = int(elect or 0)
+        avail = max(0, elect - votes)
+        available_total += avail
+        pen = (votes / elect * 100) if elect > 0 else 0.0
+        pool.append((mid, name, state, votes, elect, avail, pen))
+
+    pool.sort(key=lambda r: r[5], reverse=True)
+    top_pool = pool[:8]
+    sum_avail_top = sum(r[5] for r in top_pool) or 1
+    targets = []
+    for mid, name, state, votes, elect, avail, pen in top_pool:
+        suggested = min(avail, round(gap * avail / sum_avail_top)) if gap > 0 else 0
+        targets.append(
+            PathTarget(
+                municipality_id=mid,
+                name=name,
+                state=state,
+                available=avail,
+                suggested=suggested,
+                penetration_pct=round(pen, 1),
+            )
+        )
+
+    return PathToVictoryResponse(
+        candidate_id=candidate.id,
+        office_name=candidate.office_name,
+        scope=scope,
+        candidate_votes=cand_votes,
+        is_winner=is_winner,
+        winner_name=winner_name,
+        winner_votes=winner_votes,
+        gap=gap,
+        margin=margin,
+        available_electorate=available_total,
+        targets=targets,
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/ai-report",
+    response_model=AiReport,
+    summary="Relatório estratégico gerado por IA (Gemini)",
+    description=(
+        "Gera (ou retorna do cache) um relatório estratégico de campanha por IA "
+        "com base nos dados reais do TSE: diagnóstico, score de viabilidade, "
+        "pontos fortes, onde crescer, narrativas e ações prioritárias. "
+        "Cacheado por candidato — gera uma vez, serve sempre."
+    ),
+)
+@limiter.limit("20/hour")
+def candidate_ai_report(
+    request: Request,
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> AiReport:
+    from app.utils.ai_report import AiReportError, generate_report
+
+    try:
+        report = generate_report(db, candidate_id)
+    except AiReportError as e:
+        raise _ConflictError(str(e))
+    return AiReport(**report)
+
+
+@router.get(
+    "/candidates/{candidate_id}/ai-compare/{adversary_id}",
+    response_model=AiCompareReport,
+    summary="Confronto estratégico por IA (candidato × adversário)",
+    description=(
+        "Gera (ou retorna do cache) um relatório de CONFRONTO DIRETO entre o "
+        "candidato e um adversário, da perspectiva do candidato: panorama, "
+        "vantagens de cada lado, onde atacar/defender e recomendação. Inclui o "
+        "confronto município a município. Cacheado por par."
+    ),
+)
+@limiter.limit("20/hour")
+def candidate_ai_compare(
+    request: Request,
+    candidate_id: UUID,
+    adversary_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> AiCompareReport:
+    from app.utils.ai_report import AiReportError, generate_comparison
+
+    try:
+        report = generate_comparison(db, candidate_id, adversary_id)
+    except AiReportError as e:
+        raise _ConflictError(str(e))
+    return AiCompareReport(**report)
+
+
+def _pct_dict(counts: dict[str, float], total: float) -> dict[str, float]:
+    """Converte um dict de contagens em percentuais (1 casa decimal)."""
+    if total <= 0:
+        return {k: 0.0 for k in counts}
+    return {k: round(v / total * 100, 1) for k, v in counts.items()}
+
+
+# Rótulos amigáveis pros destaques
+_PROFILE_LABELS = {
+    "16-17": "eleitores de 16-17 anos",
+    "18-24": "jovens (18-24)",
+    "25-34": "adultos jovens (25-34)",
+    "35-44": "adultos (35-44)",
+    "45-59": "meia-idade (45-59)",
+    "60-69": "60-69 anos",
+    "70+": "idosos (70+)",
+    "Analfabeto": "eleitores analfabetos",
+    "Lê e escreve": "alfabetização básica",
+    "Fundamental": "ensino fundamental",
+    "Médio": "ensino médio",
+    "Superior": "ensino superior",
+    "Feminino": "mulheres",
+    "Masculino": "homens",
+}
+
+
+@router.get(
+    "/candidates/{candidate_id}/electorate-profile",
+    response_model=ElectorateProfileResponse,
+    summary="Perfil socioeconômico do território do candidato",
+    description=(
+        "Cruza os votos do candidato por município com o perfil do eleitorado "
+        "(gênero, faixa etária, escolaridade — dados do TSE), ponderado pelos "
+        "votos, e compara com a média do estado. Mostra de que tipo de "
+        "território vem a votação e onde o candidato desvia da média estadual."
+    ),
+)
+def candidate_electorate_profile(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> ElectorateProfileResponse:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato não encontrado")
+
+    # Último ano de perfil de eleitorado por município
+    latest_elect = (
+        select(
+            MunicipalityElectorate.municipality_id.label("mid"),
+            func.max(MunicipalityElectorate.year).label("y"),
+        )
+        .group_by(MunicipalityElectorate.municipality_id)
+        .subquery()
+    )
+
+    # Votos do candidato × perfil do eleitorado, por município
+    rows = db.execute(
+        select(
+            VoteResult.votes,
+            MunicipalityElectorate.total,
+            MunicipalityElectorate.by_gender,
+            MunicipalityElectorate.by_age,
+            MunicipalityElectorate.by_education,
+        )
+        .join(Municipality, Municipality.id == VoteResult.municipality_id)
+        .join(latest_elect, latest_elect.c.mid == Municipality.id)
+        .join(
+            MunicipalityElectorate,
+            (MunicipalityElectorate.municipality_id == Municipality.id)
+            & (MunicipalityElectorate.year == latest_elect.c.y),
+        )
+        .where(VoteResult.candidate_id == candidate_id)
+    ).all()
+
+    # Total de municípios com voto (independente de ter perfil)
+    munis_with_votes = db.execute(
+        select(func.count(func.distinct(VoteResult.municipality_id)))
+        .where(VoteResult.candidate_id == candidate_id)
+    ).scalar() or 0
+
+    # Agregação ponderada por voto: estima quantos votos vêm de cada perfil.
+    gender: dict[str, float] = {}
+    age: dict[str, float] = {}
+    edu: dict[str, float] = {}
+    votes_covered = 0
+    munis_covered = 0
+    for votes, total, bg, ba, be in rows:
+        votes = int(votes or 0)
+        total = int(total or 0)
+        if votes <= 0 or total <= 0:
+            continue
+        munis_covered += 1
+        votes_covered += votes
+        for dst, src in ((gender, bg), (age, ba), (edu, be)):
+            for label, cnt in (src or {}).items():
+                # voto estimado naquele perfil = votos × participação do perfil
+                dst[label] = dst.get(label, 0.0) + votes * (int(cnt) / total)
+
+    # Baseline do estado: soma bruta do eleitorado de toda a UF (último ano)
+    base_rows = db.execute(
+        select(
+            MunicipalityElectorate.by_gender,
+            MunicipalityElectorate.by_age,
+            MunicipalityElectorate.by_education,
+        )
+        .join(Municipality, Municipality.id == MunicipalityElectorate.municipality_id)
+        .join(latest_elect, latest_elect.c.mid == Municipality.id)
+        .where(
+            (Municipality.state == candidate.state)
+            & (MunicipalityElectorate.year == latest_elect.c.y)
+        )
+    ).all()
+    b_gender: dict[str, float] = {}
+    b_age: dict[str, float] = {}
+    b_edu: dict[str, float] = {}
+    for bg, ba, be in base_rows:
+        for dst, src in ((b_gender, bg), (b_age, ba), (b_edu, be)):
+            for label, cnt in (src or {}).items():
+                dst[label] = dst.get(label, 0.0) + int(cnt)
+
+    cand_gender = _pct_dict(gender, sum(gender.values()))
+    cand_age = _pct_dict(age, sum(age.values()))
+    cand_edu = _pct_dict(edu, sum(edu.values()))
+    base_gender = _pct_dict(b_gender, sum(b_gender.values()))
+    base_age = _pct_dict(b_age, sum(b_age.values()))
+    base_edu = _pct_dict(b_edu, sum(b_edu.values()))
+
+    # Destaques: maiores desvios (pp) frente à média estadual, idade+escolaridade.
+    # Só faz sentido se há baseline estadual (candidato nacional p.ex. não tem).
+    deltas: list[tuple[float, str]] = []
+    has_baseline = sum(b_age.values()) > 0 and sum(b_edu.values()) > 0
+    if has_baseline:
+        for cand, base in ((cand_age, base_age), (cand_edu, base_edu)):
+            for label, pct in cand.items():
+                d = round(pct - base.get(label, 0.0), 1)
+                if abs(d) >= 2.0:
+                    nice = _PROFILE_LABELS.get(label, label)
+                    sign = "+" if d > 0 else "−"
+                    comp = "acima" if d > 0 else "abaixo"
+                    deltas.append(
+                        (abs(d), f"{sign}{abs(d):.1f}pp de {nice} ({comp} da média de {candidate.state})")
+                    )
+    highlights = [t for _, t in sorted(deltas, key=lambda x: x[0], reverse=True)[:5]]
+
+    coverage = (
+        round(munis_covered / munis_with_votes * 100, 1) if munis_with_votes else 0.0
+    )
+
+    return ElectorateProfileResponse(
+        candidate_id=candidate.id,
+        state=candidate.state,
+        municipalities_with_votes=int(munis_with_votes),
+        municipalities_covered=munis_covered,
+        coverage_pct=coverage,
+        by_gender=cand_gender,
+        by_age=cand_age,
+        by_education=cand_edu,
+        baseline_by_gender=base_gender,
+        baseline_by_age=base_age,
+        baseline_by_education=base_edu,
+        highlights=highlights,
     )
 
 
@@ -739,25 +1153,61 @@ def municipality_top_candidates(
     if muni is None:
         raise NotFoundError("Municipio nao encontrado")
 
-    election_ids_subq = (
-        select(Election.id).where(Election.year == year) if year is not None else None
-    )
+    # Cache de agregação (4h; sync limpa): 1ª consulta ~1,5s em cidade grande,
+    # repetições <50ms pra qualquer usuário até o warmup/nginx assumirem.
+    _key = f"muni_top:{municipality_id}:{office_code}:{year}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
 
-    stmt = (
-        select(VoteResult, Candidate)
-        .join(Candidate, VoteResult.candidate_id == Candidate.id)
-        .where(VoteResult.municipality_id == municipality_id)
-    )
+    # Sem ano explícito → usa a eleição MAIS RECENTE deste município (+cargo).
+    # Sem isso, candidaturas de anos diferentes (2016/2020/2024) se misturam e
+    # a MESMA pessoa aparece várias vezes — parecendo concorrer contra si mesma.
+    if year is None:
+        yq = (
+            select(func.max(Election.year))
+            .join(Candidate, Candidate.election_id == Election.id)
+            .join(VoteResult, VoteResult.candidate_id == Candidate.id)
+            .where(VoteResult.municipality_id == municipality_id)
+        )
+        if office_code is not None:
+            yq = yq.where(Candidate.office_code == office_code)
+        year = db.execute(yq).scalar()
+
+    # CTE MATERIALIZADA de propósito: com ORDER BY+LIMIT direto, o planner
+    # anda o índice (municipality_id, votes) sondando candidato a candidato
+    # SEM paralelismo (~3,3s no Rio). Materializar força o hash-join paralelo
+    # (~0,4s); o sort roda só sobre as dezenas de linhas já filtradas.
+    conds = ["vr.municipality_id = :muni"]
+    params: dict = {"muni": str(municipality_id), "lim": limit}
     if office_code is not None:
-        stmt = stmt.where(Candidate.office_code == office_code)
-    if election_ids_subq is not None:
-        stmt = stmt.where(Candidate.election_id.in_(election_ids_subq))
-    stmt = stmt.order_by(VoteResult.votes.desc()).limit(limit)
-    rows = db.execute(stmt).all()
+        conds.append("c.office_code = :office")
+        params["office"] = office_code
+    if year is not None:
+        conds.append(
+            "c.election_id IN (SELECT id FROM tse_elections WHERE year = :year)"
+        )
+        params["year"] = year
+    # total_cargo via window sobre a MESMA CTE: o denominador (% de votos)
+    # sai do mesmo scan — sem repetir a query pesada só pra somar.
+    rows = db.execute(
+        text(
+            "WITH mv AS MATERIALIZED ("
+            "  SELECT vr.votes, c.id, c.number, c.name, c.urn_name,"
+            "         c.office_code, c.office_name, c.state, c.situation,"
+            "         c.result_status, c.party_id, c.election_id"
+            "  FROM tse_vote_results vr"
+            "  JOIN tse_candidates c ON c.id = vr.candidate_id"
+            f"  WHERE {' AND '.join(conds)}"
+            ") SELECT mv.*, sum(votes) OVER () AS total_cargo"
+            "  FROM mv ORDER BY votes DESC LIMIT :lim"
+        ),
+        params,
+    ).all()
 
     # Batch fetch party + election pra hidratar nested
-    party_ids = {c.party_id for _, c in rows}
-    election_ids = {c.election_id for _, c in rows}
+    party_ids = {r.party_id for r in rows}
+    election_ids = {r.election_id for r in rows}
     parties_map = {
         p.id: p for p in db.execute(
             select(Party).where(Party.id.in_(party_ids))
@@ -772,46 +1222,40 @@ def municipality_top_candidates(
     results = [
         TopCandidateInMunicipality(
             candidate=CandidateRead(
-                id=c.id,
-                number=c.number,
-                name=c.name,
-                urn_name=c.urn_name,
-                office_code=c.office_code,
-                office_name=c.office_name,
-                state=c.state,
-                situation=c.situation,
-                result_status=c.result_status,
-                party=PartyRead.model_validate(parties_map[c.party_id]),
-                election=ElectionRead.model_validate(elections_map[c.election_id]),
+                id=r.id,
+                number=r.number,
+                name=r.name,
+                urn_name=r.urn_name,
+                office_code=r.office_code,
+                office_name=r.office_name,
+                state=r.state,
+                situation=r.situation,
+                result_status=r.result_status,
+                party=PartyRead.model_validate(parties_map[r.party_id]),
+                election=ElectionRead.model_validate(elections_map[r.election_id]),
             ),
-            votes=vr.votes,
+            votes=r.votes,
         )
-        for vr, c in rows
+        for r in rows
     ]
 
-    # Total de votos do cargo no municipio (denominador pra %) — soma TODOS
-    # os candidatos, nao so os top N retornados.
-    total_stmt = (
-        select(func.coalesce(func.sum(VoteResult.votes), 0))
-        .join(Candidate, VoteResult.candidate_id == Candidate.id)
-        .where(VoteResult.municipality_id == municipality_id)
-    )
-    if office_code is not None:
-        total_stmt = total_stmt.where(Candidate.office_code == office_code)
-    if election_ids_subq is not None:
-        total_stmt = total_stmt.where(Candidate.election_id.in_(election_ids_subq))
-    total_votes = int(db.execute(total_stmt).scalar_one())
+    # Total do cargo (soma TODOS os candidatos, não só o top N) — veio junto
+    # na window function da query principal.
+    total_votes = int(rows[0].total_cargo) if rows else 0
 
     office_name = results[0].candidate.office_name if results else None
 
-    return MunicipalityResultsResponse(
+    _resp = MunicipalityResultsResponse(
         municipality=MunicipalityRead.model_validate(muni),
         results=results,
         total_results=len(results),
         total_votes=total_votes,
         office_code=office_code,
         office_name=office_name,
+        year=year,
     )
+    agg_set(_key, _resp)
+    return _resp
 
 
 @router.get(
@@ -1063,16 +1507,20 @@ def municipality_zones(
         .order_by(ranked.c.zone, ranked.c.votes.desc())
     ).all()
 
+    # Batch-load partidos/eleições (anti N+1): 2 queries em vez de 1 por único.
+    _pids = {cand.party_id for _, _, cand in rows}
+    _eids = {cand.election_id for _, _, cand in rows}
+    parties_cache: dict[UUID, Party] = {
+        p.id: p for p in db.execute(select(Party).where(Party.id.in_(_pids))).scalars()
+    } if _pids else {}
+    elections_cache: dict[UUID, Election] = {
+        e.id: e for e in db.execute(select(Election).where(Election.id.in_(_eids))).scalars()
+    } if _eids else {}
+
     # Agrupa por zona (top N já vem ordenado)
-    parties_cache: dict[UUID, Party] = {}
-    elections_cache: dict[UUID, Election] = {}
     zones_map: dict[int, dict] = {}
     for zone, votes, cand in rows:
         z = zones_map.setdefault(zone, {"total": int(totals.get(zone, 0)), "cands": []})
-        if cand.party_id not in parties_cache:
-            parties_cache[cand.party_id] = db.get(Party, cand.party_id)
-        if cand.election_id not in elections_cache:
-            elections_cache[cand.election_id] = db.get(Election, cand.election_id)
         z["cands"].append((cand, int(votes)))
 
     office_name = rows[0][2].office_name if rows else None
@@ -1541,17 +1989,58 @@ def candidate_by_neighborhood(
     stmt = stmt.group_by("neighborhood").order_by(func.sum(TseSectionVote.votes).desc())
 
     rows = db.execute(stmt).all()
-    items = [
-        CandidateByNeighborhoodItem(
+
+    # Cruzamento Censo IBGE 2022: população/domicílios por bairro (match por
+    # nome normalizado). Só quando filtrado por município E o município tem
+    # dados censitários carregados (POC: RJ). Falha de match → campos None.
+    census_by_nb: dict[str, tuple[int, int]] = {}
+    if municipality is not None:
+        _uf_ibge = {"RJ": "33", "SP": "35", "MG": "31", "ES": "32"}
+        _prefix = _uf_ibge.get(municipality.state or "")
+        if _prefix:
+            census_rows = db.execute(
+                text(
+                    "SELECT upper(public.f_unaccent(s.nm_bairro)) AS nb, "
+                    "       sum(s.populacao) AS pop, sum(s.domicilios) AS dom "
+                    "FROM census_geo s "
+                    "WHERE s.level='setor' AND s.nm_bairro <> '' AND s.cd_mun = ("
+                    "  SELECT g.cd_mun FROM census_geo g "
+                    "  WHERE g.level='municipio' AND g.cd_mun LIKE :pfx "
+                    "    AND upper(public.f_unaccent(g.nm_mun)) = "
+                    "        upper(public.f_unaccent(:mname)) LIMIT 1"
+                    ") GROUP BY 1"
+                ),
+                {"pfx": _prefix + "%", "mname": municipality.name},
+            ).all()
+            census_by_nb = {r.nb: (int(r.pop or 0), int(r.dom or 0)) for r in census_rows}
+
+    def _norm_nb(s: str) -> str:
+        return "".join(
+            c for c in unicodedata.normalize("NFD", s.upper())
+            if unicodedata.category(c) != "Mn"
+        ).strip()
+
+    items = []
+    for r in rows:
+        pop_dom = census_by_nb.get(_norm_nb(r.neighborhood)) if census_by_nb else None
+        pop = pop_dom[0] if pop_dom else None
+        items.append(CandidateByNeighborhoodItem(
             neighborhood=r.neighborhood,
             votes=int(r.votes),
             places_count=int(r.places_count),
             electors_total=int(r.electors_total),
             avg_lat=float(r.avg_lat) if r.avg_lat is not None else None,
             avg_lng=float(r.avg_lng) if r.avg_lng is not None else None,
-        )
-        for r in rows
-    ]
+            census_population=pop,
+            census_households=pop_dom[1] if pop_dom else None,
+            # votos ÷ eleitores aptos DOS LOCAIS do bairro (mesma base; votos
+            # por local ≠ residência, então dividir por moradores engana —
+            # bairros-polo passariam de 100%).
+            penetration_pct=(
+                round(int(r.votes) / int(r.electors_total) * 100, 1)
+                if r.electors_total and int(r.electors_total) > 0 else None
+            ),
+        ))
 
     return CandidateByNeighborhoodResponse(
         candidate=CandidateRead(
@@ -1776,6 +2265,40 @@ def candidate_dossier_pdf(
     except Exception:
         photo_bytes = None
 
+    # Seções de inteligência (best-effort — PDF não falha se uma der erro).
+    # Maré IA: só o que já está em cache (não dispara chamada ao Gemini aqui).
+    ai_report = db.execute(
+        text("SELECT content FROM ai_reports WHERE candidate_id = :c"),
+        {"c": str(candidate_id)},
+    ).scalar_one_or_none()
+    if ai_report is not None and not isinstance(ai_report, dict):
+        import json as _json
+        ai_report = _json.loads(ai_report)
+
+    def _safe(fn):
+        try:
+            return fn().model_dump(mode="json")
+        except Exception:
+            return None
+
+    path_to_victory = _safe(lambda: candidate_path_to_victory(candidate_id, ctx, db))
+    opportunities = _safe(lambda: candidate_opportunities(candidate_id, ctx, db))
+    electorate_profile = _safe(lambda: candidate_electorate_profile(candidate_id, ctx, db))
+
+    # Bairros × Censo: usa o município onde o candidato foi mais votado.
+    neighborhoods = None
+    _top_muni = db.execute(
+        text(
+            "SELECT municipality_id FROM tse_vote_results "
+            "WHERE candidate_id = :c ORDER BY votes DESC LIMIT 1"
+        ),
+        {"c": str(candidate_id)},
+    ).scalar_one_or_none()
+    if _top_muni is not None:
+        neighborhoods = _safe(lambda: candidate_by_neighborhood(
+            candidate_id, ctx, municipality_id=_top_muni, db=db,
+        ))
+
     pdf_bytes = build_candidate_dossier(
         candidate_name=candidate.name,
         urn_name=candidate.urn_name,
@@ -1799,6 +2322,11 @@ def candidate_dossier_pdf(
         candidate_id=str(candidate.id),
         public_url_base="https://srv1412083.hstgr.cloud",
         municipality_coords=municipality_coords,
+        ai_report=ai_report,
+        path_to_victory=path_to_victory,
+        opportunities=opportunities,
+        electorate_profile=electorate_profile,
+        neighborhoods=neighborhoods,
     )
 
     # Persiste no cache (atomico via .tmp + rename)

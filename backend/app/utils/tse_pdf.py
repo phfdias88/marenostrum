@@ -422,6 +422,240 @@ def _inner_page(canvas, doc):
 
 
 # -------------------------------------------------- builder
+def _bullets(items, st) -> list:
+    """Lista de bullets como Paragraphs."""
+    out = []
+    for it in (items or [])[:6]:
+        out.append(Paragraph(f'<font color="#B8860B">•</font>&nbsp; {it}', st["body"]))
+        out.append(Spacer(1, 3))
+    return out
+
+
+def _simple_table(header: list[str], rows: list[list[str]], st, col_widths: list[float]) -> Table:
+    data = [[Paragraph(h, st["table_th"]) for h in header]]
+    for r in rows:
+        data.append([Paragraph(str(c), st["table_td"]) for c in r])
+    tbl = Table(data, colWidths=col_widths, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), CHARCOAL),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, GOLD),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, CREAM]),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return tbl
+
+
+def _append_neighborhoods_section(flow, st, neighborhoods) -> None:
+    """Bairros × Censo IBGE: votos, % dos eleitores, moradores e oportunidades."""
+    nb = neighborhoods or {}
+    items = nb.get("items") or []
+    if not items:
+        return
+    muni = (nb.get("municipality") or {}).get("name") or ""
+    flow.append(PageBreak())
+    flow.append(Paragraph("TERRITORIO: BAIRROS x CENSO (IBGE 2022)", st["section"]))
+    flow.append(Paragraph(
+        f"Votação por bairro em <b>{muni}</b>, cruzada com a população residente "
+        f"do Censo 2022. Penetração = votos ÷ eleitores aptos dos locais do bairro.",
+        st["body"],
+    ))
+    flow.append(Spacer(1, 8))
+
+    def _pen(i):
+        p = i.get("penetration_pct")
+        return f"{str(p).replace('.', ',')}%" if p is not None else "—"
+
+    def _mor(i):
+        m = i.get("census_population")
+        return _fmt_int(m) if m else "—"
+
+    rows = [
+        [i.get("neighborhood") or "—", _fmt_int(i.get("votes")), _pen(i), _mor(i)]
+        for i in items[:10]
+    ]
+    flow.append(_simple_table(
+        ["BAIRRO", "VOTOS", "% ELEITORES", "MORADORES (CENSO)"],
+        rows, st, [6.4 * cm, 2.8 * cm, 3.0 * cm, 3.6 * cm],
+    ))
+
+    # Oportunidades: bairros no top 50% de população com penetração no
+    # quartil inferior do próprio candidato (mesma regra da tela Bairros).
+    com = [i for i in items
+           if i.get("census_population") and i.get("penetration_pct") is not None]
+    if len(com) >= 8:
+        pens = sorted(i["penetration_pct"] for i in com)
+        pops = sorted(i["census_population"] for i in com)
+        q25, med = pens[len(pens) // 4], pops[len(pops) // 2]
+        ops = sorted(
+            [i for i in com
+             if i["census_population"] >= med and i["penetration_pct"] <= q25],
+            key=lambda i: -i["census_population"],
+        )[:6]
+        if ops:
+            flow.append(Spacer(1, 10))
+            flow.append(Paragraph("Oportunidades de crescimento", st["h2"]))
+            flow.extend(_bullets([
+                f'<b>{o["neighborhood"]}</b> — {_fmt_int(o["census_population"])} '
+                f'moradores e só {str(o["penetration_pct"]).replace(".", ",")}% dos '
+                f'eleitores: bairro populoso onde sua presença é a mais fraca.'
+                for o in ops
+            ], st))
+
+
+def _append_intelligence_sections(
+    flow, st, *, path_to_victory=None, opportunities=None,
+    electorate_profile=None, ai_report=None, neighborhoods=None,
+) -> None:
+    """Anexa Caminho da Vitória, Radar, Território e Maré IA ao dossiê."""
+    started = False
+
+    # ---- Caminho da Vitória ----
+    pv = path_to_victory or {}
+    if pv and pv.get("scope") and pv.get("scope") != "proporcional":
+        flow.append(PageBreak())
+        started = True
+        flow.append(Paragraph("CAMINHO DA VITORIA", st["section"]))
+        if pv.get("is_winner"):
+            margin = pv.get("margin")
+            txt = "Candidato eleito na disputa."
+            if margin:
+                txt += f" Margem de {_fmt_int(margin)} votos sobre o 2o colocado."
+            flow.append(Paragraph(txt, st["body"]))
+        else:
+            flow.append(Paragraph(
+                f'Faltaram <b>{_fmt_int(pv.get("gap"))}</b> votos para superar o 1o colocado '
+                f'(<b>{pv.get("winner_name") or "—"}</b>, {_fmt_int(pv.get("winner_votes"))} votos). '
+                f'Sua votação: {_fmt_int(pv.get("candidate_votes"))}.',
+                st["body"],
+            ))
+            tgs = pv.get("targets") or []
+            if tgs:
+                flow.append(Spacer(1, 8))
+                flow.append(Paragraph("Onde buscar os votos (maior folga de eleitorado)", st["h2"]))
+                rows = [
+                    [f'{t["name"]}/{t["state"]}', _fmt_int(t["available"]),
+                     _fmt_int(t["suggested"]), f'{t["penetration_pct"]:.1f}%']
+                    for t in tgs[:8]
+                ]
+                flow.append(_simple_table(
+                    ["MUNICIPIO", "ELEITORES DISP.", "BUSCAR ~", "PENETR."],
+                    rows, st, [7.2 * cm, 3.2 * cm, 3.0 * cm, 2.4 * cm],
+                ))
+
+    # ---- Radar de Oportunidades ----
+    op = opportunities or {}
+    opps = op.get("opportunities") or []
+    strong = op.get("strongholds") or []
+    if opps or strong:
+        flow.append(Spacer(1, 16) if started else PageBreak())
+        started = True
+        flow.append(Paragraph("RADAR DE OPORTUNIDADES", st["section"]))
+        flow.append(Paragraph(
+            f'Eleitorado alcançado: {_fmt_int(op.get("total_electorate_reached"))} · '
+            f'Penetração média: {op.get("avg_penetration_pct", 0):.1f}%',
+            st["sub"],
+        ))
+        if opps:
+            flow.append(Spacer(1, 6))
+            flow.append(Paragraph("Onde crescer (eleitorado grande, baixa penetração)", st["h2"]))
+            rows = [
+                [f'{o["name"]}/{o["state"]}', _fmt_int(o["electorate"]),
+                 f'{o["penetration_pct"]:.1f}%', _fmt_int(o["available"])]
+                for o in opps[:8]
+            ]
+            flow.append(_simple_table(
+                ["MUNICIPIO", "ELEITORADO", "VOCE TEM", "DISPONIVEL"],
+                rows, st, [6.6 * cm, 3.2 * cm, 2.6 * cm, 3.4 * cm],
+            ))
+        if strong:
+            flow.append(Spacer(1, 8))
+            flow.append(Paragraph("Seus redutos (maior penetração)", st["h2"]))
+            rows = [
+                [f'{s["name"]}/{s["state"]}', f'{s["penetration_pct"]:.1f}%',
+                 _fmt_int(s["votes"]), _fmt_int(s["electorate"])]
+                for s in strong[:8]
+            ]
+            flow.append(_simple_table(
+                ["MUNICIPIO", "PENETR.", "VOTOS", "ELEITORADO"],
+                rows, st, [6.6 * cm, 2.6 * cm, 3.2 * cm, 3.4 * cm],
+            ))
+
+    # ---- Perfil do Território ----
+    pf = electorate_profile or {}
+    if pf and pf.get("municipalities_covered", 0) > 0:
+        flow.append(Spacer(1, 16) if started else PageBreak())
+        started = True
+        flow.append(Paragraph("PERFIL DO TERRITORIO", st["section"]))
+        flow.append(Paragraph(
+            f'De onde vem o voto — perfil do eleitorado ponderado pela votação, '
+            f'frente à média de {pf.get("state","")}.',
+            st["sub"],
+        ))
+        for title, key, base_key, order in [
+            ("Faixa etária", "by_age", "baseline_by_age",
+             ["16-17", "18-24", "25-34", "35-44", "45-59", "60-69", "70+"]),
+            ("Escolaridade", "by_education", "baseline_by_education",
+             ["Analfabeto", "Lê e escreve", "Fundamental", "Médio", "Superior"]),
+        ]:
+            cand = pf.get(key, {}) or {}
+            base = pf.get(base_key, {}) or {}
+            rows = []
+            for k in order:
+                if k in cand or k in base:
+                    cv = cand.get(k, 0.0)
+                    bv = base.get(k, 0.0)
+                    delta = round(cv - bv, 1)
+                    sign = "+" if delta > 0 else ""
+                    rows.append([k, f"{cv:.1f}%", f"{sign}{delta:.1f}pp"])
+            if rows:
+                flow.append(Spacer(1, 6))
+                flow.append(Paragraph(title, st["h2"]))
+                flow.append(_simple_table(
+                    ["CATEGORIA", "SEU TERRITORIO", "VS MEDIA UF"],
+                    rows, st, [7.0 * cm, 4.5 * cm, 4.5 * cm],
+                ))
+        hi = pf.get("highlights") or []
+        if hi:
+            flow.append(Spacer(1, 6))
+            flow.append(Paragraph("Destaques", st["h2"]))
+            flow.extend(_bullets(hi, st))
+
+    # ---- Maré IA ----
+    ai = ai_report or {}
+    if ai and ai.get("diagnostico"):
+        flow.append(Spacer(1, 16) if started else PageBreak())
+        started = True
+        flow.append(Paragraph("MARE IA · ESPECIALISTA EM VANTAGEM ELEITORAL", st["section"]))
+        score = ai.get("score_viabilidade")
+        if score is not None:
+            flow.append(Paragraph(
+                f'<b>Viabilidade {score}/100</b> — {ai.get("score_justificativa","")}',
+                st["h2"],
+            ))
+        flow.append(Paragraph(ai.get("diagnostico", ""), st["body"]))
+        for label, k in [
+            ("Pontos fortes", "pontos_fortes"),
+            ("Onde crescer", "onde_crescer"),
+            ("Narrativas de campanha", "narrativas"),
+            ("Ações prioritárias", "acoes_prioritarias"),
+        ]:
+            items = ai.get(k) or []
+            if items:
+                flow.append(Spacer(1, 6))
+                flow.append(Paragraph(label, st["h2"]))
+                flow.extend(_bullets(items, st))
+        flow.append(Spacer(1, 6))
+        flow.append(Paragraph(
+            "<i>Gerado pela Maré IA a partir dos dados reais do TSE. Apoio à decisão — "
+            "valide com sua equipe.</i>",
+            st["small"],
+        ))
+
+
 def build_candidate_dossier(
     *,
     candidate_name: str,
@@ -447,6 +681,12 @@ def build_candidate_dossier(
     candidate_id: str | None = None,
     public_url_base: str | None = None,
     municipality_coords: Iterable[tuple[float | None, float | None, int]] | None = None,
+    # NOVO v3 — seções de inteligência
+    ai_report: dict | None = None,
+    path_to_victory: dict | None = None,
+    opportunities: dict | None = None,
+    electorate_profile: dict | None = None,
+    neighborhoods: dict | None = None,
 ) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -625,6 +865,18 @@ def build_candidate_dossier(
             page_cursor += 1  # provavelmente 2 paginas
     if zone_rows:
         toc_entries.append(("Votos por zona eleitoral · top 30", f"{page_cursor:02d}"))
+        page_cursor += 1
+
+    # Seções de inteligência (v3) — páginas aproximadas
+    if path_to_victory and path_to_victory.get("scope") not in (None, "proporcional"):
+        toc_entries.append(("Caminho da vitoria", f"{page_cursor:02d}"))
+        page_cursor += 1
+    if opportunities and (opportunities.get("opportunities") or opportunities.get("strongholds")):
+        toc_entries.append(("Radar de oportunidades", f"{page_cursor:02d}"))
+    if electorate_profile and electorate_profile.get("municipalities_covered", 0) > 0:
+        toc_entries.append(("Perfil do territorio", f"{page_cursor:02d}"))
+    if ai_report and ai_report.get("diagnostico"):
+        toc_entries.append(("Mare IA · analise estrategica", f"{page_cursor:02d}"))
 
     toc_cells = []
     for title, pageno in toc_entries:
@@ -855,13 +1107,19 @@ def build_candidate_dossier(
         ]))
         flow.append(tbl)
 
+    # ============ SEÇÕES DE INTELIGÊNCIA (v3) ============
+    _append_intelligence_sections(
+        flow, st,
+        path_to_victory=path_to_victory,
+        opportunities=opportunities,
+        electorate_profile=electorate_profile,
+        ai_report=ai_report,
+    )
+
+    # ============ BAIRROS × CENSO (v4) ============
+    _append_neighborhoods_section(flow, st, neighborhoods)
+
     flow.append(Spacer(1, 16))
-    flow.append(Paragraph(
-        '<i>Documento gerado automaticamente pela plataforma MareNostrum a partir '
-        'de dados publicos do Tribunal Superior Eleitoral (TSE). Patrimonio, receitas '
-        'e despesas sao declarados pelo proprio candidato.</i>',
-        st["small"],
-    ))
 
     doc.build(flow, onFirstPage=_cover_page, onLaterPages=_inner_page)
     return buf.getvalue()

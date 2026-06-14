@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, ORJSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -147,6 +147,9 @@ def create_app() -> FastAPI:
         description=_DESCRIPTION,
         version=_VERSION,
         lifespan=_lifespan,
+        # orjson (Rust): serializa JSON 5-10x mais rápido que json.dumps —
+        # crítico pros payloads grandes (GeoJSON do censo ~8MB, rankings TSE).
+        default_response_class=ORJSONResponse,
         openapi_tags=_TAGS_METADATA,
         contact={
             "name": "MareNostrum App",

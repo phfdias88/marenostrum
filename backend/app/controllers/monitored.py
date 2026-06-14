@@ -26,6 +26,15 @@ router = APIRouter(prefix="/monitored", tags=["monitored-candidates"])
 def _enrich(db, monitored: MonitoredCandidate) -> MonitoredCandidateRead:
     """Carrega snapshot do candidato TSE — None se nao existir mais."""
     cand = db.get(Candidate, monitored.candidate_id)
+    party = db.get(Party, cand.party_id) if cand is not None and cand.party_id else None
+    return _build_read(monitored, cand, party)
+
+
+def _build_read(
+    monitored: MonitoredCandidate,
+    cand: Candidate | None,
+    party: Party | None,
+) -> MonitoredCandidateRead:
     if cand is None:
         return MonitoredCandidateRead(
             id=monitored.id,
@@ -37,7 +46,6 @@ def _enrich(db, monitored: MonitoredCandidate) -> MonitoredCandidateRead:
             created_at=monitored.created_at,
             candidate_found=False,
         )
-    party = db.get(Party, cand.party_id) if cand.party_id else None
     # tse_candidates nao tem direct FK pra municipality;
     # municipality_id existe em vote_results. Aqui retornamos None — UI
     # mostra "UF" suficiente.
@@ -80,7 +88,28 @@ def list_monitored(ctx: CurrentTenant) -> list[MonitoredCandidateRead]:
         )
     )
     rows = list(ctx.db.execute(stmt).scalars().all())
-    return [_enrich(ctx.db, m) for m in rows]
+    # Batch-load (anti N+1): 2 queries pra lista inteira em vez de 2 por item.
+    cand_ids = [m.candidate_id for m in rows]
+    cands = {
+        c.id: c for c in ctx.db.execute(
+            select(Candidate).where(Candidate.id.in_(cand_ids))
+        ).scalars()
+    } if cand_ids else {}
+    party_ids = {c.party_id for c in cands.values() if c.party_id}
+    parties = {
+        p.id: p for p in ctx.db.execute(
+            select(Party).where(Party.id.in_(party_ids))
+        ).scalars()
+    } if party_ids else {}
+    return [
+        _build_read(
+            m,
+            cands.get(m.candidate_id),
+            parties.get(cands[m.candidate_id].party_id)
+            if m.candidate_id in cands and cands[m.candidate_id].party_id else None,
+        )
+        for m in rows
+    ]
 
 
 @router.post(

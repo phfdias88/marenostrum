@@ -88,6 +88,9 @@ class MunicipalityResultsResponse(BaseModel):
     total_votes: int = 0
     office_code: int | None = None
     office_name: str | None = None
+    # Ano da eleição mostrada (default = mais recente disponível). Evita
+    # misturar candidaturas de anos diferentes (mesma pessoa aparecendo 2x).
+    year: int | None = None
 
 
 class CandidateByNeighborhoodItem(BaseModel):
@@ -99,6 +102,13 @@ class CandidateByNeighborhoodItem(BaseModel):
     # Centroide aprox dos locais (media simples)
     avg_lat: float | None
     avg_lng: float | None
+    # Cruzamento com o Censo IBGE 2022 (match por nome normalizado; presente
+    # só onde o município tem dados censitários carregados). None = sem match.
+    census_population: int | None = None
+    census_households: int | None = None
+    # votos ÷ eleitores aptos dos locais do bairro, em % (mesma base —
+    # votos são contados ONDE se vota; moradores entram só como contexto).
+    penetration_pct: float | None = None
 
 
 class CandidateByNeighborhoodResponse(BaseModel):
@@ -237,6 +247,60 @@ class OpportunityResponse(BaseModel):
     opportunities: list[OpportunityMunicipality]  # crescer (eleitorado x baixa penetração)
 
 
+class PathTarget(BaseModel):
+    """Município-alvo pra fechar o déficit de votos."""
+    municipality_id: UUID
+    name: str
+    state: str
+    available: int          # eleitorado - votos atuais (folga)
+    suggested: int          # parcela do déficit sugerida (proporcional à folga)
+    penetration_pct: float
+
+
+class PathToVictoryResponse(BaseModel):
+    """
+    Caminho da vitória: quantos votos faltam pra vencer e onde buscá-los.
+    Para cargos majoritários (presidente/governador/prefeito), compara com o
+    vencedor da disputa. Para proporcionais, aponta a ferramenta de projeção.
+    """
+    candidate_id: UUID
+    office_name: str
+    scope: str               # "nacional" | "estadual" | "municipal" | "proporcional"
+    candidate_votes: int
+    is_winner: bool
+    winner_name: str | None = None
+    winner_votes: int = 0
+    gap: int = 0             # votos pra ultrapassar o vencedor (0 se já vence)
+    margin: int | None = None  # se vencedor, margem sobre o 2º
+    available_electorate: int = 0
+    targets: list[PathTarget] = []
+    note: str | None = None
+
+
+class AiReport(BaseModel):
+    """Relatório estratégico gerado por IA (Gemini) sobre o candidato."""
+    diagnostico: str
+    score_viabilidade: int
+    score_justificativa: str
+    pontos_fortes: list[str]
+    onde_crescer: list[str]
+    narrativas: list[str]
+    acoes_prioritarias: list[str]
+
+
+class AiCompareReport(BaseModel):
+    """Confronto estratégico entre dois candidatos gerado por IA (Maré IA)."""
+    panorama: str
+    quem_lidera: str
+    minhas_vantagens: list[str]
+    vantagens_adversario: list[str]
+    onde_atacar: list[str]
+    onde_defender: list[str]
+    recomendacao_final: str
+    # Números do confronto município a município (anexados pelo serviço)
+    confronto: dict | None = None
+
+
 class ElectorateResponse(BaseModel):
     """Perfil do eleitorado de um município (gênero/idade/escolaridade)."""
     municipality: MunicipalityRead
@@ -245,6 +309,33 @@ class ElectorateResponse(BaseModel):
     by_gender: dict[str, int]
     by_age: dict[str, int]
     by_education: dict[str, int]
+
+
+class ElectorateProfileResponse(BaseModel):
+    """
+    Perfil socioeconômico/demográfico do território do candidato.
+
+    Cruza os votos do candidato por município com o perfil do eleitorado
+    (gênero/idade/escolaridade do TSE) ponderado pelos votos — estima de que
+    tipo de território vem a votação. Compara com a média do estado (baseline)
+    pra mostrar onde o candidato é mais forte que a média (ex: "+8pp de jovens
+    18-24 frente à média estadual").
+    """
+    candidate_id: UUID
+    state: str
+    municipalities_with_votes: int
+    municipalities_covered: int   # com dado de eleitorado disponível
+    coverage_pct: float           # % dos votos coberto por dado de perfil
+    # Perfil do território do candidato (ponderado por voto), em %
+    by_gender: dict[str, float]
+    by_age: dict[str, float]
+    by_education: dict[str, float]
+    # Média do estado (todos os municípios da UF, por eleitorado), em %
+    baseline_by_gender: dict[str, float]
+    baseline_by_age: dict[str, float]
+    baseline_by_education: dict[str, float]
+    # Destaques: maiores desvios frente à média estadual
+    highlights: list[str]
 
 
 class ZoneVoteItem(BaseModel):

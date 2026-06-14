@@ -126,6 +126,8 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+      # Cache de borda (censo/TSE) persistente — sobrevive a recreates/deploys.
+      - nginx_cache:/var/cache/nginx
     depends_on:
       - api
       - web
@@ -144,6 +146,8 @@ volumes:
   pg_data:
     driver: local
   tse_photos:
+    driver: local
+  nginx_cache:
     driver: local
 
 networks:

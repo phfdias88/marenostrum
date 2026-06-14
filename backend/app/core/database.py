@@ -15,8 +15,10 @@ settings = get_settings()
 # abaixo de max_connections do Postgres (50 no docker-compose).
 engine = create_engine(
     settings.database_url,
-    pool_size=5,
-    max_overflow=5,
+    # 8+10=18 conexões máx (Postgres max_connections=50): aguenta ~15 requests
+    # pesados simultâneos (ex: noite de apuração) sem fila no pool.
+    pool_size=8,
+    max_overflow=10,
     pool_pre_ping=True,   # evita conexao morta apos idle
     pool_recycle=1800,    # recicla a cada 30min
     future=True,

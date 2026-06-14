@@ -470,7 +470,18 @@ def _process_candidato_munzona(
             })
 
         # ---------- VoteResult (agregação) ----------
-        if sq and muni_code and sq in candidates_by_sq and muni_code in munis_by_tse:
+        # APENAS 1º turno: a votação nominal exibida é a do 1º turno (padrão
+        # TSE/imprensa). Sem este filtro, candidatos que foram a 2º turno
+        # (presidente/governador/prefeito de capital) teriam votos do 1º + 2º
+        # SOMADOS na mesma linha (mesmo SQ_CANDIDATO), inflando o total — ex:
+        # Lula 2022 apareceria com 117M (57M 1ºT + 60M 2ºT) em vez de 57M.
+        # O resultado final (ELEITO em 2º turno) já vem de runoff_status.
+        _turno = _i(row.get("NR_TURNO")) or 1
+        if (
+            _turno == 1
+            and sq and muni_code
+            and sq in candidates_by_sq and muni_code in munis_by_tse
+        ):
             key = (candidates_by_sq[sq], munis_by_tse[muni_code])
             votes = _i(row.get("QT_VOTOS_NOMINAIS"))
             vote_acc[key] = vote_acc.get(key, 0) + votes
@@ -755,6 +766,11 @@ def _process_votacao_secao(
 
     for _, row in iter_csv_rows(zip_path):
         rows_processed += 1
+        # APENAS 1º turno — senão runoff (pres/gov/prefeito de capital) soma
+        # 1º + 2º turno na mesma linha (mesmo SQ), dobrando os votos por seção.
+        if (_i(row.get("NR_TURNO")) or 1) != 1:
+            skipped += 1
+            continue
         sq = _i(row.get("SQ_CANDIDATO"))
         muni_code = _i(row.get("CD_MUNICIPIO"))
         local_code = _i(row.get("NR_LOCAL_VOTACAO"))
@@ -1056,6 +1072,9 @@ def _process_zona_votos(
     # Só _BRASIL.csv — senão conta votos 2x (zip tem 1 csv por UF idêntico)
     for _, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
         rows_processed += 1
+        # APENAS 1º turno (evita dobrar votos de runoff por zona)
+        if (_i(row.get("NR_TURNO")) or 1) != 1:
+            continue
         sq = _i(row.get("SQ_CANDIDATO"))
         muni_code = _i(row.get("CD_MUNICIPIO"))
         zone = _i(row.get("NR_ZONA"))
