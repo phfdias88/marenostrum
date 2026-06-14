@@ -24,6 +24,10 @@ from app.models.user import User
 # tokenUrl aponta para a rota de login (a implementar)
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=True)
 
+# Exportado para rotas que precisam do token bruto além do contexto
+# (ex.: /auth/me lê o exp para a renovação deslizante da sessão).
+oauth2_scheme = _oauth2_scheme
+
 _credentials_exc = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Credenciais invalidas",

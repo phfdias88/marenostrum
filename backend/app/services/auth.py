@@ -85,4 +85,5 @@ class AuthService:
             tenant_id=tenant.id,
             tenant_slug=tenant.slug,
             tenant_name=tenant.name,
+            census_enabled=bool(getattr(user, "census_enabled", False)),
         )

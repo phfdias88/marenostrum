@@ -11,11 +11,17 @@ from sqlalchemy.orm import Session
 from app.utils.rate_limit import limiter
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentTenant
+from app.core.dependencies import CurrentTenant, oauth2_scheme
 from app.core.errors import DomainError, NotFoundError, UnauthorizedError
-from app.core.security import hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from app.models.user import User, UserRole
 from app.schemas.auth import (
+    CensusFlagRequest,
     ChangePasswordRequest,
     CreateUserRequest,
     CreateUserResponse,
@@ -73,7 +79,8 @@ Emite um **JWT** vinculado ao tenant (`tid`) e ao usuário (`sub`).
 ### Fluxo
 1. Informe `tenant_slug` (apelido único da campanha), `email` e `password`
 2. Backend valida em **constant-time** (anti timing-attack)
-3. Sucesso → retorna `access_token` válido por 60 minutos
+3. Sucesso → retorna `access_token` válido por 7 dias (renovado em
+   silêncio pelo `/auth/me` enquanto o usuário estiver ativo)
 
 ### Erros
 - **401** — credenciais inválidas. Mensagem **sempre genérica**
@@ -127,8 +134,32 @@ Mesmo com JWT válido (assinatura ok), o backend **re-valida no banco** que:
 Isso protege contra tokens forjados com `tid` arbitrário.
 """,
 )
-def me(ctx: CurrentTenant) -> MeResponse:
-    return AuthService.me(ctx)
+def me(
+    ctx: CurrentTenant,
+    token: Annotated[str, Depends(oauth2_scheme)],
+) -> MeResponse:
+    resp = AuthService.me(ctx)
+
+    # Sessão deslizante: o frontend chama /me a cada carga do dashboard.
+    # Se o token já passou da metade da validade, devolvemos um novo junto
+    # e o cookie é trocado em silêncio — usuário ativo nunca cai no /login.
+    # Token roubado continua limitado: renovar exige um token ainda válido.
+    try:
+        payload = decode_access_token(token)
+        from datetime import datetime, timezone
+
+        from app.config import get_settings
+
+        ttl = get_settings().JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        remaining = payload.exp - int(datetime.now(timezone.utc).timestamp())
+        if 0 < remaining < ttl / 2:
+            resp.refreshed_token = create_access_token(
+                user_id=ctx.user_id, tenant_id=ctx.tenant_id, role=ctx.role,
+            )
+            resp.refreshed_expires_in = ttl
+    except Exception:  # noqa: BLE001 — renovação é best-effort, nunca quebra /me
+        pass
+    return resp
 
 
 @router.post(
@@ -172,6 +203,7 @@ def list_users(
             full_name=u.full_name,
             role=u.role.value if hasattr(u.role, "value") else str(u.role),
             is_active=u.is_active,
+            census_enabled=bool(getattr(u, "census_enabled", False)),
             created_at=u.created_at,
         )
         for u in rows
@@ -314,4 +346,26 @@ def reactivate_user(
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
     user.is_active = True
+    db.commit()
+
+
+@router.post(
+    "/users/{user_id}/census",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Liberar/bloquear o módulo Censo para um membro (owner)",
+    description="Liga/desliga o feature-flag census_enabled do usuário.",
+)
+def set_census_flag(
+    user_id: UUID,
+    payload: CensusFlagRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    _require_owner(ctx)
+    user = db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("Usuario nao encontrado.")
+    user.census_enabled = bool(payload.enabled)
     db.commit()

@@ -17,14 +17,31 @@ export type AuthData = {
   expires_in: number;
 };
 
+// Secure só em HTTPS (produção) — em dev local http o cookie seria
+// silenciosamente descartado pelo browser se levasse a flag.
+function _secureFlag(): string {
+  return typeof location !== "undefined" && location.protocol === "https:"
+    ? "; Secure"
+    : "";
+}
+
 export function saveAuth(data: AuthData): void {
   if (typeof document === "undefined") return;
   const maxAge = Math.max(60, data.expires_in);
-  // SameSite=Lax mitiga CSRF basico. Sem Secure pois estamos em HTTP por IP.
-  // QUANDO MIGRAR PARA HTTPS, ADICIONE `; Secure`.
+  // SameSite=Lax mitiga CSRF basico; Secure impede vazar o token em
+  // requisições http acidentais.
   document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
     data.access_token,
-  )}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  )}; Path=/; Max-Age=${maxAge}; SameSite=Lax${_secureFlag()}`;
+}
+
+/**
+ * Sessão deslizante: troca só o cookie do token (sem mexer no resto).
+ * Usado quando /auth/me devolve um token renovado.
+ */
+export function refreshTokenCookie(token: string, expiresIn: number): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${Math.max(60, expiresIn)}; SameSite=Lax${_secureFlag()}`;
 }
 
 export function getToken(): string | null {

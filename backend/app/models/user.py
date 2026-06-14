@@ -37,6 +37,9 @@ class User(Base, TenantMixin, TimestampMixin):
         default=UserRole.STAFF,
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Feature-flag: libera o módulo de Dados Censitários (IBGE) no menu do
+    # usuário. Controlado pelo owner em Configurações > Equipe.
+    census_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     # Quando o subclass define __table_args__, ele substitui o do mixin.
     # Aqui combinamos: indice composto + unicidade do email por tenant.

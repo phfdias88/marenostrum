@@ -67,7 +67,7 @@ class TokenResponse(BaseModel):
     )
     token_type: str = "bearer"
     expires_in: int = Field(
-        ..., description="Segundos até expirar (default 3600 = 60 min)",
+        ..., description="Segundos até expirar (default 604800 = 7 dias)",
     )
     user_id: UUID
     tenant_id: UUID
@@ -102,6 +102,12 @@ class MeResponse(BaseModel):
     tenant_id: UUID
     tenant_slug: str
     tenant_name: str
+    census_enabled: bool = False
+    # Sessão deslizante: quando o token atual passa da metade da validade,
+    # /me devolve um novo aqui e o frontend troca o cookie em silêncio —
+    # quem usa o sistema regularmente nunca é derrubado pro /login.
+    refreshed_token: str | None = None
+    refreshed_expires_in: int | None = None
 
 
 # ---------------------------------------------------- Team management
@@ -145,4 +151,10 @@ class UserListItem(BaseModel):
     full_name: str
     role: str
     is_active: bool
+    census_enabled: bool = False
     created_at: datetime
+
+
+class CensusFlagRequest(BaseModel):
+    """Liga/desliga o módulo Censo para um membro."""
+    enabled: bool
