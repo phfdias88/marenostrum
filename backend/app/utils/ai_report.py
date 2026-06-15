@@ -233,6 +233,20 @@ def _call_gemini(prompt: str) -> dict:
                 raise AiReportError("IA temporariamente sobrecarregada. Tente novamente em instantes.")
             r.raise_for_status()
             data = r.json()
+            # O Gemini devolve o consumo de tokens em usageMetadata — registramos
+            # entrada/saída/total pra dar visibilidade de custo por requisição.
+            # (promptTokenCount = entrada; candidatesTokenCount = saída;
+            #  thoughtsTokenCount = raciocínio interno do 2.5-flash, conta na
+            #  cobrança mas não aparece na saída — por isso total > entrada+saída.)
+            usage = data.get("usageMetadata") or {}
+            log.info(
+                "ai_gemini_usage",
+                model=GEMINI_MODEL,
+                tokens_entrada=usage.get("promptTokenCount"),
+                tokens_saida=usage.get("candidatesTokenCount"),
+                tokens_raciocinio=usage.get("thoughtsTokenCount"),
+                tokens_total=usage.get("totalTokenCount"),
+            )
             return json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
         except AiReportError:
             raise
