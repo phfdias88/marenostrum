@@ -202,7 +202,7 @@ export function ContactFormDialog(props: Props) {
   const submitLabel = isEdit ? "Salvar alterações" : "Salvar contato";
 
   const body = (
-    <DialogContent className="max-w-2xl">
+    <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>

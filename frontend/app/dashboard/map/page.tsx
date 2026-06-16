@@ -90,10 +90,13 @@ export default function MapPage() {
     setUf(""); setCity(""); setNeighborhood(""); setType(""); setTag("");
   }
 
+  // Mobile: altura natural — mapa fixo no topo + painel abaixo, a página rola
+  // e a barra de navegação (BottomNav) fica sempre visível. Desktop (lg):
+  // split lado a lado em altura cheia.
   return (
-    <div className="flex flex-col lg:flex-row gap-4 p-3 sm:p-4 h-[calc(100dvh-3.5rem-64px-env(safe-area-inset-bottom))] md:h-[calc(100dvh-3.5rem)]">
+    <div className="flex flex-col lg:flex-row gap-4 p-3 sm:p-4 lg:h-[calc(100dvh-3.5rem)]">
       {/* Mapa */}
-      <div className="lg:flex-1 min-h-[320px] rounded-xl overflow-hidden border border-border relative">
+      <div className="h-[55vh] lg:h-auto shrink-0 lg:flex-1 rounded-xl overflow-hidden border border-border relative">
         <CampaignMap groups={groups} metricLabel={metricLabel} />
         {loading && (
           <div className="absolute top-3 left-3 z-[500] bg-card/90 border border-border rounded-md px-2.5 py-1 text-xs flex items-center gap-1.5">
@@ -103,7 +106,7 @@ export default function MapPage() {
       </div>
 
       {/* Painel: filtros + gráfico */}
-      <aside className="lg:w-[360px] shrink-0 flex flex-col gap-3 overflow-y-auto">
+      <aside className="lg:w-[360px] shrink-0 flex flex-col gap-3 lg:overflow-y-auto">
         {/* Métrica + agrupamento */}
         <div className="rounded-xl border border-border bg-card p-3 space-y-3">
           <Toggle
