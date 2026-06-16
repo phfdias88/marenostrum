@@ -108,6 +108,14 @@ export function ContactFormDialog(props: Props) {
   const [address, setAddress] = useState<AddressValue>(EMPTY_ADDRESS);
   // Bairro fora da base exige coordenada no mapa — AddressFields nos avisa.
   const [coordMissing, setCoordMissing] = useState(false);
+  // Modo criar é controlado (estado interno) pra o Cancelar/Salvar fecharem
+  // o dialog. Modo editar usa props.open/onOpenChange.
+  const [createOpen, setCreateOpen] = useState(false);
+
+  function closeDialog() {
+    if (props.mode === "edit") props.onOpenChange(false);
+    else setCreateOpen(false);
+  }
 
   // Carrega tags ja' usadas no tenant (sugestoes pro chip "ja usadas")
   useEffect(() => {
@@ -188,6 +196,7 @@ export function ContactFormDialog(props: Props) {
         reset(EMPTY_DEFAULTS);
         setTags([]);
         setAddress(EMPTY_ADDRESS);
+        setCreateOpen(false);
       }
       props.onSaved();
     } catch (err) {
@@ -281,8 +290,11 @@ export function ContactFormDialog(props: Props) {
             type="button"
             variant="ghost"
             onClick={() => {
-              if (isEdit) props.onOpenChange(false);
-              else reset(EMPTY_DEFAULTS);
+              reset(EMPTY_DEFAULTS);
+              setTags([]);
+              setAddress(EMPTY_ADDRESS);
+              setCoordMissing(false);
+              closeDialog();
             }}
           >
             Cancelar
@@ -304,7 +316,19 @@ export function ContactFormDialog(props: Props) {
   }
 
   return (
-    <Dialog>
+    <Dialog
+      open={createOpen}
+      onOpenChange={(o) => {
+        setCreateOpen(o);
+        // Ao abrir, começa com o formulário limpo.
+        if (o) {
+          reset(EMPTY_DEFAULTS);
+          setTags([]);
+          setAddress(EMPTY_ADDRESS);
+          setCoordMissing(false);
+        }
+      }}
+    >
       <DialogTrigger asChild>{props.children}</DialogTrigger>
       {body}
     </Dialog>
