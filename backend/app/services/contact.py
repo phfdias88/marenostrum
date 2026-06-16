@@ -191,6 +191,76 @@ class ContactService:
     def list_for_map(self) -> list[Contact]:
         return self._repo.list_with_coords(tenant_id=self._ctx.tenant_id)
 
+    def map_aggregate(
+        self,
+        *,
+        metric: str = "contacts",
+        group_by: str = "neighborhood",
+        state: str | None = None,
+        city: str | None = None,
+        neighborhood: str | None = None,
+        type_: str | None = None,
+        tag: str | None = None,
+    ) -> list[dict]:
+        """
+        Agrega contatos (ou demandas) por bairro OU local de votação, com
+        filtros — alimenta o Mapa da Campanha (bolhas + gráfico de barras).
+        Posição da bolha = média das coordenadas dos contatos do grupo
+        (avg ignora NULL no PG); grupos sem coordenada vêm com lat/lng None
+        (aparecem só no gráfico, não no mapa).
+        """
+        import json as _json
+
+        from sqlalchemy import text as _text
+
+        grp_col = "voting_place" if group_by == "voting_place" else "neighborhood"
+        sem = "local" if grp_col == "voting_place" else "bairro"
+        key_expr = f"coalesce(nullif(trim(c.{grp_col}), ''), '(sem {sem})')"
+
+        conds = ["c.tenant_id = :tid", "c.is_active = true"]
+        params: dict = {"tid": str(self._ctx.tenant_id)}
+        if state:
+            conds.append("c.state = :state")
+            params["state"] = state.upper()
+        if city:
+            conds.append("public.f_unaccent(c.city) ILIKE public.f_unaccent(:city)")
+            params["city"] = city
+        if neighborhood:
+            conds.append(
+                "public.f_unaccent(c.neighborhood) ILIKE public.f_unaccent(:nb)"
+            )
+            params["nb"] = f"%{neighborhood}%"
+        if type_:
+            conds.append("c.type = :ctype")
+            params["ctype"] = type_
+        if tag:
+            conds.append("c.tags @> CAST(:tag AS jsonb)")
+            params["tag"] = _json.dumps([tag])
+        where = " AND ".join(conds)
+
+        src = (
+            "demands d JOIN contacts c ON c.id = d.contact_id"
+            if metric == "demands"
+            else "contacts c"
+        )
+        cnt = "count(d.id)" if metric == "demands" else "count(*)"
+        sql = (
+            f"SELECT {key_expr} AS key, {cnt} AS cnt, "
+            f"  avg(c.latitude) AS lat, avg(c.longitude) AS lng "
+            f"FROM {src} WHERE {where} "
+            f"GROUP BY key ORDER BY cnt DESC LIMIT 200"
+        )
+        rows = self._ctx.db.execute(_text(sql), params).mappings().all()
+        return [
+            {
+                "key": r["key"],
+                "count": int(r["cnt"]),
+                "lat": float(r["lat"]) if r["lat"] is not None else None,
+                "lng": float(r["lng"]) if r["lng"] is not None else None,
+            }
+            for r in rows
+        ]
+
     def list_contact_interactions(
         self,
         contact_id: UUID,

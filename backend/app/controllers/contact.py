@@ -137,6 +137,36 @@ def list_contacts_for_map(ctx: CurrentTenant) -> list[ContactRead]:
     return [ContactRead.model_validate(c) for c in contacts]
 
 
+@router.get(
+    "/map-aggregate",
+    summary="Agregação de contatos/demandas por bairro ou local de votação",
+    description=(
+        "Alimenta o Mapa da Campanha: conta contatos (ou demandas) por bairro "
+        "ou local de votação, com filtros (UF, município, bairro, tipo, tag). "
+        "Cada grupo traz a posição média (bolha) e a contagem (gráfico)."
+    ),
+)
+def contacts_map_aggregate(
+    ctx: CurrentTenant,
+    metric: str = Query("contacts", pattern="^(contacts|demands)$"),
+    group_by: str = Query("neighborhood", pattern="^(neighborhood|voting_place)$"),
+    state: str | None = Query(None, min_length=2, max_length=2),
+    city: str | None = Query(None, max_length=100),
+    neighborhood: str | None = Query(None, max_length=100),
+    type: str | None = Query(None, max_length=20),
+    tag: str | None = Query(None, max_length=40),
+) -> list[dict]:
+    return ContactService(ctx).map_aggregate(
+        metric=metric,
+        group_by=group_by,
+        state=state,
+        city=city,
+        neighborhood=neighborhood,
+        type_=type,
+        tag=tag,
+    )
+
+
 # --------------------------------------------------------- Interactions
 
 
