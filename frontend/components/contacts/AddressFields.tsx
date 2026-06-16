@@ -50,6 +50,15 @@ export type AddressValue = {
   state: string;
   city: string;
   neighborhood: string;
+  votingPlace: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+type VotingPlace = {
+  name: string;
+  neighborhood: string | null;
+  address: string | null;
   latitude: number | null;
   longitude: number | null;
 };
@@ -140,6 +149,35 @@ export function AddressFields({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsCoord, hasCoord]);
 
+  // -------- Local de votação (base TSE do município) --------
+  const [vpSearch, setVpSearch] = useState("");
+  const vpDeb = useDebounce(vpSearch, 300);
+  const [vpItems, setVpItems] = useState<VotingPlace[]>([]);
+  const [vpOpen, setVpOpen] = useState(false);
+  const vpBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!value.state || !value.city) {
+      setVpItems([]);
+      return;
+    }
+    const p = new URLSearchParams({ state: value.state, municipio: value.city });
+    if (vpDeb.trim()) p.set("search", vpDeb.trim());
+    api<VotingPlace[]>(`/v1/tse/voting-places?${p.toString()}`)
+      .then(setVpItems)
+      .catch(() => setVpItems([]));
+  }, [vpDeb, value.state, value.city]);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (vpBoxRef.current && !vpBoxRef.current.contains(e.target as Node)) {
+        setVpOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
   return (
     <>
       {/* Estado */}
@@ -148,11 +186,12 @@ export function AddressFields({
         <select
           value={value.state}
           onChange={(e) =>
-            // troca de UF zera município e bairro
+            // troca de UF zera município, bairro e local de votação
             onChange({
               state: e.target.value,
               city: "",
               neighborhood: "",
+              votingPlace: "",
               latitude: null,
               longitude: null,
             })
@@ -177,7 +216,7 @@ export function AddressFields({
             <button
               type="button"
               onClick={() => {
-                patch({ city: "", neighborhood: "" });
+                patch({ city: "", neighborhood: "", votingPlace: "" });
                 setMuniSearch("");
               }}
               className="text-muted-foreground hover:text-foreground shrink-0"
@@ -214,7 +253,7 @@ export function AddressFields({
                     key={m.id}
                     type="button"
                     onClick={() => {
-                      patch({ city: m.name, neighborhood: "" });
+                      patch({ city: m.name, neighborhood: "", votingPlace: "" });
                       setMuniOpen(false);
                       setMuniSearch("");
                     }}
@@ -302,6 +341,71 @@ export function AddressFields({
           )}
         </div>
       )}
+
+      {/* Local de votação (base TSE do município) */}
+      <div className="relative sm:col-span-2" ref={vpBoxRef}>
+        <Label className="mb-1.5 block">Local de votação</Label>
+        {value.votingPlace ? (
+          <div className="flex items-center justify-between gap-2 min-h-10 px-3 py-2 rounded-md bg-background border border-primary/40">
+            <span className="font-medium text-sm truncate">{value.votingPlace}</span>
+            <button
+              type="button"
+              onClick={() => {
+                patch({ votingPlace: "" });
+                setVpSearch("");
+              }}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              aria-label="Trocar local de votação"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                value={vpSearch}
+                disabled={!value.city}
+                onChange={(e) => {
+                  setVpSearch(e.target.value);
+                  setVpOpen(true);
+                }}
+                onFocus={() => setVpOpen(true)}
+                placeholder={
+                  value.city
+                    ? "Buscar onde o contato vota (escola, igreja…)"
+                    : "Escolha o município primeiro"
+                }
+                className="pl-9"
+              />
+            </div>
+            {vpOpen && vpItems.length > 0 && (
+              <div className="absolute z-30 mt-1 w-full rounded-md border bg-card shadow-lg max-h-56 overflow-auto divide-y divide-border">
+                {vpItems.map((p, i) => (
+                  <button
+                    key={`${p.name}:${i}`}
+                    type="button"
+                    onClick={() => {
+                      patch({ votingPlace: p.name });
+                      setVpOpen(false);
+                      setVpSearch("");
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-accent/50"
+                  >
+                    <p className="text-sm font-medium truncate">{p.name}</p>
+                    {p.neighborhood && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {p.neighborhood}
+                      </p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </>
   );
 }

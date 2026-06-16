@@ -180,6 +180,9 @@ export default function ContactDetailPage() {
                     }
                   />
                 )}
+                {contact.voting_place && (
+                  <Field label="Local de votação" value={contact.voting_place} />
+                )}
               </dl>
             </div>
             <div className="flex items-center gap-2">

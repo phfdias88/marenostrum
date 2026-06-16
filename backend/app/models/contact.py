@@ -46,6 +46,9 @@ class Contact(Base, TenantMixin, TimestampMixin):
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
+    # Local de votação onde o contato vota (nome do local da base TSE).
+    voting_place: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     # Geocoordenadas (opcionais — preenchidas via Nominatim/Google futuramente)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)

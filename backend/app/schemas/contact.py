@@ -67,6 +67,7 @@ class ContactBase(BaseModel):
     neighborhood: str | None = Field(None, max_length=100)
     city: str | None = Field(None, max_length=100)
     state: str | None = Field(None, min_length=2, max_length=2)
+    voting_place: str | None = Field(None, max_length=200)
 
     latitude: float | None = Field(None, ge=-90, le=90)
     longitude: float | None = Field(None, ge=-180, le=180)
@@ -123,6 +124,7 @@ class ContactUpdate(BaseModel):
     neighborhood: str | None = Field(None, max_length=100)
     city: str | None = Field(None, max_length=100)
     state: str | None = Field(None, min_length=2, max_length=2)
+    voting_place: str | None = Field(None, max_length=200)
     latitude: float | None = Field(None, ge=-90, le=90)
     longitude: float | None = Field(None, ge=-180, le=180)
     birth_date: date | None = None

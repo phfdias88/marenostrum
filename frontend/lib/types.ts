@@ -15,6 +15,7 @@ export type Contact = {
   neighborhood: string | null;
   city: string | null;
   state: string | null;
+  voting_place: string | null;
   latitude: number | null;
   longitude: number | null;
   birth_date: string | null; // ISO date "YYYY-MM-DD"

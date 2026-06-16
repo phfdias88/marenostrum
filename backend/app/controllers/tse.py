@@ -2352,3 +2352,48 @@ def candidate_dossier_pdf(
             "X-Cache": "MISS",
         },
     )
+
+
+@router.get(
+    "/voting-places",
+    summary="Locais de votação de um município (cadastro de contato)",
+    description=(
+        "Busca os locais de votação reais (base TSE) de um município, pra o "
+        "usuário informar onde o contato vota. Filtra por UF + nome do "
+        "município; `search` filtra pelo nome do local."
+    ),
+)
+def tse_voting_places_lookup(
+    ctx: CurrentTenant,
+    state: str = Query(..., min_length=2, max_length=2),
+    municipio: str = Query(..., min_length=1, max_length=120),
+    search: str | None = Query(None, max_length=120),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    muni = db.execute(
+        select(Municipality).where(
+            Municipality.state == state.upper(),
+            func.f_unaccent(Municipality.name).ilike(func.f_unaccent(municipio)),
+        )
+    ).scalars().first()
+    if muni is None:
+        return []
+    stmt = select(TseVotingPlace).where(TseVotingPlace.municipality_id == muni.id)
+    if search and search.strip():
+        stmt = stmt.where(
+            func.f_unaccent(TseVotingPlace.name).ilike(
+                func.f_unaccent(f"%{search.strip()}%")
+            )
+        )
+    stmt = stmt.order_by(TseVotingPlace.name).limit(20)
+    rows = db.execute(stmt).scalars().all()
+    return [
+        {
+            "name": p.name,
+            "neighborhood": p.neighborhood,
+            "address": p.address,
+            "latitude": p.latitude,
+            "longitude": p.longitude,
+        }
+        for p in rows
+    ]

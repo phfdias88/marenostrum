@@ -62,6 +62,7 @@ const EMPTY_ADDRESS: AddressValue = {
   state: "",
   city: "",
   neighborhood: "",
+  votingPlace: "",
   latitude: null,
   longitude: null,
 };
@@ -146,6 +147,7 @@ export function ContactFormDialog(props: Props) {
         state: contact.state ?? "",
         city: contact.city ?? "",
         neighborhood: contact.neighborhood ?? "",
+        votingPlace: contact.voting_place ?? "",
         latitude: contact.latitude,
         longitude: contact.longitude,
       });
@@ -168,6 +170,7 @@ export function ContactFormDialog(props: Props) {
     payload.state = address.state || null;
     payload.city = address.city || null;
     payload.neighborhood = address.neighborhood.trim() || null;
+    payload.voting_place = address.votingPlace.trim() || null;
     payload.latitude = address.latitude;
     payload.longitude = address.longitude;
 
