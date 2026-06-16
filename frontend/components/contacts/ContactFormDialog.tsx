@@ -310,7 +310,7 @@ export function ContactFormDialog(props: Props) {
   if (isEdit) {
     return (
       <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-        {body}
+        {props.open && body}
       </Dialog>
     );
   }
@@ -330,7 +330,10 @@ export function ContactFormDialog(props: Props) {
       }}
     >
       <DialogTrigger asChild>{props.children}</DialogTrigger>
-      {body}
+      {/* Renderiza o conteúdo só quando aberto: garante que ao fechar o
+          dialog SOME na hora, sem depender da animação de saída do Radix
+          (que estava travando e mantinha o modal visível). */}
+      {createOpen && body}
     </Dialog>
   );
 }
