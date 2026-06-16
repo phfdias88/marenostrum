@@ -142,6 +142,17 @@ export function AddressFields({
   // ex: Seropédica / "KM 32") → exige marcar a coordenada no mapa.
   const needsCoord = nbQuery.length > 0 && nbMatches.length === 0;
   const hasCoord = value.latitude != null && value.longitude != null;
+  // Município sem bairros na base (ex: Seropédica = distrito único): a lista
+  // vem vazia ou só com o nome do próprio município. Avisamos que é digitar
+  // livre + marcar no mapa, pra não esperar uma lista que não existe.
+  const noRealBairros =
+    !!value.city &&
+    nbList.filter((n) => n.toLowerCase() !== value.city.toLowerCase()).length === 0;
+  // Sugestões = matches da base, sem o nome do próprio município (que aparece
+  // como "distrito único" em cidades sem bairros).
+  const nbSuggestions = nbMatches.filter(
+    (n) => n.toLowerCase() !== value.city.toLowerCase(),
+  );
 
   // Reporta pro formulário: bairro livre sem coordenada = bloqueia o salvar.
   useEffect(() => {
@@ -282,14 +293,21 @@ export function AddressFields({
           placeholder={
             !value.city
               ? "Escolha o município primeiro"
-              : nbList.length
-                ? "Digite ou escolha da lista…"
-                : "Digite o bairro"
+              : noRealBairros
+                ? "Digite o nome do bairro"
+                : "Digite ou escolha da lista…"
           }
         />
-        {nbOpen && nbMatches.length > 0 && (
+        {noRealBairros && !value.neighborhood.trim() && (
+          <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
+            <MapPin className="w-3 h-3" />
+            Este município não tem bairros na base do IBGE — digite o nome e
+            marque a localização no mapa.
+          </p>
+        )}
+        {nbOpen && nbSuggestions.length > 0 && (
           <div className="absolute z-30 mt-1 w-full rounded-md border bg-card shadow-lg max-h-56 overflow-auto divide-y divide-border">
-            {nbMatches.slice(0, 30).map((n) => (
+            {nbSuggestions.slice(0, 30).map((n) => (
               <button
                 key={n}
                 type="button"
