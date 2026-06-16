@@ -296,3 +296,47 @@ def census_search_areas(
         )
     )
     return [{k: v for k, v in it.items() if k != "_key"} for it in matches[:8]]
+
+
+# Prefixo IBGE (cd_mun começa com) por sigla de UF — inverso de _UF_SIGLA.
+_SIGLA_PREFIX = {v: k for k, v in _UF_SIGLA.items()}
+
+
+@router.get(
+    "/municipality-neighborhoods",
+    summary="Bairros/distritos de um município (pra cascata do cadastro de contato)",
+    description=(
+        "Lista os bairros (ou distritos, se o município não tiver bairro) de "
+        "um município, a partir do Censo. Usado no formulário de contato: o "
+        "usuário escolhe UF → município e aqui sugerimos os bairros. Vazio se "
+        "o município não tem dado censitário (aí o usuário digita livre)."
+    ),
+)
+def census_municipality_neighborhoods(
+    ctx: CurrentTenant,
+    uf: str = Query(..., min_length=2, max_length=2),
+    municipio: str = Query(..., min_length=1, max_length=120),
+    db: Session = Depends(get_db),
+) -> list[str]:
+    pfx = _SIGLA_PREFIX.get(uf.upper())
+    if not pfx:
+        # Só temos censo do Sudeste — outras UFs caem no campo livre.
+        return []
+    rows = db.execute(
+        text(
+            "SELECT DISTINCT "
+            "  CASE WHEN coalesce(s.nm_bairro,'') <> '' THEN s.nm_bairro "
+            "       ELSE s.nm_dist END AS nome "
+            "FROM census_geo s "
+            "WHERE s.level='setor' "
+            "  AND (coalesce(s.nm_bairro,'') <> '' OR coalesce(s.nm_dist,'') <> '') "
+            "  AND s.cd_mun = ("
+            "    SELECT g.cd_mun FROM census_geo g "
+            "    WHERE g.level='municipio' AND g.cd_mun LIKE :pfx "
+            "      AND upper(public.f_unaccent(g.nm_mun)) = upper(public.f_unaccent(:mname)) "
+            "    LIMIT 1) "
+            "ORDER BY nome"
+        ),
+        {"pfx": pfx + "%", "mname": municipio},
+    ).all()
+    return [r.nome for r in rows if r.nome]

@@ -29,6 +29,7 @@ import { api, ApiError } from "@/lib/api";
 import type { Contact, ContactTag, ContactType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { TagInput } from "@/components/contacts/TagInput";
+import { AddressFields, type AddressValue } from "@/components/contacts/AddressFields";
 import {
   Dialog,
   DialogContent,
@@ -50,17 +51,20 @@ const schema = z.object({
   facebook: z.string().max(200).optional().or(z.literal("")),
   cep: z.string().max(9).optional().or(z.literal("")),
   address: z.string().max(255).optional().or(z.literal("")),
-  neighborhood: z.string().max(100).optional().or(z.literal("")),
-  city: z.string().max(100).optional().or(z.literal("")),
-  state: z
-    .string()
-    .length(2, "UF deve ter 2 letras")
-    .optional()
-    .or(z.literal("")),
   birth_date: z.string().optional().or(z.literal("")),
   type: z.enum(["voter", "leader", "supporter", "donor", "other"]),
 });
 type FormValues = z.infer<typeof schema>;
+
+// Estado/Município/Bairro + coordenada saem do RHF e viram estado controlado
+// (cascata via AddressFields), igual as tags.
+const EMPTY_ADDRESS: AddressValue = {
+  state: "",
+  city: "",
+  neighborhood: "",
+  latitude: null,
+  longitude: null,
+};
 
 const EMPTY_DEFAULTS: FormValues = {
   full_name: "",
@@ -71,9 +75,6 @@ const EMPTY_DEFAULTS: FormValues = {
   facebook: "",
   cep: "",
   address: "",
-  neighborhood: "",
-  city: "",
-  state: "",
   birth_date: "",
   type: "voter" as ContactType,
 };
@@ -103,6 +104,7 @@ export function ContactFormDialog(props: Props) {
 
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [address, setAddress] = useState<AddressValue>(EMPTY_ADDRESS);
 
   // Carrega tags ja' usadas no tenant (sugestoes pro chip "ja usadas")
   useEffect(() => {
@@ -134,16 +136,21 @@ export function ContactFormDialog(props: Props) {
         facebook: contact.facebook ?? "",
         cep: contact.cep ?? "",
         address: contact.address ?? "",
-        neighborhood: contact.neighborhood ?? "",
-        city: contact.city ?? "",
-        state: contact.state ?? "",
         birth_date: contact.birth_date ?? "",
         type: contact.type,
       });
       setTags(contact.tags ?? []);
+      setAddress({
+        state: contact.state ?? "",
+        city: contact.city ?? "",
+        neighborhood: contact.neighborhood ?? "",
+        latitude: contact.latitude,
+        longitude: contact.longitude,
+      });
     } else {
       reset(EMPTY_DEFAULTS);
       setTags([]);
+      setAddress(EMPTY_ADDRESS);
     }
   }, [isEdit, contact, reset]);
 
@@ -152,6 +159,11 @@ export function ContactFormDialog(props: Props) {
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]),
     );
     payload.tags = tags;
+    payload.state = address.state || null;
+    payload.city = address.city || null;
+    payload.neighborhood = address.neighborhood.trim() || null;
+    payload.latitude = address.latitude;
+    payload.longitude = address.longitude;
 
     try {
       if (isEdit && contact) {
@@ -166,6 +178,7 @@ export function ContactFormDialog(props: Props) {
         toast.success("Contato criado.");
         reset(EMPTY_DEFAULTS);
         setTags([]);
+        setAddress(EMPTY_ADDRESS);
       }
       props.onSaved();
     } catch (err) {
@@ -221,27 +234,21 @@ export function ContactFormDialog(props: Props) {
           <Input {...register("facebook")} placeholder="facebook.com/usuario ou nome do perfil" />
         </Field>
 
+        {/* Endereço em cascata: Estado → Município → Bairro */}
+        <AddressFields value={address} onChange={setAddress} />
+
         <Field label="CEP" error={errors.cep?.message}>
           <Input {...register("cep")} placeholder="00000-000" maxLength={9} />
         </Field>
-        <Field label="UF" error={errors.state?.message}>
-          <Input {...register("state")} maxLength={2} placeholder="RJ" />
+        <Field label="Aniversário" error={errors.birth_date?.message}>
+          <Input type="date" {...register("birth_date")} />
         </Field>
         <Field
-          label="Endereço completo"
+          label="Endereço completo (rua, número)"
           error={errors.address?.message}
           className="sm:col-span-2"
         >
           <Input {...register("address")} placeholder="Rua, número, complemento" />
-        </Field>
-        <Field label="Cidade" error={errors.city?.message}>
-          <Input {...register("city")} placeholder="Rio de Janeiro" />
-        </Field>
-        <Field label="Bairro" error={errors.neighborhood?.message}>
-          <Input {...register("neighborhood")} />
-        </Field>
-        <Field label="Aniversário" error={errors.birth_date?.message} className="sm:col-span-2">
-          <Input type="date" {...register("birth_date")} />
         </Field>
 
         <Field
