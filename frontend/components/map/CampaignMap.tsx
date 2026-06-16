@@ -45,9 +45,16 @@ function FitToGroups({ groups }: { groups: MapGroup[] }) {
     const pts = groups
       .filter((g) => g.lat != null && g.lng != null)
       .map((g) => [g.lat as number, g.lng as number] as [number, number]);
-    if (!pts.length) return;
-    const b = L.latLngBounds(pts);
-    if (b.isValid()) map.fitBounds(b, { padding: [40, 40], maxZoom: 14 });
+    // Espera o layout flex assentar, corrige o tamanho do mapa e SÓ ENTÃO
+    // enquadra — senão o fitBounds calcula com o tamanho errado e sobra
+    // fundo no topo (tiles fora do enquadramento).
+    const id = setTimeout(() => {
+      map.invalidateSize();
+      if (!pts.length) return;
+      const b = L.latLngBounds(pts);
+      if (b.isValid()) map.fitBounds(b, { padding: [40, 40], maxZoom: 14 });
+    }, 150);
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fp]);
   return null;
