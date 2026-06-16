@@ -11,6 +11,7 @@
  * Fase 3 estende isto com um mini-mapa pra marcar a coordenada quando o
  * bairro é digitado livre (município sem bairro na base — ex: Seropédica).
  */
+import dynamic from "next/dynamic";
 import { Loader2, MapPin, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -19,6 +20,31 @@ import type { Page, TseMunicipality } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+const CoordinatePicker = dynamic(
+  () => import("@/components/map/CoordinatePicker"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[220px] grid place-items-center rounded-md bg-muted/40 text-sm text-muted-foreground">
+        carregando mapa…
+      </div>
+    ),
+  },
+);
+
+// Centro aproximado de cada UF — só pra dar um zoom inicial no mapa de
+// coordenada (o usuário clica no ponto exato). Fallback: centro do Brasil.
+const UF_CENTER: Record<string, [number, number]> = {
+  AC: [-9.0, -70.5], AL: [-9.6, -36.6], AM: [-3.9, -63.0], AP: [1.4, -51.8],
+  BA: [-12.6, -41.7], CE: [-5.1, -39.3], DF: [-15.8, -47.8], ES: [-19.6, -40.3],
+  GO: [-16.0, -49.5], MA: [-5.2, -45.2], MG: [-18.5, -44.5], MS: [-20.5, -54.6],
+  MT: [-12.9, -55.9], PA: [-4.0, -52.5], PB: [-7.1, -36.8], PE: [-8.4, -37.9],
+  PI: [-7.5, -42.5], PR: [-24.6, -51.6], RJ: [-22.3, -42.7], RN: [-5.6, -36.6],
+  RO: [-10.9, -63.0], RR: [2.1, -61.4], RS: [-30.0, -53.5], SC: [-27.2, -50.5],
+  SE: [-10.6, -37.4], SP: [-22.2, -48.7], TO: [-10.2, -48.3],
+};
+const BR_CENTER: [number, number] = [-15.8, -47.9];
 
 export type AddressValue = {
   state: string;
@@ -40,9 +66,13 @@ function useDebounce<T>(v: T, ms: number): T {
 export function AddressFields({
   value,
   onChange,
+  onCoordMissingChange,
 }: {
   value: AddressValue;
   onChange: (v: AddressValue) => void;
+  // Avisa o formulário quando o bairro é livre e ainda falta marcar o ponto
+  // no mapa (coordenada obrigatória só nesse caso).
+  onCoordMissingChange?: (missing: boolean) => void;
 }) {
   const patch = (p: Partial<AddressValue>) => onChange({ ...value, ...p });
 
@@ -94,19 +124,21 @@ export function AddressFields({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
+  const nbQuery = value.neighborhood.trim().toLowerCase();
   const nbMatches =
-    value.neighborhood.trim().length > 0
-      ? nbList.filter((n) =>
-          n.toLowerCase().includes(value.neighborhood.trim().toLowerCase()),
-        )
+    nbQuery.length > 0
+      ? nbList.filter((n) => n.toLowerCase().includes(nbQuery))
       : nbList;
-  // Bairro digitado que NÃO está na lista da base → caso "bairro livre".
-  const isFreeNeighborhood =
-    !!value.neighborhood.trim() &&
-    nbList.length > 0 &&
-    !nbList.some(
-      (n) => n.toLowerCase() === value.neighborhood.trim().toLowerCase(),
-    );
+  // Bairro digitado que NÃO casa com nenhum da base (base vazia ou nome livre,
+  // ex: Seropédica / "KM 32") → exige marcar a coordenada no mapa.
+  const needsCoord = nbQuery.length > 0 && nbMatches.length === 0;
+  const hasCoord = value.latitude != null && value.longitude != null;
+
+  // Reporta pro formulário: bairro livre sem coordenada = bloqueia o salvar.
+  useEffect(() => {
+    onCoordMissingChange?.(needsCoord && !hasCoord);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsCoord, hasCoord]);
 
   return (
     <>
@@ -233,14 +265,43 @@ export function AddressFields({
             ))}
           </div>
         )}
-        {isFreeNeighborhood && (
+        {needsCoord && (
           <p className="mt-1 text-xs text-amber-500 flex items-center gap-1">
             <MapPin className="w-3 h-3" />
-            Bairro fora da base do município — confira a grafia ou cadastre
-            assim mesmo.
+            Bairro fora da base — marque a localização no mapa abaixo
+            (obrigatório).
           </p>
         )}
       </div>
+
+      {/* Mapa de coordenada — só quando o bairro é livre (fora da base). */}
+      {needsCoord && (
+        <div className="sm:col-span-2">
+          <Label className="mb-1.5 block">
+            Localização no mapa{" "}
+            {hasCoord ? (
+              <span className="text-emerald-500 font-normal">
+                ✓ ponto marcado
+              </span>
+            ) : (
+              <span className="text-amber-500 font-normal">
+                — clique pra marcar
+              </span>
+            )}
+          </Label>
+          <CoordinatePicker
+            value={hasCoord ? { lat: value.latitude!, lng: value.longitude! } : null}
+            center={UF_CENTER[value.state] ?? BR_CENTER}
+            onPick={(lat, lng) => patch({ latitude: lat, longitude: lng })}
+          />
+          {hasCoord && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {value.latitude!.toFixed(5)}, {value.longitude!.toFixed(5)} ·
+              clique de novo pra reposicionar
+            </p>
+          )}
+        </div>
+      )}
     </>
   );
 }

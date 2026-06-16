@@ -105,6 +105,8 @@ export function ContactFormDialog(props: Props) {
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [address, setAddress] = useState<AddressValue>(EMPTY_ADDRESS);
+  // Bairro fora da base exige coordenada no mapa — AddressFields nos avisa.
+  const [coordMissing, setCoordMissing] = useState(false);
 
   // Carrega tags ja' usadas no tenant (sugestoes pro chip "ja usadas")
   useEffect(() => {
@@ -155,6 +157,10 @@ export function ContactFormDialog(props: Props) {
   }, [isEdit, contact, reset]);
 
   async function onSubmit(values: FormValues) {
+    if (coordMissing) {
+      toast.error("Bairro fora da base: marque a localização do contato no mapa.");
+      return;
+    }
     const payload: Record<string, unknown> = Object.fromEntries(
       Object.entries(values).map(([k, v]) => [k, v === "" ? null : v]),
     );
@@ -234,8 +240,12 @@ export function ContactFormDialog(props: Props) {
           <Input {...register("facebook")} placeholder="facebook.com/usuario ou nome do perfil" />
         </Field>
 
-        {/* Endereço em cascata: Estado → Município → Bairro */}
-        <AddressFields value={address} onChange={setAddress} />
+        {/* Endereço em cascata: Estado → Município → Bairro (+ mapa se livre) */}
+        <AddressFields
+          value={address}
+          onChange={setAddress}
+          onCoordMissingChange={setCoordMissing}
+        />
 
         <Field label="CEP" error={errors.cep?.message}>
           <Input {...register("cep")} placeholder="00000-000" maxLength={9} />
