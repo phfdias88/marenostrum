@@ -46,12 +46,18 @@ type Mode = "municipio" | "bairro";
 export function CandidateMapModal({ results, onClose }: Props) {
   const c = results.candidate;
 
-  // Padrão BAIRRO pra candidatos municipais (prefeito=11, vereador=13): é a
-  // granularidade que importa pra eles. Federais/estaduais (espalhados pelo
-  // estado/país) começam em município. Se o bairro não tiver dado, cai de
-  // volta pra município automaticamente (ver efeito abaixo).
+  // Dado de bairro vem da votação POR SEÇÃO, que hoje só temos para 2024
+  // (eleição municipal). Candidatos de outros anos (senador 2018, governador
+  // 2022 etc.) nunca terão recorte por bairro — então o modo nem é oferecido.
+  const bairroAvailable = c.election.year === 2024;
+
+  // Padrão BAIRRO pra candidatos municipais (prefeito=11, vereador=13) DE 2024:
+  // é a granularidade que importa pra eles. Demais começam em município. Se o
+  // bairro não tiver dado, cai de volta pra município (ver efeito abaixo).
   const isMunicipal = c.office_code === 11 || c.office_code === 13;
-  const [mode, setMode] = useState<Mode>(isMunicipal ? "bairro" : "municipio");
+  const [mode, setMode] = useState<Mode>(
+    isMunicipal && bairroAvailable ? "bairro" : "municipio",
+  );
   // Marca se o usuário escolheu o modo manualmente (pra não sobrescrever o
   // fallback em cima da escolha dele).
   const [userPicked, setUserPicked] = useState(false);
@@ -139,6 +145,12 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 onClick={() => pick("bairro")}
                 icon={<Building2 className="w-3.5 h-3.5" />}
                 label="Bairro"
+                disabled={!bairroAvailable}
+                title={
+                  bairroAvailable
+                    ? undefined
+                    : "Recorte por bairro disponível apenas para as eleições de 2024"
+                }
               />
             </div>
             <button
@@ -159,6 +171,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
               error={nbError}
               data={neighborhood}
               uf={c.state}
+              year={c.election.year}
               onRetry={() => {
                 setNeighborhood(null);
               }}
@@ -175,19 +188,27 @@ function ModeBtn({
   onClick,
   icon,
   label,
+  disabled = false,
+  title,
 }: {
   active: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   label: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
+      title={title}
       className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
-        active
-          ? "bg-foreground text-background"
-          : "text-muted-foreground hover:text-foreground"
+        disabled
+          ? "text-muted-foreground/40 cursor-not-allowed"
+          : active
+            ? "bg-foreground text-background"
+            : "text-muted-foreground hover:text-foreground"
       }`}
     >
       {icon}
@@ -201,12 +222,14 @@ function BairroView({
   error,
   data,
   uf,
+  year,
   onRetry,
 }: {
   loading: boolean;
   error: string | null;
   data: TseCandidateByNeighborhoodResponse | null;
   uf: string;
+  year: number;
   onRetry: () => void;
 }) {
   if (loading) {
@@ -235,26 +258,42 @@ function BairroView({
     );
   }
   if (!data || data.items.length === 0) {
+    // O recorte por bairro vem da votação por seção, que hoje só temos para
+    // 2024 (eleição municipal). Para candidatos de outros anos, é uma
+    // limitação de cobertura — não adianta sincronizar nada.
+    const only2024 = year !== 2024;
     return (
       <div className="h-full grid place-items-center p-8 text-center">
         <div className="max-w-md">
           <Building2 className="mx-auto w-10 h-10 text-muted-foreground" />
-          <p className="text-lg font-semibold mt-3">Dados de bairro indisponíveis</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            Pra ver votos por bairro, o backend precisa ter sincronizado os
-            datasets:
+          <p className="text-lg font-semibold mt-3">
+            Análise por bairro indisponível
           </p>
-          <ul className="text-xs text-muted-foreground mt-2 space-y-1">
-            <li>
-              <code>locais_votacao_2024</code> (locais + bairros, Brasil)
-            </li>
-            <li>
-              <code>votacao_secao_2024_{uf}</code> (votos por seção em {uf})
-            </li>
-          </ul>
-          <p className="text-xs text-muted-foreground mt-3">
-            Use Análises → Sincronizar TSE pra disparar.
-          </p>
+          {only2024 ? (
+            <p className="text-sm text-muted-foreground mt-2">
+              O recorte por bairro usa os dados de votação por seção, que hoje
+              só estão disponíveis para as <strong>eleições municipais de
+              2024</strong> (prefeito e vereador). Este candidato concorreu em{" "}
+              <strong>{year}</strong>, então não há votação por bairro — apenas
+              por município.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground mt-2">
+                Ainda não há dados de votação por seção em <strong>{uf}</strong>{" "}
+                para esta eleição. Use a visão por <strong>Município</strong> ou
+                sincronize os datasets:
+              </p>
+              <ul className="text-xs text-muted-foreground mt-2 space-y-1">
+                <li>
+                  <code>locais_votacao_2024</code> (locais + bairros, Brasil)
+                </li>
+                <li>
+                  <code>votacao_secao_2024_{uf}</code> (votos por seção em {uf})
+                </li>
+              </ul>
+            </>
+          )}
         </div>
       </div>
     );

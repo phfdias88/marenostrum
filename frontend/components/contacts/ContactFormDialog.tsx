@@ -44,7 +44,11 @@ import { Label } from "@/components/ui/label";
 const schema = z.object({
   full_name: z.string().min(2, "Mínimo 2 caracteres").max(150),
   phone: z.string().max(30).optional().or(z.literal("")),
+  whatsapp: z.string().max(30).optional().or(z.literal("")),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
+  instagram: z.string().max(120).optional().or(z.literal("")),
+  facebook: z.string().max(200).optional().or(z.literal("")),
+  cep: z.string().max(9).optional().or(z.literal("")),
   address: z.string().max(255).optional().or(z.literal("")),
   neighborhood: z.string().max(100).optional().or(z.literal("")),
   city: z.string().max(100).optional().or(z.literal("")),
@@ -61,7 +65,11 @@ type FormValues = z.infer<typeof schema>;
 const EMPTY_DEFAULTS: FormValues = {
   full_name: "",
   phone: "",
+  whatsapp: "",
   email: "",
+  instagram: "",
+  facebook: "",
+  cep: "",
   address: "",
   neighborhood: "",
   city: "",
@@ -120,7 +128,11 @@ export function ContactFormDialog(props: Props) {
       reset({
         full_name: contact.full_name,
         phone: contact.phone ?? "",
+        whatsapp: contact.whatsapp ?? "",
         email: contact.email ?? "",
+        instagram: contact.instagram ?? "",
+        facebook: contact.facebook ?? "",
+        cep: contact.cep ?? "",
         address: contact.address ?? "",
         neighborhood: contact.neighborhood ?? "",
         city: contact.city ?? "",
@@ -181,12 +193,6 @@ export function ContactFormDialog(props: Props) {
         <Field label="Nome completo *" error={errors.full_name?.message}>
           <Input {...register("full_name")} autoFocus />
         </Field>
-        <Field label="Telefone" error={errors.phone?.message}>
-          <Input {...register("phone")} placeholder="(32) 99999-9999" />
-        </Field>
-        <Field label="Email" error={errors.email?.message}>
-          <Input type="email" {...register("email")} />
-        </Field>
         <Field label="Tipo">
           <select
             {...register("type")}
@@ -199,23 +205,42 @@ export function ContactFormDialog(props: Props) {
             <option value="other">Outro</option>
           </select>
         </Field>
+        <Field label="Telefone" error={errors.phone?.message}>
+          <Input {...register("phone")} placeholder="(21) 3333-4444 (fixo ou celular)" />
+        </Field>
+        <Field label="WhatsApp" error={errors.whatsapp?.message}>
+          <Input {...register("whatsapp")} placeholder="(21) 99999-9999" />
+        </Field>
+        <Field label="Email" error={errors.email?.message}>
+          <Input type="email" {...register("email")} />
+        </Field>
+        <Field label="Instagram" error={errors.instagram?.message}>
+          <Input {...register("instagram")} placeholder="@usuario" />
+        </Field>
+        <Field label="Facebook" error={errors.facebook?.message} className="sm:col-span-2">
+          <Input {...register("facebook")} placeholder="facebook.com/usuario ou nome do perfil" />
+        </Field>
+
+        <Field label="CEP" error={errors.cep?.message}>
+          <Input {...register("cep")} placeholder="00000-000" maxLength={9} />
+        </Field>
+        <Field label="UF" error={errors.state?.message}>
+          <Input {...register("state")} maxLength={2} placeholder="RJ" />
+        </Field>
         <Field
-          label="Endereço"
+          label="Endereço completo"
           error={errors.address?.message}
           className="sm:col-span-2"
         >
           <Input {...register("address")} placeholder="Rua, número, complemento" />
         </Field>
+        <Field label="Cidade" error={errors.city?.message}>
+          <Input {...register("city")} placeholder="Rio de Janeiro" />
+        </Field>
         <Field label="Bairro" error={errors.neighborhood?.message}>
           <Input {...register("neighborhood")} />
         </Field>
-        <Field label="Cidade" error={errors.city?.message}>
-          <Input {...register("city")} placeholder="Juiz de Fora" />
-        </Field>
-        <Field label="UF" error={errors.state?.message}>
-          <Input {...register("state")} maxLength={2} placeholder="MG" />
-        </Field>
-        <Field label="Aniversário" error={errors.birth_date?.message}>
+        <Field label="Aniversário" error={errors.birth_date?.message} className="sm:col-span-2">
           <Input type="date" {...register("birth_date")} />
         </Field>
 

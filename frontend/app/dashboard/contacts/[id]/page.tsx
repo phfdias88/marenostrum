@@ -9,7 +9,7 @@
  * Se qualquer um 404: contato nao existe ou pertence a outro tenant
  * (backend nao distingue por design — anti enumeration).
  */
-import { ArrowLeft, ClipboardList, MapPin, Pencil, Phone, RefreshCw } from "lucide-react";
+import { ArrowLeft, ClipboardList, Facebook, Instagram, MapPin, MessageCircle, Pencil, Phone, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -137,15 +137,34 @@ export default function ContactDetailPage() {
                 {contact.phone && (
                   <Field icon={Phone} label="Telefone" value={contact.phone} />
                 )}
+                {contact.whatsapp && (
+                  <Field icon={MessageCircle} label="WhatsApp" value={contact.whatsapp} />
+                )}
                 {contact.email && (
                   <Field label="Email" value={contact.email} />
                 )}
-                {(contact.address || contact.neighborhood) && (
+                {contact.instagram && (
+                  <Field
+                    icon={Instagram}
+                    label="Instagram"
+                    value={contact.instagram}
+                    href={instagramUrl(contact.instagram)}
+                  />
+                )}
+                {contact.facebook && (
+                  <Field
+                    icon={Facebook}
+                    label="Facebook"
+                    value={contact.facebook}
+                    href={facebookUrl(contact.facebook)}
+                  />
+                )}
+                {(contact.address || contact.neighborhood || contact.cep) && (
                   <Field
                     icon={MapPin}
                     label="Endereço"
                     value={
-                      [contact.address, contact.neighborhood]
+                      [contact.cep, contact.address, contact.neighborhood]
                         .filter(Boolean)
                         .join(" — ") || "—"
                     }
@@ -236,18 +255,46 @@ function Field({
   icon: Icon,
   label,
   value,
+  href,
 }: {
   icon?: typeof Phone;
   label: string;
   value: string;
+  href?: string | null;
 }) {
   return (
     <div className="flex items-start gap-2">
       {Icon && <Icon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />}
       <div className="min-w-0">
         <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="truncate">{value}</dd>
+        <dd className="truncate">
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              {value}
+            </a>
+          ) : (
+            value
+          )}
+        </dd>
       </div>
     </div>
   );
+}
+
+// Monta a URL da rede social a partir de "@usuario", "usuario" ou URL completa.
+function instagramUrl(v: string): string {
+  const s = v.trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://instagram.com/${s.replace(/^@/, "")}`;
+}
+function facebookUrl(v: string): string {
+  const s = v.trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.includes("facebook.com")) return `https://${s.replace(/^\/+/, "")}`;
+  return `https://facebook.com/${s.replace(/^@/, "")}`;
 }

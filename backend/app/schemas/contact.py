@@ -58,7 +58,11 @@ class ContactBase(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=150)
     email: EmailStr | None = None
     phone: str | None = Field(None, max_length=30)
+    whatsapp: str | None = Field(None, max_length=30)
+    instagram: str | None = Field(None, max_length=120)
+    facebook: str | None = Field(None, max_length=200)
 
+    cep: str | None = Field(None, max_length=9)
     address: str | None = Field(None, max_length=255)
     neighborhood: str | None = Field(None, max_length=100)
     city: str | None = Field(None, max_length=100)
@@ -111,6 +115,10 @@ class ContactUpdate(BaseModel):
     full_name: str | None = Field(None, min_length=2, max_length=150)
     email: EmailStr | None = None
     phone: str | None = Field(None, max_length=30)
+    whatsapp: str | None = Field(None, max_length=30)
+    instagram: str | None = Field(None, max_length=120)
+    facebook: str | None = Field(None, max_length=200)
+    cep: str | None = Field(None, max_length=9)
     address: str | None = Field(None, max_length=255)
     neighborhood: str | None = Field(None, max_length=100)
     city: str | None = Field(None, max_length=100)

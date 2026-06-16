@@ -7,6 +7,10 @@ export type Contact = {
   full_name: string;
   email: string | null;
   phone: string | null;
+  whatsapp: string | null;
+  instagram: string | null;
+  facebook: string | null;
+  cep: string | null;
   address: string | null;
   neighborhood: string | null;
   city: string | null;

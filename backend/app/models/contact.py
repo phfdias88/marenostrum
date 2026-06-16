@@ -30,9 +30,17 @@ class Contact(Base, TenantMixin, TimestampMixin):
     # Identidade
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    # phone = telefone (fixo ou celular). whatsapp separado: muita gente tem
+    # fixo no cadastro e o zap é outro número.
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    whatsapp: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # Redes sociais (handle "@fulano" ou URL completa — guardamos como veio).
+    instagram: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    facebook: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     # Endereco
+    cep: Mapped[str | None] = mapped_column(String(9), nullable=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     neighborhood: Mapped[str | None] = mapped_column(String(100), nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
