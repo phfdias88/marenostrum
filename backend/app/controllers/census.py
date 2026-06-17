@@ -319,24 +319,58 @@ def census_municipality_neighborhoods(
     db: Session = Depends(get_db),
 ) -> list[str]:
     pfx = _SIGLA_PREFIX.get(uf.upper())
-    if not pfx:
-        # Só temos censo do Sudeste — outras UFs caem no campo livre.
-        return []
+
+    # 1) Bairros REAIS do IBGE (nm_bairro preenchido) — só Sudeste tem censo.
+    #    Ignora distrito aqui de propósito: município que só tem distrito (ex:
+    #    Seropédica) cai pro TSE no passo 2.
+    ibge: list[str] = []
+    if pfx:
+        rows = db.execute(
+            text(
+                "SELECT DISTINCT s.nm_bairro AS nome "
+                "FROM census_geo s "
+                "WHERE s.level='setor' AND coalesce(s.nm_bairro,'') <> '' "
+                "  AND s.cd_mun = ("
+                "    SELECT g.cd_mun FROM census_geo g "
+                "    WHERE g.level='municipio' AND g.cd_mun LIKE :pfx "
+                "      AND upper(public.f_unaccent(g.nm_mun)) = upper(public.f_unaccent(:mname)) "
+                "    LIMIT 1) "
+                "ORDER BY nome"
+            ),
+            {"pfx": pfx + "%", "mname": municipio},
+        ).all()
+        ibge = [r.nome for r in rows if r.nome]
+    if ibge:
+        return ibge
+
+    # 2) Fallback TSE: bairros dos locais de votação. O TSE atualiza a cada
+    #    eleição (2 anos, vs 10 do IBGE) e cobre o Brasil inteiro — então
+    #    municípios sem bairro no IBGE (só distrito) ou fora do Sudeste ainda
+    #    ganham sugestões.
     rows = db.execute(
         text(
-            "SELECT DISTINCT "
-            "  CASE WHEN coalesce(s.nm_bairro,'') <> '' THEN s.nm_bairro "
-            "       ELSE s.nm_dist END AS nome "
-            "FROM census_geo s "
-            "WHERE s.level='setor' "
-            "  AND (coalesce(s.nm_bairro,'') <> '' OR coalesce(s.nm_dist,'') <> '') "
-            "  AND s.cd_mun = ("
-            "    SELECT g.cd_mun FROM census_geo g "
-            "    WHERE g.level='municipio' AND g.cd_mun LIKE :pfx "
-            "      AND upper(public.f_unaccent(g.nm_mun)) = upper(public.f_unaccent(:mname)) "
-            "    LIMIT 1) "
+            "SELECT DISTINCT tvp.neighborhood AS nome "
+            "FROM tse_voting_places tvp "
+            "JOIN tse_municipalities tm ON tm.id = tvp.municipality_id "
+            "WHERE tm.state = :uf "
+            "  AND upper(public.f_unaccent(tm.name)) = upper(public.f_unaccent(:mname)) "
+            "  AND coalesce(tvp.neighborhood,'') <> '' "
             "ORDER BY nome"
         ),
-        {"pfx": pfx + "%", "mname": municipio},
+        {"uf": uf.upper(), "mname": municipio},
     ).all()
-    return [r.nome for r in rows if r.nome]
+    # TSE vem em CAIXA ALTA — deixa "Title Case" (connectores em minúsculo)
+    # pra ficar igual ao padrão do IBGE.
+    return [_titlecase(r.nome) for r in rows if r.nome]
+
+
+_CONNECTORS = {"de", "da", "do", "das", "dos", "e", "di", "du", "no", "na"}
+
+
+def _titlecase(s: str) -> str:
+    words = s.lower().split()
+    out = [
+        w.capitalize() if (i == 0 or w not in _CONNECTORS) else w
+        for i, w in enumerate(words)
+    ]
+    return " ".join(out)
