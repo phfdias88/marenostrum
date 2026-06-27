@@ -87,9 +87,13 @@ class ContactService:
         ):
             raise ConflictError("Ja existe um contato com este telefone.")
 
+        data = payload.model_dump(exclude_none=False)
+        # Carimba quem cadastrou (liderança/membro) — pro owner filtrar depois.
+        data["created_by_user_id"] = self._ctx.user_id
+        data["created_by_name"] = self._ctx.user_name or None
         contact = self._repo.create(
             tenant_id=self._ctx.tenant_id,
-            data=payload.model_dump(exclude_none=False),
+            data=data,
         )
         self._ctx.db.commit()
 
@@ -121,8 +125,9 @@ class ContactService:
         offset: int = 0,
         search: str | None = None,
         tag: str | None = None,
+        created_by: UUID | None = None,
     ) -> tuple[list[Contact], int]:
-        """Retorna (items, total) com filtro opcional por nome (ILIKE) + tag."""
+        """Retorna (items, total) com filtro opcional por nome (ILIKE) + tag + autor."""
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
         # Normaliza: string vazia/whitespace = sem filtro
@@ -139,13 +144,20 @@ class ContactService:
             offset=offset,
             search=search,
             tag=tag,
+            created_by=created_by,
         )
         total = self._repo.count(
             tenant_id=self._ctx.tenant_id,
             search=search,
             tag=tag,
+            created_by=created_by,
         )
         return items, total
+
+    def list_creators(self) -> list[dict]:
+        """Quem já cadastrou contato (id + nome) — alimenta o filtro 'cadastrado por'."""
+        rows = self._repo.list_creators(tenant_id=self._ctx.tenant_id)
+        return [{"id": str(uid), "name": name} for uid, name in rows]
 
     # ----------------------------------------------------- Tags & Birthdays
 
@@ -244,9 +256,37 @@ class ContactService:
             else "contacts c"
         )
         cnt = "count(d.id)" if metric == "demands" else "count(*)"
+
+        # Posição da bolha:
+        #  - bairro: média das coordenadas dos contatos do grupo.
+        #  - local de votação: coordenada REAL do local (base TSE), resolvida
+        #    por município + nome do local. Assim a bolha aparece no ponto
+        #    exato mesmo que os contatos NÃO estejam geocodificados (bairro
+        #    conhecido não força marcar no mapa). LATERAL LIMIT 1 pega uma
+        #    coordenada por contato sem inflar a contagem; cai de volta na
+        #    coord do contato se o local não casar na base.
+        if group_by == "voting_place":
+            src += (
+                " LEFT JOIN LATERAL ("
+                "  SELECT tvp.latitude AS lat, tvp.longitude AS lng"
+                "  FROM tse_voting_places tvp"
+                "  JOIN tse_municipalities tm ON tm.id = tvp.municipality_id"
+                "  WHERE tm.state = c.state"
+                "    AND public.f_unaccent(tm.name) ILIKE public.f_unaccent(c.city)"
+                "    AND public.f_unaccent(tvp.name) ILIKE public.f_unaccent(c.voting_place)"
+                "    AND tvp.latitude IS NOT NULL AND tvp.longitude IS NOT NULL"
+                "  LIMIT 1"
+                ") vp ON true"
+            )
+            lat_expr = "avg(coalesce(vp.lat, c.latitude))"
+            lng_expr = "avg(coalesce(vp.lng, c.longitude))"
+        else:
+            lat_expr = "avg(c.latitude)"
+            lng_expr = "avg(c.longitude)"
+
         sql = (
             f"SELECT {key_expr} AS key, {cnt} AS cnt, "
-            f"  avg(c.latitude) AS lat, avg(c.longitude) AS lng "
+            f"  {lat_expr} AS lat, {lng_expr} AS lng "
             f"FROM {src} WHERE {where} "
             f"GROUP BY key ORDER BY cnt DESC LIMIT 200"
         )

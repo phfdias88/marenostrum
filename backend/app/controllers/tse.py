@@ -2397,3 +2397,48 @@ def tse_voting_places_lookup(
         }
         for p in rows
     ]
+
+
+@router.get(
+    "/municipality-center",
+    summary="Centro aproximado de um município (cadastro de contato)",
+    description=(
+        "Devolve o centro aproximado do município (média das coordenadas dos "
+        "locais de votação reais do TSE). Usado pra centralizar o mini-mapa do "
+        "cadastro quando o bairro é digitado livre — assim o mapa abre NO "
+        "município escolhido, não no centro do estado."
+    ),
+)
+def tse_municipality_center(
+    ctx: CurrentTenant,
+    state: str = Query(..., min_length=2, max_length=2),
+    municipio: str = Query(..., min_length=1, max_length=120),
+    db: Session = Depends(get_db),
+) -> dict:
+    muni = db.execute(
+        select(Municipality).where(
+            Municipality.state == state.upper(),
+            func.f_unaccent(Municipality.name).ilike(func.f_unaccent(municipio)),
+        )
+    ).scalars().first()
+    if muni is None:
+        return {"lat": None, "lng": None}
+    # Mediana (não média) + bounding-box do Brasil: alguns locais do TSE têm
+    # coordenada zerada/trocada e poluiriam a média (ex: Salvador caía no meio
+    # do Atlântico). A mediana é robusta a esses outliers; a bbox descarta
+    # pontos claramente fora do território.
+    row = db.execute(
+        select(
+            func.percentile_cont(0.5).within_group(TseVotingPlace.latitude),
+            func.percentile_cont(0.5).within_group(TseVotingPlace.longitude),
+        ).where(
+            TseVotingPlace.municipality_id == muni.id,
+            TseVotingPlace.latitude.is_not(None),
+            TseVotingPlace.longitude.is_not(None),
+            TseVotingPlace.latitude.between(-34.0, 6.0),
+            TseVotingPlace.longitude.between(-74.0, -34.0),
+        )
+    ).first()
+    if not row or row[0] is None or row[1] is None:
+        return {"lat": None, "lng": None}
+    return {"lat": float(row[0]), "lng": float(row[1])}

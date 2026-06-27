@@ -22,3 +22,13 @@ class TenantContext:
     tenant_id: UUID
     role: str
     db: Session
+    # Nome do usuário logado — usado pra carimbar "cadastrado por" no contato.
+    user_name: str = ""
+    # Feature-flags de acesso por área (owner sempre tem tudo — ver require_area).
+    # Defaults amplos pra nao restringir caso o contexto seja montado sem eles.
+    analytics_enabled: bool = True
+    panel_enabled: bool = True
+    map_enabled: bool = True
+    demands_enabled: bool = True
+    agenda_enabled: bool = True
+    census_enabled: bool = False

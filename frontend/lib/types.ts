@@ -23,9 +23,15 @@ export type Contact = {
   notes: string | null;
   /** Tags livres pra segmentação. Lowercase + slug ([a-z0-9_-], max 32). */
   tags: string[];
+  /** Quem cadastrou (liderança/membro) — null em contatos antigos. */
+  created_by_user_id: string | null;
+  created_by_name: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Quem já cadastrou contato (resposta de GET /v1/contacts/creators). */
+export type ContactCreator = { id: string; name: string };
 
 /** Tag + contagem (resposta de GET /v1/contacts/tags). */
 export type ContactTag = { tag: string; count: number };

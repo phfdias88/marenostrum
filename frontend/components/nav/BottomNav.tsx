@@ -23,16 +23,17 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-type Tab = { href: string; label: string; icon: LucideIcon };
+type Tab = { href: string; label: string; icon: LucideIcon; flag?: "analytics" | "panel" | "map" };
 
 // 4 atalhos principais + "Mais" no slot 5 (vai pra /dashboard com lista
 // completa). Conservador pro polegar — 5 it slot e o limite do padrao iOS.
+// `flag` = área configurável pelo owner (some da barra se desligada).
 const TABS: Tab[] = [
   { href: "/dashboard", label: "Início", icon: LayoutDashboard },
-  { href: "/dashboard/analises", label: "Análises", icon: BarChart3 },
-  { href: "/dashboard/analytics", label: "Painel", icon: LineChart },
+  { href: "/dashboard/analises", label: "Análises", icon: BarChart3, flag: "analytics" },
+  { href: "/dashboard/analytics", label: "Painel", icon: LineChart, flag: "panel" },
   { href: "/dashboard/contacts", label: "Contatos", icon: Users },
-  { href: "/dashboard/map", label: "Mapa", icon: MapPinned },
+  { href: "/dashboard/map", label: "Mapa", icon: MapPinned, flag: "map" },
 ];
 
 // Módulo Censo (IBGE) — só entra na barra se o owner liberou pro usuário.
@@ -41,12 +42,16 @@ const CENSO_TAB: Tab = { href: "/dashboard/censo", label: "Censo", icon: Layers 
 export function BottomNav({
   hidden = false,
   censusEnabled = false,
+  access,
 }: {
   hidden?: boolean;
   censusEnabled?: boolean;
+  // Acesso por área já resolvido pelo layout (owner || flag). Ausente = libera.
+  access?: { analytics: boolean; panel: boolean; map: boolean };
 }) {
   const pathname = usePathname();
-  const tabs = censusEnabled ? [...TABS, CENSO_TAB] : TABS;
+  const visible = TABS.filter((t) => !t.flag || !access || access[t.flag]);
+  const tabs = censusEnabled ? [...visible, CENSO_TAB] : visible;
 
   return (
     <nav
@@ -58,7 +63,10 @@ export function BottomNav({
       }
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.25rem)" }}
     >
-      <ul className={tabs.length === 6 ? "grid grid-cols-6" : "grid grid-cols-5"}>
+      <ul
+        className="grid"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+      >
         {tabs.map(({ href, label, icon: Icon }) => {
           const active =
             pathname === href ||

@@ -21,7 +21,10 @@ from app.core.security import (
 )
 from app.models.user import User, UserRole
 from app.schemas.auth import (
+    AccessFlagRequest,
     CensusFlagRequest,
+    ChangeRoleRequest,
+    SetPasswordRequest,
     ChangePasswordRequest,
     CreateUserRequest,
     CreateUserResponse,
@@ -46,6 +49,27 @@ class _ConflictError(DomainError):
 def _require_owner(ctx: CurrentTenant) -> None:
     if ctx.role != "owner":
         raise _ForbiddenError("Apenas o dono da campanha pode gerenciar a equipe.")
+
+
+def _require_team_admin(ctx: CurrentTenant) -> None:
+    """
+    Owner, Coordenador e Equipe podem GERENCIAR LIDERANÇAS (criar login só do
+    formulário). A própria liderança (volunteer) não — já bloqueada pelo
+    middleware, mas reforçamos aqui (defesa em profundidade).
+    """
+    if ctx.role not in ("owner", "manager", "staff"):
+        raise _ForbiddenError("Você não tem acesso ao gerenciamento de equipe.")
+
+
+def _require_can_manage(ctx: CurrentTenant, target: "User") -> None:
+    """
+    Quem não é Dono só pode mexer em LIDERANÇA (volunteer) — impede que
+    Coordenador/Equipe criem ou alterem Dono/Coordenador/Equipe (escalonamento).
+    """
+    if ctx.role != "owner" and target.role != UserRole.VOLUNTEER:
+        raise _ForbiddenError(
+            "Você só pode gerenciar lideranças (acesso ao formulário)."
+        )
 
 
 # Charset sem caracteres ambiguous (0/O, 1/l/I).
@@ -192,10 +216,12 @@ def list_users(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[UserListItem]:
-    _require_owner(ctx)
-    rows = db.execute(
-        select(User).where(User.tenant_id == ctx.tenant_id).order_by(User.created_at)
-    ).scalars().all()
+    _require_team_admin(ctx)
+    stmt = select(User).where(User.tenant_id == ctx.tenant_id)
+    # Coordenador/Equipe só enxergam as LIDERANÇAS (não a equipe inteira).
+    if ctx.role != "owner":
+        stmt = stmt.where(User.role == UserRole.VOLUNTEER)
+    rows = db.execute(stmt.order_by(User.created_at)).scalars().all()
     return [
         UserListItem(
             id=u.id,
@@ -204,6 +230,11 @@ def list_users(
             role=u.role.value if hasattr(u.role, "value") else str(u.role),
             is_active=u.is_active,
             census_enabled=bool(getattr(u, "census_enabled", False)),
+            analytics_enabled=bool(getattr(u, "analytics_enabled", True)),
+            panel_enabled=bool(getattr(u, "panel_enabled", True)),
+            map_enabled=bool(getattr(u, "map_enabled", True)),
+            demands_enabled=bool(getattr(u, "demands_enabled", True)),
+            agenda_enabled=bool(getattr(u, "agenda_enabled", True)),
             created_at=u.created_at,
         )
         for u in rows
@@ -235,7 +266,13 @@ def create_user(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
 ) -> CreateUserResponse:
-    _require_owner(ctx)
+    _require_team_admin(ctx)
+    # Coordenador/Equipe só podem cadastrar LIDERANÇA (acesso ao formulário).
+    # Só o Dono cria outros papéis — impede escalonamento de privilégio.
+    if ctx.role != "owner" and payload.role != "volunteer":
+        raise _ForbiddenError(
+            "Você só pode cadastrar lideranças (acesso ao formulário)."
+        )
 
     # Email unico por tenant.
     existing = db.execute(
@@ -282,12 +319,13 @@ def reset_user_password(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
 ) -> CreateUserResponse:
-    _require_owner(ctx)
+    _require_team_admin(ctx)
     user = db.execute(
         select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
     ).scalar_one_or_none()
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
+    _require_can_manage(ctx, user)
     if user.role == UserRole.OWNER and user.id != ctx.user_id:
         raise _ForbiddenError("Nao da pra resetar senha de outro owner.")
 
@@ -315,7 +353,7 @@ def deactivate_user(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    _require_owner(ctx)
+    _require_team_admin(ctx)
     if user_id == ctx.user_id:
         raise _ForbiddenError("Voce nao pode desativar a propria conta.")
     user = db.execute(
@@ -323,6 +361,7 @@ def deactivate_user(
     ).scalar_one_or_none()
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
+    _require_can_manage(ctx, user)
     if user.role == UserRole.OWNER:
         raise _ForbiddenError("Nao da pra desativar outro owner.")
     user.is_active = False
@@ -339,12 +378,13 @@ def reactivate_user(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    _require_owner(ctx)
+    _require_team_admin(ctx)
     user = db.execute(
         select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
     ).scalar_one_or_none()
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
+    _require_can_manage(ctx, user)
     user.is_active = True
     db.commit()
 
@@ -368,4 +408,135 @@ def set_census_flag(
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
     user.census_enabled = bool(payload.enabled)
+    db.commit()
+
+
+# Áreas configuráveis → coluna no modelo User.
+_ACCESS_COLUMN = {
+    "analytics": "analytics_enabled",
+    "panel": "panel_enabled",
+    "map": "map_enabled",
+    "demands": "demands_enabled",
+    "agenda": "agenda_enabled",
+    "census": "census_enabled",
+}
+
+
+@router.post(
+    "/users/{user_id}/access",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Liberar/bloquear o acesso de um membro a uma área (owner)",
+    description=(
+        "Liga/desliga, por usuário, o acesso a uma área do painel: "
+        "analytics (Análises/TSE), panel (Painel), map (Mapa), demands "
+        "(Demandas), agenda (Agenda) ou census (Censo). Só o owner controla."
+    ),
+)
+def set_access_flag(
+    user_id: UUID,
+    payload: AccessFlagRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    _require_owner(ctx)
+    user = db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("Usuario nao encontrado.")
+    setattr(user, _ACCESS_COLUMN[payload.area], bool(payload.enabled))
+    db.commit()
+
+
+@router.post(
+    "/users/{user_id}/role",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Mudar o papel de um membro (owner)",
+    description=(
+        "Promove/rebaixa um membro: owner (Administrador/Dono, acesso total + "
+        "gerencia equipe), manager (Coordenador), staff (Equipe) ou volunteer "
+        "(Liderança, só formulário). Só o owner pode, e não pode mudar o "
+        "próprio papel (evita se trancar fora)."
+    ),
+)
+def change_user_role(
+    user_id: UUID,
+    payload: ChangeRoleRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    _require_owner(ctx)
+    if user_id == ctx.user_id:
+        raise _ForbiddenError("Voce nao pode mudar o proprio papel.")
+    user = db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("Usuario nao encontrado.")
+    user.role = UserRole(payload.role)
+    db.commit()
+
+
+@router.post(
+    "/users/{user_id}/set-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Definir uma senha específica pra um membro (admin)",
+    description=(
+        "O admin DEFINE a senha do membro (mín. 8 caracteres) — diferente do "
+        "/reset-password, que gera uma aleatória. Owner mexe em qualquer membro "
+        "(menos outro owner); Coordenador/Equipe só em lideranças."
+    ),
+)
+def set_user_password(
+    user_id: UUID,
+    payload: SetPasswordRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    _require_team_admin(ctx)
+    user = db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("Usuario nao encontrado.")
+    _require_can_manage(ctx, user)
+    if user.role == UserRole.OWNER and user.id != ctx.user_id:
+        raise _ForbiddenError("Nao da pra definir senha de outro owner.")
+    user.hashed_password = hash_password(payload.password)
+    db.commit()
+
+
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Excluir um membro de vez (admin)",
+    description=(
+        "Remove o usuário PERMANENTEMENTE (diferente de desativar). Os contatos "
+        "que ele cadastrou continuam — o nome de quem cadastrou fica gravado, "
+        "mas o vínculo (filtro por autor) é perdido. Não dá pra excluir a "
+        "própria conta nem um Administrador (Dono): rebaixe o papel antes. "
+        "Coordenador/Equipe só excluem lideranças."
+    ),
+)
+def delete_user(
+    user_id: UUID,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    _require_team_admin(ctx)
+    if user_id == ctx.user_id:
+        raise _ForbiddenError("Voce nao pode excluir a propria conta.")
+    user = db.execute(
+        select(User).where(User.id == user_id, User.tenant_id == ctx.tenant_id)
+    ).scalar_one_or_none()
+    if user is None:
+        raise NotFoundError("Usuario nao encontrado.")
+    _require_can_manage(ctx, user)
+    if user.role == UserRole.OWNER:
+        raise _ForbiddenError(
+            "Nao da pra excluir um Administrador (Dono). Rebaixe o papel antes."
+        )
+    # FK contacts.created_by_user_id e' ON DELETE SET NULL — contatos ficam,
+    # so perdem o vinculo de autor (o nome denormalizado permanece).
+    db.delete(user)
     db.commit()

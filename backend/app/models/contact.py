@@ -7,9 +7,10 @@ Lat/lng como Float (double precision) — suficiente sem PostGIS no MVP.
 """
 import enum
 from datetime import date
+from uuid import UUID
 
 from sqlalchemy import Date, Enum as SAEnum
-from sqlalchemy import Float, Index, String, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -75,6 +76,15 @@ class Contact(Base, TenantMixin, TimestampMixin):
         default=ContactType.VOTER,
     )
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # Quem CADASTROU o contato (liderança/membro). Guardamos o id (FK, SET NULL
+    # se o usuário for removido) E o nome denormalizado — pro owner filtrar/
+    # exibir "cadastrado por" sem join e mesmo se o usuário sumir. Contatos
+    # antigos (antes deste campo) ficam com NULL → "—".
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
     # Soft delete: DELETE da API vira UPDATE is_active=False.
     # Mantem integridade referencial (interactions, demands continuam validos).

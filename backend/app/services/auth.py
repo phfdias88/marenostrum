@@ -86,4 +86,9 @@ class AuthService:
             tenant_slug=tenant.slug,
             tenant_name=tenant.name,
             census_enabled=bool(getattr(user, "census_enabled", False)),
+            analytics_enabled=bool(getattr(user, "analytics_enabled", True)),
+            panel_enabled=bool(getattr(user, "panel_enabled", True)),
+            map_enabled=bool(getattr(user, "map_enabled", True)),
+            demands_enabled=bool(getattr(user, "demands_enabled", True)),
+            agenda_enabled=bool(getattr(user, "agenda_enabled", True)),
         )

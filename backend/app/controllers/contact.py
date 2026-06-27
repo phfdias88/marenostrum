@@ -9,9 +9,9 @@ Responsabilidades:
 """
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, File, Query, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Response, UploadFile, status
 
-from app.core.dependencies import CurrentTenant
+from app.core.dependencies import CurrentTenant, require_area
 from app.core.errors import DomainError
 from app.schemas.contact import (
     BirthdayContact,
@@ -70,9 +70,13 @@ def list_contacts(
         description="Filtro por tag exata (use /contacts/tags pra listar disponíveis)",
         examples=["doador-2024", "lideranca"],
     ),
+    created_by: UUID | None = Query(
+        None,
+        description="Filtra por quem cadastrou (id do usuário; use /contacts/creators)",
+    ),
 ) -> Page[ContactRead]:
     items, total = ContactService(ctx).list_contacts(
-        limit=limit, offset=offset, search=search, tag=tag,
+        limit=limit, offset=offset, search=search, tag=tag, created_by=created_by,
     )
     return Page[ContactRead](
         items=[ContactRead.model_validate(c) for c in items],
@@ -96,6 +100,19 @@ def list_contacts(
 )
 def list_tags(ctx: CurrentTenant) -> list[TagItem]:
     return ContactService(ctx).list_tag_summary()
+
+
+@router.get(
+    "/creators",
+    response_model=list[dict],
+    summary="Quem já cadastrou contatos (pro filtro 'cadastrado por')",
+    description=(
+        "Lista os usuários (id + nome) que cadastraram pelo menos um contato "
+        "ativo no tenant. Alimenta o filtro 'cadastrado por' na lista de contatos."
+    ),
+)
+def list_contact_creators(ctx: CurrentTenant) -> list[dict]:
+    return ContactService(ctx).list_creators()
 
 
 # ------------------------------------------------------- Aniversariantes
@@ -145,6 +162,8 @@ def list_contacts_for_map(ctx: CurrentTenant) -> list[ContactRead]:
         "ou local de votação, com filtros (UF, município, bairro, tipo, tag). "
         "Cada grupo traz a posição média (bolha) e a contagem (gráfico)."
     ),
+    # Mapa da Campanha é configurável por usuário (owner sempre tem acesso).
+    dependencies=[Depends(require_area("map_enabled"))],
 )
 def contacts_map_aggregate(
     ctx: CurrentTenant,

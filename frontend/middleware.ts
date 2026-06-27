@@ -17,6 +17,8 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Tudo sob /dashboard exige autenticacao (inclui /contacts, /map, etc.)
-  matcher: ["/dashboard/:path*"],
+  // Tudo sob /dashboard exige autenticacao (inclui /contacts, /map, etc.).
+  // /cadastro é a área restrita da liderança (só o formulário) — também exige
+  // login.
+  matcher: ["/dashboard/:path*", "/cadastro/:path*"],
 };

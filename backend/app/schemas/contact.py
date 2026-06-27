@@ -146,6 +146,9 @@ class ContactRead(ContactBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    # Quem cadastrou (denormalizado) — pro frontend exibir/filtrar.
+    created_by_user_id: UUID | None = None
+    created_by_name: str | None = None
 
 
 # --------------------------------------------------------- Paginated response

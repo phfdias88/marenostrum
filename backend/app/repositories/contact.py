@@ -97,6 +97,7 @@ class ContactRepository:
         tenant_id: UUID,
         search: str | None = None,
         tag: str | None = None,
+        created_by: UUID | None = None,
     ) -> int:
         stmt = select(func.count(Contact.id)).where(
             Contact.tenant_id == tenant_id,
@@ -107,6 +108,8 @@ class ContactRepository:
         if tag:
             # tags @> '["x"]'::jsonb — bate indice GIN jsonb_path_ops
             stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
+        if created_by:
+            stmt = stmt.where(Contact.created_by_user_id == created_by)
         return int(self._db.execute(stmt).scalar_one())
 
     def list_paginated(
@@ -117,11 +120,13 @@ class ContactRepository:
         offset: int,
         search: str | None = None,
         tag: str | None = None,
+        created_by: UUID | None = None,
     ) -> list[Contact]:
         """
         Lista contatos ATIVOS do tenant.
         ILIKE no nome se search fornecido; case-insensitive.
         Filtro por tag usa contains (`tags @> '["x"]'`) — bate indice GIN.
+        Filtro por created_by = quem cadastrou (id do usuário).
         """
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
@@ -131,12 +136,31 @@ class ContactRepository:
             stmt = stmt.where(Contact.full_name.ilike(f"%{search}%"))
         if tag:
             stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
+        if created_by:
+            stmt = stmt.where(Contact.created_by_user_id == created_by)
         stmt = (
             stmt.order_by(Contact.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
         return list(self._db.execute(stmt).scalars().all())
+
+    def list_creators(self, *, tenant_id: UUID) -> list[tuple[UUID, str]]:
+        """Quem já cadastrou contato neste tenant (id + nome) — alimenta o filtro."""
+        stmt = (
+            select(
+                Contact.created_by_user_id,
+                func.max(Contact.created_by_name),
+            )
+            .where(
+                Contact.tenant_id == tenant_id,
+                Contact.is_active.is_(True),
+                Contact.created_by_user_id.is_not(None),
+            )
+            .group_by(Contact.created_by_user_id)
+        )
+        rows = self._db.execute(stmt).all()
+        return [(r[0], r[1] or "—") for r in rows]
 
     # ----------------------------------------------------- Tags & Birthdays
 

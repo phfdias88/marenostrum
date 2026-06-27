@@ -13,7 +13,7 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/hooks";
-import type { Contact, ContactTag, Page } from "@/lib/types";
+import type { Contact, ContactCreator, ContactTag, Page } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DataTable } from "@/components/ui/data-table";
@@ -47,12 +47,16 @@ export default function ContactsPage() {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [availableTags, setAvailableTags] = useState<ContactTag[]>([]);
 
+  // Filtro "cadastrado por" (id do usuário que criou o contato).
+  const [creatorFilter, setCreatorFilter] = useState<string | null>(null);
+  const [creators, setCreators] = useState<ContactCreator[]>([]);
+
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
   const load = useCallback(
-    async (page: number, searchTerm: string, tag: string | null) => {
+    async (page: number, searchTerm: string, tag: string | null, creator: string | null) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({
@@ -61,6 +65,7 @@ export default function ContactsPage() {
         });
         if (searchTerm.trim()) params.set("search", searchTerm.trim());
         if (tag) params.set("tag", tag);
+        if (creator) params.set("created_by", creator);
 
         const res = await api<Page<Contact>>(`/v1/contacts?${params}`);
         setData(res.items);
@@ -75,21 +80,24 @@ export default function ContactsPage() {
     [],
   );
 
-  // Reset para pagina 0 sempre que o termo de busca ou tag mudar
+  // Reset para pagina 0 sempre que busca, tag ou autor mudar
   useEffect(() => {
-    load(0, search, tagFilter);
-  }, [load, search, tagFilter]);
+    load(0, search, tagFilter, creatorFilter);
+  }, [load, search, tagFilter, creatorFilter]);
 
-  // Carrega tags disponiveis (chips de filtro rapido)
+  // Carrega tags + quem cadastrou (chips/filtros)
   useEffect(() => {
     api<ContactTag[]>("/v1/contacts/tags")
       .then(setAvailableTags)
       .catch(() => setAvailableTags([]));
+    api<ContactCreator[]>("/v1/contacts/creators")
+      .then(setCreators)
+      .catch(() => setCreators([]));
   }, []);
 
   const refresh = useCallback(
-    () => load(pageIndex, search, tagFilter),
-    [load, pageIndex, search, tagFilter],
+    () => load(pageIndex, search, tagFilter, creatorFilter),
+    [load, pageIndex, search, tagFilter, creatorFilter],
   );
 
   async function handleConfirmDelete() {
@@ -102,7 +110,7 @@ export default function ContactsPage() {
       // Se removeu o ultimo da pagina, recua uma pagina
       const newTotal = total - 1;
       const lastPage = Math.max(0, Math.ceil(newTotal / PAGE_SIZE) - 1);
-      load(Math.min(pageIndex, lastPage), search, tagFilter);
+      load(Math.min(pageIndex, lastPage), search, tagFilter, creatorFilter);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro ao excluir.");
     } finally {
@@ -150,14 +158,32 @@ export default function ContactsPage() {
 
       {/* Barra de busca + filtros tag */}
       <div className="space-y-3">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Buscar por nome..."
-            className="pl-9"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative max-w-sm flex-1 min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Buscar por nome..."
+              className="pl-9"
+            />
+          </div>
+          {/* Filtro por quem cadastrou (lideranças/membros) */}
+          {creators.length > 0 && (
+            <select
+              value={creatorFilter ?? ""}
+              onChange={(e) => setCreatorFilter(e.target.value || null)}
+              title="Filtrar por quem cadastrou"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="">Cadastrado por: todos</option>
+              {creators.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {(availableTags.length > 0 || tagFilter) && (
@@ -204,10 +230,10 @@ export default function ContactsPage() {
         total={total}
         pageSize={PAGE_SIZE}
         pageIndex={pageIndex}
-        onPageChange={(p) => load(p, search, tagFilter)}
+        onPageChange={(p) => load(p, search, tagFilter, creatorFilter)}
         isLoading={loading}
         emptyMessage={
-          search || tagFilter
+          search || tagFilter || creatorFilter
             ? `Nenhum contato encontrado com os filtros atuais.`
             : "Nenhum contato. Clique em 'Novo contato' para começar."
         }

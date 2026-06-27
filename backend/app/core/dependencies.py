@@ -65,8 +65,36 @@ def get_tenant_context(
         tenant_id=user.tenant_id,
         role=payload.role,
         db=db,
+        user_name=user.full_name,
+        analytics_enabled=bool(getattr(user, "analytics_enabled", True)),
+        panel_enabled=bool(getattr(user, "panel_enabled", True)),
+        map_enabled=bool(getattr(user, "map_enabled", True)),
+        demands_enabled=bool(getattr(user, "demands_enabled", True)),
+        agenda_enabled=bool(getattr(user, "agenda_enabled", True)),
+        census_enabled=bool(getattr(user, "census_enabled", False)),
     )
 
 
 # Alias tipado pronto para uso nas rotas: `ctx: CurrentTenant`
 CurrentTenant = Annotated[TenantContext, Depends(get_tenant_context)]
+
+
+_area_forbidden = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Seu acesso a esta área foi desativado pelo responsável da campanha.",
+)
+
+
+def require_area(attr: str):
+    """
+    Dependência de rota: 403 se o usuário (que NÃO é owner) tiver o acesso
+    daquela área desligado. O owner sempre passa. `attr` é o nome do flag no
+    TenantContext (ex.: "demands_enabled"). Usado via
+    `dependencies=[Depends(require_area("demands_enabled"))]` no include_router.
+    """
+
+    def _dep(ctx: CurrentTenant) -> None:
+        if ctx.role != "owner" and not getattr(ctx, attr, True):
+            raise _area_forbidden
+
+    return _dep

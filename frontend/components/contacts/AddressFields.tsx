@@ -122,6 +122,24 @@ export function AddressFields({
       .catch(() => setNbList([]));
   }, [value.state, value.city]);
 
+  // -------- Centro do município (pra centralizar o mini-mapa) --------
+  // Sem isso o mapa abria no centro da UF (ex: RJ → montanhas, longe do
+  // município). Buscamos a média das coordenadas dos locais de votação do TSE.
+  const [muniCenter, setMuniCenter] = useState<[number, number] | null>(null);
+
+  useEffect(() => {
+    setMuniCenter(null);
+    if (!value.state || !value.city) return;
+    const p = new URLSearchParams({ state: value.state, municipio: value.city });
+    api<{ lat: number | null; lng: number | null }>(
+      `/v1/tse/municipality-center?${p.toString()}`,
+    )
+      .then((c) => {
+        if (c.lat != null && c.lng != null) setMuniCenter([c.lat, c.lng]);
+      })
+      .catch(() => setMuniCenter(null));
+  }, [value.state, value.city]);
+
   // fecha dropdown de bairro ao clicar fora
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -348,7 +366,9 @@ export function AddressFields({
           </Label>
           <CoordinatePicker
             value={hasCoord ? { lat: value.latitude!, lng: value.longitude! } : null}
-            center={UF_CENTER[value.state] ?? BR_CENTER}
+            // Centro do município (TSE) quando já carregou; senão centro da UF.
+            center={muniCenter ?? UF_CENTER[value.state] ?? BR_CENTER}
+            zoom={muniCenter ? 13 : 9}
             onPick={(lat, lng) => patch({ latitude: lat, longitude: lng })}
           />
           {hasCoord && (

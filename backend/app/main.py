@@ -191,6 +191,52 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # ----------------------------------------- Acesso restrito da LIDERANÇA
+    # role=volunteer ("liderança") só pode usar o FORMULÁRIO de cadastro de
+    # contato. Default-deny: o token de liderança só passa numa allowlist
+    # enxuta (criar contato + as buscas que o formulário precisa). Tudo o mais
+    # (TSE, censo, mapas, listas, análises, demandas) responde 403.
+    #
+    # Esta é a trava REAL de segurança: mesmo que o frontend seja burlado, o
+    # token de liderança NÃO lê os dados privilegiados do político.
+    _VOLUNTEER_ALLOW = {
+        ("POST", "/api/v1/contacts"),                       # criar contato
+        ("GET", "/api/v1/contacts/tags"),                   # sugestões de tags
+        ("GET", "/api/v1/tse/municipalities"),              # cascata UF→município
+        ("GET", "/api/v1/tse/voting-places"),               # local de votação
+        ("GET", "/api/v1/tse/municipality-center"),         # centro do mapa
+        ("GET", "/api/v1/census/municipality-neighborhoods"),  # bairros
+        ("GET", "/api/v1/auth/me"),                         # nome + sessão
+        ("POST", "/api/v1/auth/change-password"),           # trocar senha
+    }
+
+    @app.middleware("http")
+    async def restrict_volunteer(request: Request, call_next):
+        # Normaliza a barra final; preflight CORS e rotas fora de /api/v1 passam.
+        path = request.url.path.rstrip("/") or "/"
+        method = request.method
+        if method == "OPTIONS" or not path.startswith("/api/v1/"):
+            return await call_next(request)
+        auth = request.headers.get("authorization", "")
+        if auth[:7].lower() == "bearer ":
+            from jose import JWTError
+
+            from app.core.security import decode_access_token
+
+            try:
+                role = getattr(decode_access_token(auth[7:]), "role", None)
+            except JWTError:
+                role = None  # token inválido/expirado: deixa a rota dar 401
+            if role == "volunteer" and (method, path) not in _VOLUNTEER_ALLOW:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "code": "forbidden",
+                        "message": "Acesso de liderança: somente o cadastro de contatos.",
+                    },
+                )
+        return await call_next(request)
+
     # Cache HTTP — dados publicos do TSE sao historicos, browser pode reutilizar
     # por horas. Reduz round-trips e libera CPU no backend.
     # Importante: SO em GET, e SO em /v1/tse/*, evitando vazar cache em

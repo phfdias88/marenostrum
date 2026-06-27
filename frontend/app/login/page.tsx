@@ -38,7 +38,9 @@ function LoginForm() {
         body: { tenant_slug: tenantSlug, email, password },
       });
       saveAuth(data);
-      router.push(nextUrl);
+      // Liderança (acesso restrito) cai direto no formulário de cadastro;
+      // não tem dashboard. Os demais papéis seguem pro destino normal.
+      router.push(data.role === "volunteer" ? "/cadastro" : nextUrl);
     } catch (err) {
       setError(
         err instanceof ApiError ? err.message : "Erro inesperado, tente novamente.",

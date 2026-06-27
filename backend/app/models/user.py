@@ -40,6 +40,14 @@ class User(Base, TenantMixin, TimestampMixin):
     # Feature-flag: libera o módulo de Dados Censitários (IBGE) no menu do
     # usuário. Controlado pelo owner em Configurações > Equipe.
     census_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Acesso por área, configurável pelo owner por usuário (Coordenador/Equipe).
+    # Default TRUE — mantém o acesso amplo que já existia; o owner desliga o que
+    # quiser por pessoa. O owner sempre tem tudo (não é restringido por flag).
+    analytics_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)  # Análises (TSE)
+    panel_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)      # Painel
+    map_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)        # Mapa da Campanha
+    demands_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)    # Demandas
+    agenda_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)     # Agenda
 
     # Quando o subclass define __table_args__, ele substitui o do mixin.
     # Aqui combinamos: indice composto + unicidade do email por tenant.

@@ -106,6 +106,16 @@ export function makeContactColumns({
       },
     },
     {
+      id: "created_by",
+      header: "Cadastrado por",
+      cell: ({ row }) =>
+        row.original.created_by_name ? (
+          <span className="text-xs text-foreground">{row.original.created_by_name}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
       id: "geo",
       header: "Geo",
       cell: ({ row }) =>

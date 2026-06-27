@@ -4,8 +4,11 @@
  * /dashboard/map — Mapa da Campanha.
  *
  * Layout: mapa à esquerda (bolhas por bairro/local de votação), filtros +
- * gráfico de barras à direita. Métrica alterna contatos ↔ demandas; agrupa
- * por bairro ↔ local de votação; filtros por UF, município, bairro, tipo, tag.
+ * gráficos à direita. O toggle de métrica controla quais bolhas o MAPA mostra
+ * (contatos ↔ demandas); os DOIS gráficos de barras (contatos e demandas)
+ * aparecem sempre, um abaixo do outro, pra comparar sem precisar alternar.
+ * Agrupa por bairro ↔ local de votação; filtros por UF, município, bairro,
+ * tipo, tag.
  *
  * CampaignMap é importado via next/dynamic({ssr:false}) — Leaflet usa window.
  */
@@ -53,7 +56,10 @@ export default function MapPage() {
   const cityD = useDebounce(city, 400);
   const nbD = useDebounce(neighborhood, 400);
 
-  const [groups, setGroups] = useState<MapGroup[]>([]);
+  // Busca contatos E demandas sempre — o mapa usa a métrica do toggle, mas os
+  // dois gráficos aparecem juntos.
+  const [contactGroups, setContactGroups] = useState<MapGroup[]>([]);
+  const [demandGroups, setDemandGroups] = useState<MapGroup[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -65,23 +71,27 @@ export default function MapPage() {
 
   useEffect(() => {
     setLoading(true);
-    const p = new URLSearchParams({ metric, group_by: groupBy });
-    if (uf) p.set("state", uf);
-    if (cityD.trim()) p.set("city", cityD.trim());
-    if (nbD.trim()) p.set("neighborhood", nbD.trim());
-    if (type) p.set("type", type);
-    if (tag) p.set("tag", tag);
-    api<MapGroup[]>(`/v1/contacts/map-aggregate?${p.toString()}`)
-      .then(setGroups)
-      .catch(() => setGroups([]))
+    const base = new URLSearchParams({ group_by: groupBy });
+    if (uf) base.set("state", uf);
+    if (cityD.trim()) base.set("city", cityD.trim());
+    if (nbD.trim()) base.set("neighborhood", nbD.trim());
+    if (type) base.set("type", type);
+    if (tag) base.set("tag", tag);
+    const url = (m: Metric) =>
+      `/v1/contacts/map-aggregate?${base.toString()}&metric=${m}`;
+    Promise.all([api<MapGroup[]>(url("contacts")), api<MapGroup[]>(url("demands"))])
+      .then(([c, d]) => {
+        setContactGroups(c);
+        setDemandGroups(d);
+      })
+      .catch(() => {
+        setContactGroups([]);
+        setDemandGroups([]);
+      })
       .finally(() => setLoading(false));
-  }, [metric, groupBy, uf, cityD, nbD, type, tag]);
+  }, [groupBy, uf, cityD, nbD, type, tag]);
 
-  const total = useMemo(() => groups.reduce((s, g) => s + g.count, 0), [groups]);
-  const max = useMemo(() => Math.max(1, ...groups.map((g) => g.count)), [groups]);
-  const top = groups.slice(0, 15);
-  const noCoords = groups.filter((g) => g.lat == null).reduce((s, g) => s + g.count, 0);
-
+  const mapGroups = metric === "contacts" ? contactGroups : demandGroups;
   const metricLabel = metric === "contacts" ? "contatos" : "demandas";
   const groupLabel = groupBy === "neighborhood" ? "bairro" : "local de votação";
 
@@ -97,7 +107,7 @@ export default function MapPage() {
     <div className="flex flex-col lg:flex-row gap-4 p-3 sm:p-4 lg:h-[calc(100dvh-3.5rem)]">
       {/* Mapa */}
       <div className="h-[55vh] lg:h-auto shrink-0 lg:flex-1 rounded-xl overflow-hidden border border-border relative">
-        <CampaignMap groups={groups} metricLabel={metricLabel} />
+        <CampaignMap groups={mapGroups} metricLabel={metricLabel} />
         {loading && (
           <div className="absolute top-3 left-3 z-[500] bg-card/90 border border-border rounded-md px-2.5 py-1 text-xs flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" /> atualizando…
@@ -105,12 +115,12 @@ export default function MapPage() {
         )}
       </div>
 
-      {/* Painel: filtros + gráfico */}
+      {/* Painel: filtros + gráficos */}
       <aside className="lg:w-[360px] shrink-0 flex flex-col gap-3 lg:overflow-y-auto">
-        {/* Métrica + agrupamento */}
+        {/* Métrica (bolhas do mapa) + agrupamento */}
         <div className="rounded-xl border border-border bg-card p-3 space-y-3">
           <Toggle
-            label="Visualizar"
+            label="Bolhas do mapa"
             value={metric}
             onChange={(v) => setMetric(v as Metric)}
             options={[
@@ -160,56 +170,101 @@ export default function MapPage() {
           )}
         </div>
 
-        {/* Gráfico de barras */}
-        <div className="rounded-xl border border-border bg-card p-3 flex-1 min-h-[200px]">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1.5">
-              <MapPinned className="w-3.5 h-3.5" /> {metricLabel} por {groupLabel}
-            </p>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {numberFmt.format(total)} no total
-            </span>
-          </div>
-          {top.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              {loading ? "Carregando…" : "Nenhum dado com os filtros atuais."}
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {top.map((g) => (
-                <li key={g.key}>
-                  <div className="flex items-center justify-between gap-2 text-sm">
-                    <span className="truncate" title={g.key}>
-                      {g.key}
-                      {g.lat == null && (
-                        <span className="text-[10px] text-muted-foreground ml-1">(sem mapa)</span>
-                      )}
-                    </span>
-                    <span className="font-mono text-xs shrink-0 tabular-nums">{numberFmt.format(g.count)}</span>
-                  </div>
-                  <div className="mt-1 h-2 rounded-full bg-muted/50 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 transition-[width] duration-500"
-                      style={{ width: `${(g.count / max) * 100}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {noCoords > 0 && (
-            <p className="text-[11px] text-muted-foreground mt-3 pt-2 border-t border-border">
-              {numberFmt.format(noCoords)} {metricLabel} sem localização não
-              aparecem como bolha (cadastre o endereço/coordenada).
-            </p>
-          )}
-        </div>
+        {/* Gráfico — Contatos por grupo */}
+        <BarCard
+          title={`Contatos por ${groupLabel}`}
+          icon={<Users className="w-3.5 h-3.5" />}
+          groups={contactGroups}
+          metricLabel="contatos"
+          loading={loading}
+          accent="from-amber-300 via-primary to-amber-500"
+        />
+
+        {/* Gráfico — Demandas por grupo (pedido do gabinete) */}
+        <BarCard
+          title={`Demandas por ${groupLabel}`}
+          icon={<BarChart3 className="w-3.5 h-3.5" />}
+          groups={demandGroups}
+          metricLabel="demandas"
+          loading={loading}
+          accent="from-sky-300 via-sky-400 to-sky-600"
+          emptyHint="Nenhuma demanda cadastrada ainda — registre demandas nos contatos pra vê-las aqui."
+        />
       </aside>
     </div>
   );
 }
 
 // ----------------------------------------------------- subcomponentes
+
+function BarCard({
+  title,
+  icon,
+  groups,
+  metricLabel,
+  loading,
+  accent,
+  emptyHint,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  groups: MapGroup[];
+  metricLabel: string;
+  loading: boolean;
+  accent: string;
+  emptyHint?: string;
+}) {
+  const total = useMemo(() => groups.reduce((s, g) => s + g.count, 0), [groups]);
+  const max = useMemo(() => Math.max(1, ...groups.map((g) => g.count)), [groups]);
+  const top = groups.slice(0, 15);
+  const noCoords = groups.filter((g) => g.lat == null).reduce((s, g) => s + g.count, 0);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-3 flex-1 min-h-[180px]">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1.5">
+          {icon} {title}
+        </p>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {numberFmt.format(total)} no total
+        </span>
+      </div>
+      {top.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-6 text-center">
+          {loading ? "Carregando…" : emptyHint ?? "Nenhum dado com os filtros atuais."}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {top.map((g) => (
+            <li key={g.key}>
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate" title={g.key}>
+                  {g.key}
+                  {g.lat == null && (
+                    <span className="text-[10px] text-muted-foreground ml-1">(sem mapa)</span>
+                  )}
+                </span>
+                <span className="font-mono text-xs shrink-0 tabular-nums">{numberFmt.format(g.count)}</span>
+              </div>
+              <div className="mt-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full bg-gradient-to-r transition-[width] duration-500", accent)}
+                  style={{ width: `${(g.count / max) * 100}%` }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {noCoords > 0 && (
+        <p className="text-[11px] text-muted-foreground mt-3 pt-2 border-t border-border">
+          {numberFmt.format(noCoords)} {metricLabel} sem localização não
+          aparecem como bolha (cadastre o endereço/coordenada).
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Toggle({
   label,

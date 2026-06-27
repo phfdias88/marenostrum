@@ -103,6 +103,12 @@ class MeResponse(BaseModel):
     tenant_slug: str
     tenant_name: str
     census_enabled: bool = False
+    # Acesso por área (configurável pelo owner). Default amplo.
+    analytics_enabled: bool = True
+    panel_enabled: bool = True
+    map_enabled: bool = True
+    demands_enabled: bool = True
+    agenda_enabled: bool = True
     # Sessão deslizante: quando o token atual passa da metade da validade,
     # /me devolve um novo aqui e o frontend troca o cookie em silêncio —
     # quem usa o sistema regularmente nunca é derrubado pro /login.
@@ -114,6 +120,20 @@ class MeResponse(BaseModel):
 
 
 TeamRole = Literal["manager", "staff", "volunteer"]
+
+# Papéis que o owner pode ATRIBUIR a um membro existente (inclui owner =
+# "Administrador / Dono", que dá acesso total + gestão da equipe).
+AssignableRole = Literal["owner", "manager", "staff", "volunteer"]
+
+
+class ChangeRoleRequest(BaseModel):
+    """Troca o papel de um membro (apenas owner)."""
+    role: AssignableRole
+
+
+class SetPasswordRequest(BaseModel):
+    """Admin define uma senha específica pra um membro (mín. 8 caracteres)."""
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class CreateUserRequest(BaseModel):
@@ -152,9 +172,24 @@ class UserListItem(BaseModel):
     role: str
     is_active: bool
     census_enabled: bool = False
+    analytics_enabled: bool = True
+    panel_enabled: bool = True
+    map_enabled: bool = True
+    demands_enabled: bool = True
+    agenda_enabled: bool = True
     created_at: datetime
 
 
 class CensusFlagRequest(BaseModel):
     """Liga/desliga o módulo Censo para um membro."""
+    enabled: bool
+
+
+# Áreas configuráveis pelo owner por usuário (acesso a seções do painel).
+AccessArea = Literal["analytics", "panel", "map", "demands", "agenda", "census"]
+
+
+class AccessFlagRequest(BaseModel):
+    """Liga/desliga o acesso de um membro a uma área do painel."""
+    area: AccessArea
     enabled: bool

@@ -9,7 +9,8 @@
  */
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapContainer, Marker, useMapEvents } from "react-leaflet";
+import { useEffect, useRef } from "react";
+import { MapContainer, Marker, useMap, useMapEvents } from "react-leaflet";
 
 import { ThemedTileLayer } from "./ThemedTileLayer";
 
@@ -35,6 +36,32 @@ function ClickCapture({ onPick }: { onPick: (lat: number, lng: number) => void }
   return null;
 }
 
+// O `center` (centro do município) costuma chegar via fetch DEPOIS que o mapa
+// montou (que abre no centro da UF como fallback). react-leaflet não recentra
+// sozinho quando a prop muda — então recentramos aqui, mas só enquanto NÃO há
+// ponto marcado (pra não puxar o mapa de volta depois que o usuário clicou).
+function RecenterOnChange({
+  center,
+  zoom,
+  hasValue,
+}: {
+  center: [number, number];
+  zoom: number;
+  hasValue: boolean;
+}) {
+  const map = useMap();
+  const key = `${center[0]},${center[1]}`;
+  const prev = useRef<string>("");
+  useEffect(() => {
+    if (hasValue) return;
+    if (prev.current === key) return;
+    prev.current = key;
+    map.setView(center, zoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, hasValue]);
+  return null;
+}
+
 export default function CoordinatePicker({
   value,
   center,
@@ -55,6 +82,7 @@ export default function CoordinatePicker({
     >
       <ThemedTileLayer />
       <ClickCapture onPick={onPick} />
+      <RecenterOnChange center={center} zoom={zoom} hasValue={!!value} />
       {value && <Marker position={[value.lat, value.lng]} icon={pinIcon} />}
     </MapContainer>
   );

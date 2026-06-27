@@ -19,6 +19,7 @@ import {
   Power,
   RefreshCcw,
   ShieldCheck,
+  Trash2,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -38,8 +39,24 @@ type TeamUser = {
   role: string;
   is_active: boolean;
   census_enabled?: boolean;
+  analytics_enabled?: boolean;
+  panel_enabled?: boolean;
+  map_enabled?: boolean;
+  demands_enabled?: boolean;
+  agenda_enabled?: boolean;
   created_at: string;
 };
+
+// Áreas configuráveis pelo owner por usuário. `area` bate com o backend
+// (/users/{id}/access), `flag` é a chave no TeamUser.
+const ACCESS_AREAS: { area: string; flag: keyof TeamUser; label: string }[] = [
+  { area: "analytics", flag: "analytics_enabled", label: "Análises" },
+  { area: "panel", flag: "panel_enabled", label: "Painel" },
+  { area: "map", flag: "map_enabled", label: "Mapa" },
+  { area: "demands", flag: "demands_enabled", label: "Demandas" },
+  { area: "agenda", flag: "agenda_enabled", label: "Agenda" },
+  { area: "census", flag: "census_enabled", label: "Censo" },
+];
 
 type CreatedUser = {
   id: string;
@@ -51,10 +68,10 @@ type CreatedUser = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
-  owner: "Candidato / Dono",
+  owner: "Administrador (Dono)",
   manager: "Coordenador",
   staff: "Equipe",
-  volunteer: "Voluntário",
+  volunteer: "Liderança (só formulário)",
 };
 
 export default function SettingsPage() {
@@ -82,7 +99,11 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         <ChangePasswordCard />
-        {me?.role === "owner" && <TeamCard />}
+        {/* Dono/Coordenador/Equipe gerenciam equipe. Coordenador e Equipe só
+            cadastram LIDERANÇA (volunteer); o Dono cria qualquer papel. */}
+        {me && me.role !== "volunteer" && (
+          <TeamCard isOwner={me.role === "owner"} meId={me.user_id} />
+        )}
       </div>
     </div>
   );
@@ -182,7 +203,7 @@ function ChangePasswordCard() {
 
 // ============================================================ team
 
-function TeamCard() {
+function TeamCard({ isOwner, meId }: { isOwner: boolean; meId: string }) {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -207,15 +228,20 @@ function TeamCard() {
             <Users className="w-5 h-5" />
           </span>
           <div>
-            <h2 className="font-semibold">Equipe da campanha</h2>
+            <h2 className="font-semibold">
+              {isOwner ? "Equipe da campanha" : "Lideranças"}
+            </h2>
             <p className="text-xs text-muted-foreground">
-              Crie contas pra coordenadores, equipe e voluntários.
+              {isOwner
+                ? "Crie contas pra coordenadores, equipe e lideranças."
+                : "Crie logins de liderança — acesso só ao formulário de cadastro."}
             </p>
           </div>
         </div>
         {!showForm && !created && (
           <Button size="sm" onClick={() => setShowForm(true)}>
-            <UserPlus className="w-4 h-4" /> Convidar
+            <UserPlus className="w-4 h-4" />{" "}
+            {isOwner ? "Convidar" : "Cadastrar liderança"}
           </Button>
         )}
       </div>
@@ -223,6 +249,7 @@ function TeamCard() {
       {/* Form criar */}
       {showForm && !created && (
         <InviteForm
+          isOwner={isOwner}
           onCancel={() => setShowForm(false)}
           onCreated={(u) => {
             setCreated(u);
@@ -249,11 +276,22 @@ function TeamCard() {
         )}
         {!loading && users.length === 0 && (
           <div className="p-6 text-center text-sm text-muted-foreground">
-            Nenhum membro além de você ainda. Clique em <strong>Convidar</strong>.
+            {isOwner ? (
+              <>Nenhum membro além de você ainda. Clique em <strong>Convidar</strong>.</>
+            ) : (
+              <>Nenhuma liderança cadastrada ainda. Clique em <strong>Cadastrar liderança</strong>.</>
+            )}
           </div>
         )}
         {users.map((u) => (
-          <UserRow key={u.id} user={u} onChanged={load} onReset={setCreated} />
+          <UserRow
+            key={u.id}
+            user={u}
+            isOwner={isOwner}
+            meId={meId}
+            onChanged={load}
+            onReset={setCreated}
+          />
         ))}
       </div>
     </section>
@@ -261,15 +299,20 @@ function TeamCard() {
 }
 
 function InviteForm({
+  isOwner,
   onCancel,
   onCreated,
 }: {
+  isOwner: boolean;
   onCancel: () => void;
   onCreated: (u: CreatedUser) => void;
 }) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
-  const [role, setRole] = useState<"manager" | "staff" | "volunteer">("staff");
+  // Não-owner só cadastra liderança — papel fixo em "volunteer".
+  const [role, setRole] = useState<"manager" | "staff" | "volunteer">(
+    isOwner ? "staff" : "volunteer",
+  );
   const [saving, setSaving] = useState(false);
 
   const canSubmit =
@@ -330,15 +373,22 @@ function InviteForm({
         <label className="text-xs uppercase tracking-wider text-muted-foreground">
           Papel
         </label>
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value as typeof role)}
-          className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
-        >
-          <option value="manager">Coordenador (acesso amplo)</option>
-          <option value="staff">Equipe (padrão)</option>
-          <option value="volunteer">Voluntário (acesso limitado)</option>
-        </select>
+        {isOwner ? (
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as typeof role)}
+            className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            <option value="manager">Coordenador (acesso amplo)</option>
+            <option value="staff">Equipe (padrão)</option>
+            <option value="volunteer">Liderança — só o formulário de cadastro</option>
+          </select>
+        ) : (
+          // Coordenador/Equipe só criam liderança — papel fixo, sem escolha.
+          <p className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border text-sm text-muted-foreground">
+            Liderança — acesso só ao formulário de cadastro
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-2 pt-2">
         <Button type="submit" disabled={!canSubmit}>
@@ -414,14 +464,35 @@ function TempPasswordCard({
 
 function UserRow({
   user,
+  isOwner,
+  meId,
   onChanged,
   onReset,
 }: {
   user: TeamUser;
+  isOwner: boolean;
+  meId: string;
   onChanged: () => void;
   onReset: (u: CreatedUser) => void;
 }) {
   const [busy, setBusy] = useState(false);
+
+  async function changeRole(role: string) {
+    if (busy || role === user.role) return;
+    setBusy(true);
+    try {
+      await api<null>(`/v1/auth/users/${user.id}/role`, {
+        method: "POST",
+        body: { role },
+      });
+      toast.success(`${user.full_name} agora é ${ROLE_LABELS[role] ?? role}.`);
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Erro ao mudar papel.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function resetPassword() {
     if (busy) return;
@@ -435,6 +506,30 @@ function UserRow({
       onReset(u);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro ao resetar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setSpecificPassword() {
+    if (busy) return;
+    const pwd = window.prompt(
+      `Definir nova senha para ${user.full_name} (mínimo 8 caracteres):`,
+    );
+    if (pwd == null) return; // cancelou
+    if (pwd.trim().length < 8) {
+      toast.error("A senha precisa ter no mínimo 8 caracteres.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api<null>(`/v1/auth/users/${user.id}/set-password`, {
+        method: "POST",
+        body: { password: pwd },
+      });
+      toast.success(`Senha de ${user.full_name} definida.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Erro ao definir senha.");
     } finally {
       setBusy(false);
     }
@@ -457,15 +552,36 @@ function UserRow({
     }
   }
 
-  async function toggleCensus() {
+  async function deleteUser() {
+    if (busy) return;
+    if (
+      !confirm(
+        `EXCLUIR ${user.full_name} permanentemente? Esta ação não pode ser desfeita. ` +
+          `Os contatos que essa pessoa cadastrou continuam (o nome fica registrado).`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api<null>(`/v1/auth/users/${user.id}`, { method: "DELETE" });
+      toast.success(`${user.full_name} excluído.`);
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Erro ao excluir.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleArea(area: string, current: boolean, label: string) {
     if (busy) return;
     setBusy(true);
     try {
-      await api<null>(`/v1/auth/users/${user.id}/census`, {
+      await api<null>(`/v1/auth/users/${user.id}/access`, {
         method: "POST",
-        body: { enabled: !user.census_enabled },
+        body: { area, enabled: !current },
       });
-      toast.success(user.census_enabled ? "Censo bloqueado." : "Censo liberado.");
+      toast.success(current ? `${label} bloqueado.` : `${label} liberado.`);
       onChanged();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro.");
@@ -474,61 +590,115 @@ function UserRow({
     }
   }
 
+  // Toggles de acesso por área: só o Dono configura, e só pra Coordenador/
+  // Equipe (Liderança é só-formulário; o Dono não se autoconfigura).
+  const showAccess =
+    isOwner && (user.role === "manager" || user.role === "staff");
+
   return (
-    <div className="px-4 py-3 flex items-center gap-3">
-      <div className="flex-1 min-w-0">
-        <p className="font-medium truncate flex items-center gap-2">
-          <span className="truncate">{user.full_name}</span>
-          {!user.is_active && (
-            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-              desativado
-            </span>
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate flex items-center gap-2">
+            <span className="truncate">{user.full_name}</span>
+            {!user.is_active && (
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                desativado
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {user.email} · {ROLE_LABELS[user.role] ?? user.role}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Mudar papel — só o Dono, e não no próprio usuário (evita
+              se trancar fora). Promover a "Administrador (Dono)" dá acesso
+              total + gestão da equipe. */}
+          {isOwner && user.id !== meId && (
+            <select
+              value={user.role}
+              onChange={(e) => changeRole(e.target.value)}
+              disabled={busy}
+              title="Mudar papel do membro"
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
+            >
+              <option value="owner">Administrador (Dono)</option>
+              <option value="manager">Coordenador</option>
+              <option value="staff">Equipe</option>
+              <option value="volunteer">Liderança</option>
+            </select>
           )}
-        </p>
-        <p className="text-xs text-muted-foreground truncate">
-          {user.email} · {ROLE_LABELS[user.role] ?? user.role}
-        </p>
+          {user.role !== "owner" && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={setSpecificPassword}
+                disabled={busy}
+                title="Definir senha (você escolhe)"
+                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-accent/50 transition-colors disabled:opacity-50"
+              >
+                <KeyRound className="w-4 h-4" />
+              </button>
+              <button
+                onClick={resetPassword}
+                disabled={busy}
+                title="Gerar senha aleatória"
+                className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-accent/50 transition-colors disabled:opacity-50"
+              >
+                <RefreshCcw className="w-4 h-4" />
+              </button>
+              <button
+                onClick={toggleActive}
+                disabled={busy}
+                title={user.is_active ? "Desativar" : "Reativar"}
+                className={
+                  "p-1.5 rounded hover:bg-accent/50 transition-colors disabled:opacity-50 " +
+                  (user.is_active
+                    ? "text-muted-foreground hover:text-rose-400"
+                    : "text-emerald-400 hover:text-emerald-300")
+                }
+              >
+                {user.is_active ? <Power className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={deleteUser}
+                disabled={busy}
+                title="Excluir de vez"
+                className="p-1.5 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Liberação do módulo Censo (IBGE) — vale pra qualquer membro, inclusive o owner */}
-      <button
-        onClick={toggleCensus}
-        disabled={busy}
-        title={user.census_enabled ? "Censo liberado — clique para bloquear" : "Liberar o módulo Censo para este usuário"}
-        className={
-          "shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-50 " +
-          (user.census_enabled
-            ? "border-primary bg-primary/15 text-primary font-semibold"
-            : "border-border text-muted-foreground hover:border-primary/50")
-        }
-      >
-        <Layers className="w-3.5 h-3.5" />
-        Censo {user.census_enabled ? "✓" : ""}
-      </button>
-
-      {user.role !== "owner" && (
-        <div className="flex items-center gap-1">
-          <button
-            onClick={resetPassword}
-            disabled={busy}
-            title="Resetar senha"
-            className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-accent/50 transition-colors disabled:opacity-50"
-          >
-            <RefreshCcw className="w-4 h-4" />
-          </button>
-          <button
-            onClick={toggleActive}
-            disabled={busy}
-            title={user.is_active ? "Desativar" : "Reativar"}
-            className={
-              "p-1.5 rounded hover:bg-accent/50 transition-colors disabled:opacity-50 " +
-              (user.is_active
-                ? "text-muted-foreground hover:text-rose-400"
-                : "text-emerald-400 hover:text-emerald-300")
-            }
-          >
-            {user.is_active ? <Power className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-          </button>
+      {/* Acessos por área — o Dono liga/desliga cada seção por pessoa. */}
+      {showAccess && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground mr-0.5 inline-flex items-center gap-1">
+            <Layers className="w-3 h-3" /> Acessos:
+          </span>
+          {ACCESS_AREAS.map(({ area, flag, label }) => {
+            const on = !!user[flag];
+            return (
+              <button
+                key={area}
+                onClick={() => toggleArea(area, on, label)}
+                disabled={busy}
+                title={on ? `${label} liberado — clique para bloquear` : `Liberar ${label}`}
+                className={
+                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] transition-colors disabled:opacity-50 " +
+                  (on
+                    ? "border-primary bg-primary/15 text-primary font-medium"
+                    : "border-border text-muted-foreground hover:border-primary/50")
+                }
+              >
+                {label} {on ? "✓" : ""}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
