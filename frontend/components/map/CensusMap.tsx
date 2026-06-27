@@ -129,11 +129,15 @@ export function CensusMap({
   indicator,
   onSelect,
   focusIds,
+  dataVersion,
 }: {
   data: FC;
   indicator: CensusIndicator;
   onSelect: (props: Record<string, number | string | null>) => void;
   focusIds?: string[] | null;
+  // Muda quando a MALHA muda (setor/distrito/bairro) com os MESMOS setores —
+  // força recriar o layer (senão a repintura in-place lê as props antigas).
+  dataVersion?: string;
 }) {
   const breaks = useMemo(
     () => computeBreaks(data.features.map((f) => f.properties[indicator] as number)),
@@ -145,7 +149,7 @@ export function CensusMap({
   const fmt = FMT[indicator];
   // key NÃO inclui o indicador: trocar de indicador repinta os polígonos
   // in-place (setStyle) em vez de recriar o layer inteiro (caro no Rio).
-  const key = `${String(data.features[0]?.properties?.cd_setor ?? data.features[0]?.properties?.cd_mun ?? "")}-${data.features.length}`;
+  const key = `${String(data.features[0]?.properties?.cd_setor ?? data.features[0]?.properties?.cd_mun ?? "")}-${data.features.length}-${dataVersion ?? ""}`;
 
   const baseStyle = (v: number | null) => ({
     fillColor: colorFor(v, breaks),

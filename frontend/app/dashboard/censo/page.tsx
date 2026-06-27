@@ -6,7 +6,7 @@
  * → clique no setor → dados do Censo. Hoje: RJ inteiro.
  */
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Building2, Download, Layers, Loader2, MapPin, MapPinned, Search, Sparkles, Users } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -79,14 +79,58 @@ const UF_NOMES: Record<string, string> = {
   "32": "Espírito Santo",
 };
 
-const INDICATORS: { key: CensusIndicator; label: string }[] = [
-  { key: "populacao", label: "População" },
-  { key: "densidade_hab_km2", label: "Densidade" },
-  { key: "domicilios", label: "Domicílios" },
-  { key: "media_moradores", label: "Moradores/domic." },
-  { key: "taxa_alfabetizacao", label: "Alfabetização" },
-  { key: "pct_pretos_pardos", label: "Cor ou raça" },
+// Dicionários do Censo (config estática — o conjunto de variáveis é fixo e vem
+// das colunas ingeridas; trocar de dicionário troca as variáveis exibidas).
+// `disabled` marca variáveis cujo DADO ainda não existe por setor (ex.: renda,
+// que o Censo 2022 só publica por município) — aparece, mas explicando.
+type CensusVar = {
+  key: CensusIndicator;
+  label: string;
+  disabled?: boolean;
+  note?: string;
+};
+const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
+  {
+    key: "dominios",
+    label: "Domínios",
+    vars: [
+      { key: "populacao", label: "População" },
+      { key: "densidade_hab_km2", label: "Densidade" },
+      { key: "domicilios", label: "Domicílios" },
+      { key: "media_moradores", label: "Moradores/domic." },
+    ],
+  },
+  {
+    key: "educacao",
+    label: "Educação",
+    vars: [{ key: "taxa_alfabetizacao", label: "Alfabetização 15+" }],
+  },
+  {
+    key: "cor_raca",
+    label: "Cor ou raça",
+    vars: [{ key: "pct_pretos_pardos", label: "Pretos e pardos" }],
+  },
+  {
+    key: "renda",
+    label: "Renda",
+    vars: [
+      {
+        key: "populacao", // placeholder — não é usado (disabled)
+        label: "Renda média",
+        disabled: true,
+        note: "O Censo 2022 ainda não publica renda por setor — só por município. Entra quando o dado sair.",
+      },
+    ],
+  },
 ];
+
+// Lista plana (compatibilidade com os usos antigos: seletor do estado etc.).
+const INDICATORS: { key: CensusIndicator; label: string }[] = DICTIONARIES
+  .flatMap((d) => d.vars)
+  .filter((v) => !v.disabled)
+  .map((v) => ({ key: v.key, label: v.label }));
+
+export type Malha = "setor" | "distrito" | "bairro";
 
 export default function CensoPage() {
   const [ufGeo, setUfGeo] = useState<FC | null>(null);
@@ -94,6 +138,11 @@ export default function CensoPage() {
   const [view, setView] = useState<"estado" | "municipio">("estado");
   const [muniProps, setMuniProps] = useState<Record<string, number | string | null> | null>(null);
   const [indicator, setIndicator] = useState<CensusIndicator>("populacao");
+  // Malha (nível geográfico) da visão de município: setor (cru), distrito ou
+  // bairro (cada setor colorido pelo agregado da área-pai). Dicionário ativo
+  // no seletor de variáveis.
+  const [malha, setMalha] = useState<Malha>("setor");
+  const [selectedDict, setSelectedDict] = useState<string>("dominios");
   const [sel, setSel] = useState<Record<string, number | string | null> | null>(null);
   const [loading, setLoading] = useState(true);
   const [muniQuery, setMuniQuery] = useState("");
@@ -351,16 +400,22 @@ export default function CensoPage() {
 
   // Agregação por bairro (se houver) ou distrito: pop, domicílios, área, setores.
   const hasBairros = !!setores?.features.some((f) => f.properties.nm_bairro);
-  const areaKind = hasBairros ? "Bairros" : "Distritos";
+  // A malha "bairro" só faz sentido se o município tiver bairros mapeados —
+  // senão cai pra distrito (Seropédica, p.ex., só tem distrito).
+  const effMalha: Malha = malha === "bairro" && !hasBairros ? "distrito" : malha;
+  // Coluna de agrupamento da área conforme a malha escolhida.
+  const areaGroupOf = (p: Record<string, number | string | null>) =>
+    effMalha === "distrito"
+      ? String(p.nm_dist || "—")
+      : String(p.nm_bairro || p.nm_dist || "—");
+  const areaKind = effMalha === "distrito" ? "Distritos" : "Bairros";
   const areasAgg = (() => {
     if (view !== "municipio" || !setores) return [];
     // "Regra da sensibilidade" centralizada em lib/censusAggregate:
     // absolutos somam; médias/taxas são ponderadas — nunca somadas.
     const rows = setores.features.map((f) => ({
       ...f.properties,
-      area_key: hasBairros
-        ? String(f.properties.nm_bairro || f.properties.nm_dist || "—")
-        : String(f.properties.nm_dist || "—"),
+      area_key: areaGroupOf(f.properties),
     }));
     return aggregateCensusData(rows, "area_key").map((g) => ({
       nome: g.key,
@@ -374,6 +429,44 @@ export default function CensoPage() {
     }));
   })();
   const topAreas = areasAgg.slice(0, 12);
+
+  // Malha distrito/bairro: cada setor é colorido pelo AGREGADO da área-pai
+  // (efeito visual de "malha por bairro" sem dissolver geometria — sem PostGIS).
+  // Sobrescreve os 6 indicadores de cada setor com o valor da sua área.
+  const displayData = useMemo<FC | null>(() => {
+    if (view !== "municipio" || effMalha === "setor" || !setores) return setores;
+    const groupOf = (p: Record<string, number | string | null>) =>
+      effMalha === "distrito"
+        ? String(p.nm_dist || "—")
+        : String(p.nm_bairro || p.nm_dist || "—");
+    const rows = setores.features.map((f) => ({
+      ...f.properties,
+      area_key: groupOf(f.properties),
+    }));
+    const byArea = new Map<string, Record<string, number | null>>();
+    for (const g of aggregateCensusData(rows, "area_key")) {
+      byArea.set(g.key, {
+        populacao: g.sums.populacao ?? null,
+        domicilios: g.sums.domicilios ?? null,
+        densidade_hab_km2: g.derived.densidade_hab_km2 ?? null,
+        media_moradores: g.averages.media_moradores ?? null,
+        taxa_alfabetizacao: g.averages.taxa_alfabetizacao ?? null,
+        pct_pretos_pardos: g.averages.pct_pretos_pardos ?? null,
+      });
+    }
+    return {
+      type: "FeatureCollection",
+      features: setores.features.map((f) => ({
+        ...f,
+        properties: { ...f.properties, ...(byArea.get(groupOf(f.properties)) ?? {}) },
+      })),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, effMalha, setores]);
+
+  // O que de fato vai pro mapa: agregado por malha (distrito/bairro) ou setor cru.
+  const shownData =
+    view === "municipio" && effMalha !== "setor" && displayData ? displayData : mapData;
 
   // Destaques automáticos do município (insights prontos pra campanha).
   const destaques = (() => {
@@ -595,30 +688,83 @@ export default function CensoPage() {
           </div>
         )}
 
-        {/* Indicadores + export (visão município) */}
+        {/* Malha + dicionário/variáveis + export (visão município) */}
         {view === "municipio" && (
-          <div className="flex gap-1.5 ml-auto flex-wrap items-center">
-            {INDICATORS.map((i) => (
+          <div className="flex flex-col gap-1.5 ml-auto items-end">
+            {/* Malha (nível geográfico) */}
+            <div className="flex gap-1.5 items-center flex-wrap justify-end">
+              <span className="text-[11px] text-muted-foreground mr-0.5">Malha:</span>
+              {(["setor", "distrito", "bairro"] as Malha[]).map((m) => {
+                const disabled = m === "bairro" && !hasBairros;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => !disabled && setMalha(m)}
+                    disabled={disabled}
+                    title={
+                      disabled
+                        ? "Este município não tem bairros mapeados no Censo — use Distrito."
+                        : `Colorir o mapa por ${m}`
+                    }
+                    className={`py-1 px-2.5 rounded-md border text-xs capitalize transition-colors ${
+                      effMalha === m
+                        ? "border-primary bg-primary/10 text-primary font-semibold"
+                        : disabled
+                          ? "border-border bg-card opacity-40 cursor-not-allowed"
+                          : "border-border bg-card hover:border-primary/50"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
               <button
-                key={i.key}
-                onClick={() => setIndicator(i.key)}
-                className={`py-1.5 px-2.5 rounded-md border text-xs transition-colors ${
-                  indicator === i.key
-                    ? "border-primary bg-primary/10 text-primary font-semibold"
-                    : "border-border bg-card hover:border-primary/50"
-                }`}
+                onClick={exportCsv}
+                disabled={!setores}
+                title="Baixar os setores deste município em CSV"
+                className="py-1 px-2.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
               >
-                {i.label}
+                <Download className="w-3.5 h-3.5" /> CSV
               </button>
-            ))}
-            <button
-              onClick={exportCsv}
-              disabled={!setores}
-              title="Baixar os setores deste município em CSV"
-              className="py-1.5 px-2.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Download className="w-3.5 h-3.5" /> CSV
-            </button>
+            </div>
+            {/* Dicionário + variáveis (a lista de variáveis muda com o dicionário) */}
+            <div className="flex gap-1.5 items-center flex-wrap justify-end">
+              <select
+                value={selectedDict}
+                onChange={(e) => {
+                  setSelectedDict(e.target.value);
+                  const d = DICTIONARIES.find((x) => x.key === e.target.value);
+                  const first = d?.vars.find((v) => !v.disabled);
+                  if (first) setIndicator(first.key);
+                }}
+                title="Dicionário de variáveis"
+                className="py-1 px-2 rounded-md border border-border bg-card text-xs focus:outline-none focus:border-primary/60"
+              >
+                {DICTIONARIES.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+              {(DICTIONARIES.find((d) => d.key === selectedDict)?.vars ?? []).map((v) => (
+                <button
+                  key={v.label}
+                  onClick={() => !v.disabled && setIndicator(v.key)}
+                  disabled={v.disabled}
+                  title={v.note ?? `Colorir por ${v.label}`}
+                  className={`py-1 px-2.5 rounded-md border text-xs transition-colors ${
+                    v.disabled
+                      ? "border-dashed border-border bg-card opacity-50 cursor-help"
+                      : indicator === v.key
+                        ? "border-primary bg-primary/10 text-primary font-semibold"
+                        : "border-border bg-card hover:border-primary/50"
+                  }`}
+                >
+                  {v.label}
+                  {v.disabled ? " 🔒" : ""}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -736,7 +882,7 @@ export default function CensoPage() {
       {/* Mapa + painel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
         <div className="lg:col-span-2 rounded-2xl overflow-hidden border border-border/60 ring-1 ring-white/5 shadow-2xl shadow-black/40 relative h-[52vh] sm:h-[58vh] lg:h-[62vh]">
-          {loading || !mapData ? (
+          {loading || !shownData ? (
             <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
               <p className="text-sm">
@@ -752,10 +898,11 @@ export default function CensoPage() {
             </div>
           ) : (
             <CensusMap
-              data={mapData}
+              data={shownData}
               indicator={mapIndicator}
               onSelect={view === "estado" ? openMunicipio : onSetorClick}
               focusIds={view === "municipio" ? focusIds : null}
+              dataVersion={view === "municipio" ? effMalha : "estado"}
             />
           )}
         </div>
