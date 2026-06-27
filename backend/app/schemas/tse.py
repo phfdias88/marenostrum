@@ -323,13 +323,17 @@ class AiTerritoryReport(BaseModel):
 
 
 class ElectorateResponse(BaseModel):
-    """Perfil do eleitorado de um município (gênero/idade/escolaridade)."""
+    """Perfil do eleitorado de um município (gênero/idade/escolaridade/estado
+    civil/raça)."""
     municipality: MunicipalityRead
     year: int
     total: int
     by_gender: dict[str, int]
     by_age: dict[str, int]
     by_education: dict[str, int]
+    # Nullable: municípios importados antes do migration 043/re-import ficam sem.
+    by_marital_status: dict[str, int] = {}
+    by_race: dict[str, int] = {}
 
 
 class ElectorateProfileResponse(BaseModel):

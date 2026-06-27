@@ -20,7 +20,9 @@ export type CensusIndicator =
   | "media_moradores"
   | "taxa_alfabetizacao"
   | "pct_pretos_pardos"
-  | "renda_media";
+  | "renda_media"
+  | "pct_bolsa_familia"
+  | "pct_cadunico";
 
 type FC = {
   type: "FeatureCollection";
@@ -45,6 +47,8 @@ const FMT: Record<CensusIndicator, (v: number) => string> = {
   taxa_alfabetizacao: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_pretos_pardos: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   renda_media: (v) => `R$ ${numFmt.format(Math.round(v))}`,
+  pct_bolsa_familia: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_cadunico: (v) => `${v.toFixed(1).replace(".", ",")}%`,
 };
 const LABEL: Record<CensusIndicator, string> = {
   populacao: "População",
@@ -54,6 +58,8 @@ const LABEL: Record<CensusIndicator, string> = {
   taxa_alfabetizacao: "Alfabetização 15+ (%)",
   pct_pretos_pardos: "Cor ou raça — pretos e pardos (%)",
   renda_media: "Renda média domiciliar (R$)",
+  pct_bolsa_familia: "Bolsa Família (% domicílios)",
+  pct_cadunico: "CadÚnico (% domicílios)",
 };
 
 function classIndex(v: number | null, breaks: number[]): number {

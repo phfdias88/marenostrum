@@ -25,6 +25,10 @@ class MunicipalityElectorate(Base, TimestampMixin):
     by_gender: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     by_age: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     by_education: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    # Estado civil e raça/cor (DS_ESTADO_CIVIL, DS_RACA_COR). Nullable: linhas
+    # importadas antes do migration 044 ficam sem (cai em {} no schema).
+    by_marital_status: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    by_race: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (
         Index(

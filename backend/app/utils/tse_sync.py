@@ -42,6 +42,7 @@ from app.models.tse import (
     Municipality,
     MunicipalityElectorate,
     Party,
+    PartyMembership,
     SyncJobStatus,
     TseSectionVote,
     TseSyncJob,
@@ -114,6 +115,14 @@ DATASETS: dict[str, dict] = {
         "year": 2024,
         "processor": "perfil_eleitorado",
         "max_mb": 300,  # zip ~187MB
+    },
+    # Filiação partidária — snapshot mensal nacional ÚNICO (sobrescrito todo mês).
+    # Sem ano de eleição: o período (AAAAMM) vem do próprio CSV (NR_ANO_MES).
+    "filiacao_partidaria": {
+        "url": f"{TSE_BASE_URL}/filiacao_partidaria/perfil_filiacao_partidaria.zip",
+        "year": 2026,
+        "processor": "filiacao_partidaria",
+        "max_mb": 300,  # zip ~222MB
     },
     # Votos por ZONA — reprocessa o munzona guardando NR_ZONA (votos por
     # candidato × município × zona). Mesma fonte do candidato_munzona.
@@ -311,6 +320,8 @@ def run_sync_job(job_id: UUID) -> None:
                 _process_zona_votos(db, job, zip_path, year=dataset_meta["year"])
             elif processor == "consulta_cand":
                 _process_consulta_cand(db, job, zip_path)
+            elif processor == "filiacao_partidaria":
+                _process_filiacao_partidaria(db, job, zip_path)
             else:
                 _fail(db, job, f"Processor desconhecido: {processor}")
                 return
@@ -970,6 +981,13 @@ _EDU_ORDER = [
     "Não informado",
 ]
 _GENDER_ORDER = ["Feminino", "Masculino", "Não informado"]
+_MARITAL_ORDER = [
+    "Solteiro(a)", "Casado(a)", "Divorciado(a)", "Viúvo(a)",
+    "Separado(a) judicialmente", "Não informado",
+]
+_RACE_ORDER = [
+    "Branca", "Preta", "Parda", "Amarela", "Indígena", "Não informado",
+]
 
 
 def _age_bucket(ds: str) -> str:
@@ -1016,6 +1034,36 @@ def _gender_label(ds: str) -> str:
     return "Não informado"
 
 
+def _marital_label(ds: str) -> str:
+    s = (ds or "").upper()
+    if "SOLTEIR" in s:
+        return "Solteiro(a)"
+    if "CASAD" in s:
+        return "Casado(a)"
+    if "DIVORCIAD" in s:
+        return "Divorciado(a)"
+    if "VIÚV" in s or "VIUV" in s:
+        return "Viúvo(a)"
+    if "SEPARAD" in s:
+        return "Separado(a) judicialmente"
+    return "Não informado"
+
+
+def _race_label(ds: str) -> str:
+    s = (ds or "").upper()
+    if "BRANCA" in s:
+        return "Branca"
+    if "PRETA" in s:
+        return "Preta"
+    if "PARDA" in s:
+        return "Parda"
+    if "AMARELA" in s:
+        return "Amarela"
+    if "INDÍGENA" in s or "INDIGENA" in s:
+        return "Indígena"
+    return "Não informado"
+
+
 def _ordered(acc: dict[str, int], order: list[str]) -> dict[str, int]:
     """Reordena o dict pelos rótulos canônicos (mantém só os com valor>0)."""
     out = {k: acc[k] for k in order if acc.get(k, 0) > 0}
@@ -1054,7 +1102,9 @@ def _process_perfil_eleitorado(
 
         a = acc.get(muni_id)
         if a is None:
-            a = acc[muni_id] = {"total": 0, "g": {}, "age": {}, "edu": {}}
+            a = acc[muni_id] = {
+                "total": 0, "g": {}, "age": {}, "edu": {}, "civ": {}, "race": {},
+            }
         a["total"] += qt
         g = _gender_label(row.get("DS_GENERO", ""))
         a["g"][g] = a["g"].get(g, 0) + qt
@@ -1062,6 +1112,10 @@ def _process_perfil_eleitorado(
         a["age"][ab] = a["age"].get(ab, 0) + qt
         eb = _edu_bucket(row.get("DS_GRAU_ESCOLARIDADE", ""))
         a["edu"][eb] = a["edu"].get(eb, 0) + qt
+        cv = _marital_label(row.get("DS_ESTADO_CIVIL", ""))
+        a["civ"][cv] = a["civ"].get(cv, 0) + qt
+        rc = _race_label(row.get("DS_RACA_COR", ""))
+        a["race"][rc] = a["race"].get(rc, 0) + qt
 
         if rows_processed % 200_000 == 0:
             job.rows_processed = rows_processed
@@ -1078,6 +1132,8 @@ def _process_perfil_eleitorado(
             "by_gender": _ordered(v["g"], _GENDER_ORDER),
             "by_age": _ordered(v["age"], _AGE_ORDER),
             "by_education": _ordered(v["edu"], _EDU_ORDER),
+            "by_marital_status": _ordered(v["civ"], _MARITAL_ORDER),
+            "by_race": _ordered(v["race"], _RACE_ORDER),
             "created_at": now,
             "updated_at": now,
         }
@@ -1098,6 +1154,89 @@ def _process_perfil_eleitorado(
     job.rows_processed = rows_processed
     db.commit()
     log.info("tse_perfil_done", munis=len(rows_out), rows=rows_processed)
+
+
+# ====================================================================
+# Processor: filiacao_partidaria (perfil_filiacao_partidaria.zip)
+# ====================================================================
+
+
+def _process_filiacao_partidaria(
+    db: Session, job: TseSyncJob, zip_path: Path,
+) -> None:
+    """
+    Agrega perfil_filiacao_partidaria.csv por (partido, município):
+    total de filiados + gênero + faixa etária + grau de instrução.
+    Snapshot mensal (NR_ANO_MES) — gravamos como `period`. Idempotente por período.
+    O CSV é nacional (~3,5GB descomprimido) → streaming, acumulando em memória
+    por (partido, município) (~167k chaves, cabe nos 4GB do VPS).
+    """
+    parties_by_number: dict[int, UUID] = {
+        p.number: p.id for p in db.execute(select(Party)).scalars()
+    }
+    munis_by_tse: dict[int, UUID] = {
+        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
+    }
+
+    acc: dict[tuple[UUID, UUID], dict] = {}
+    period = 0
+    rows_processed = 0
+
+    for _, row in iter_csv_rows(zip_path):
+        rows_processed += 1
+        if not period:
+            period = _i(row.get("NR_ANO_MES"))
+        pid = parties_by_number.get(_i(row.get("NR_PARTIDO")))
+        mid = munis_by_tse.get(_i(row.get("CD_MUNICIPIO")))
+        qt = _i(row.get("QT_FILIADO"))
+        if pid is None or mid is None or qt <= 0:
+            continue
+
+        a = acc.get((pid, mid))
+        if a is None:
+            a = acc[(pid, mid)] = {"total": 0, "g": {}, "age": {}, "edu": {}}
+        a["total"] += qt
+        g = _gender_label(row.get("DS_GENERO", ""))
+        a["g"][g] = a["g"].get(g, 0) + qt
+        ab = _age_bucket(row.get("DS_FAIXA_ETARIA", ""))
+        a["age"][ab] = a["age"].get(ab, 0) + qt
+        eb = _edu_bucket(row.get("DS_GRAU_INSTRUCAO", ""))
+        a["edu"][eb] = a["edu"].get(eb, 0) + qt
+
+        if rows_processed % 500_000 == 0:
+            job.rows_processed = rows_processed
+            db.commit()
+            log.info("tse_filiacao_progress", rows=rows_processed, pairs=len(acc))
+
+    now = datetime.now(timezone.utc)
+    rows_out = [
+        {
+            "id": uuid4(),
+            "party_id": pid,
+            "municipality_id": mid,
+            "period": period,
+            "total": v["total"],
+            "by_gender": _ordered(v["g"], _GENDER_ORDER),
+            "by_age": _ordered(v["age"], _AGE_ORDER),
+            "by_education": _ordered(v["edu"], _EDU_ORDER),
+            "created_at": now,
+            "updated_at": now,
+        }
+        for (pid, mid), v in acc.items()
+    ]
+
+    # Idempotente: limpa o período antes de regravar.
+    db.execute(delete(PartyMembership).where(PartyMembership.period == period))
+    db.commit()
+
+    log.info("tse_filiacao_inserting", pairs=len(rows_out), period=period)
+    for i in range(0, len(rows_out), CHUNK_SIZE):
+        db.execute(insert(PartyMembership), rows_out[i : i + CHUNK_SIZE])
+        db.commit()
+
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info("tse_filiacao_done", pairs=len(rows_out), rows=rows_processed, period=period)
 
 
 # ====================================================================

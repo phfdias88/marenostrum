@@ -55,6 +55,7 @@ def census_uf_overview(
         text(
             "SELECT g.cd_mun, g.nm_mun, g.populacao, g.domicilios, g.geometry, "
             "       g.renda_media_domiciliar, g.renda_mediana_domiciliar, "
+            "       md.cadunico_familias, md.pbf_familias, md.anomes AS mds_anomes, "
             "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana "
             "FROM census_geo g "
             "LEFT JOIN LATERAL ("
@@ -67,6 +68,12 @@ def census_uf_overview(
             "               / NULLIF(sum(populacao),0), 1) AS pct_urbana "
             "  FROM census_geo s WHERE s.level='setor' AND s.cd_mun = g.cd_mun"
             ") s ON true "
+            # CadÚnico/Bolsa Família (MDS): último mês disponível por município.
+            "LEFT JOIN LATERAL ("
+            "  SELECT cadunico_familias, pbf_familias, anomes "
+            "  FROM mds_social_municipio m WHERE m.cd_mun = g.cd_mun "
+            "  ORDER BY m.anomes DESC LIMIT 1"
+            ") md ON true "
             "WHERE g.level='municipio' AND g.cd_mun LIKE :u "
             "ORDER BY g.nm_mun"
         ),
@@ -100,6 +107,19 @@ def census_uf_overview(
                 float(r["renda_mediana_domiciliar"])
                 if r["renda_mediana_domiciliar"] is not None else None
             ),
+            # CadÚnico / Bolsa Família (MDS) — contagens + % sobre domicílios
+            # (comparável entre municípios de tamanhos diferentes).
+            "cadunico_familias": r["cadunico_familias"],
+            "pbf_familias": r["pbf_familias"],
+            "pct_bolsa_familia": (
+                round(100 * r["pbf_familias"] / r["domicilios"], 1)
+                if r["domicilios"] and r["pbf_familias"] is not None else None
+            ),
+            "pct_cadunico": (
+                round(100 * r["cadunico_familias"] / r["domicilios"], 1)
+                if r["domicilios"] and r["cadunico_familias"] is not None else None
+            ),
+            "mds_anomes": r["mds_anomes"],
         },
     } for r in rows]
     return ORJSONResponse(

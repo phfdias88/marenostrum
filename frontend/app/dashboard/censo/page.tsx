@@ -122,6 +122,24 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
       },
     ],
   },
+  {
+    key: "social",
+    label: "Assistência social",
+    vars: [
+      {
+        key: "pct_bolsa_familia",
+        label: "Bolsa Família",
+        disabled: true,
+        note: "Bolsa Família / CadÚnico (MDS) é por MUNICÍPIO. Veja na visão estadual: o mapa colore cada município pela % de domicílios atendidos.",
+      },
+      {
+        key: "pct_cadunico",
+        label: "CadÚnico",
+        disabled: true,
+        note: "Inscritos no CadÚnico (MDS) por município. Disponível na visão estadual.",
+      },
+    ],
+  },
 ];
 
 // Lista plana (compatibilidade com os usos antigos: seletor do estado etc.).
@@ -236,8 +254,11 @@ export default function CensoPage() {
   function openMunicipio(props: Record<string, number | string | null>) {
     setMuniProps(props);
     setView("municipio");
-    // renda só existe por município; ao entrar no setor volta pra população.
-    if (indicator === "renda_media") { setIndicator("populacao"); setSelectedDict("dominios"); }
+    // renda/Bolsa Família/CadÚnico só existem por município; ao entrar no setor
+    // volta pra população.
+    if (["renda_media", "pct_bolsa_familia", "pct_cadunico"].includes(indicator)) {
+      setIndicator("populacao"); setSelectedDict("dominios");
+    }
     setSel(null);
     setSelArea(null);
     setSetores(null);
@@ -375,11 +396,15 @@ export default function CensoPage() {
   const stateIndicators = [
     ...INDICATORS.filter((i) => i.key !== "densidade_hab_km2"),
     { key: "renda_media" as CensusIndicator, label: "Renda média" },
+    { key: "pct_bolsa_familia" as CensusIndicator, label: "Bolsa Família" },
+    { key: "pct_cadunico" as CensusIndicator, label: "CadÚnico" },
   ];
+  // Indicadores que só existem por MUNICÍPIO (não por setor) — ao entrar no
+  // município (drill pra setor) caem pra população.
+  const muniOnly = ["renda_media", "pct_bolsa_familia", "pct_cadunico"];
   const mapIndicator: CensusIndicator =
     view === "estado" && indicator === "densidade_hab_km2" ? "populacao"
-      // renda não existe por setor → cai pra população ao entrar no município.
-      : view === "municipio" && indicator === "renda_media" ? "populacao"
+      : view === "municipio" && muniOnly.includes(indicator) ? "populacao"
         : indicator;
 
   // Busca tolerante: tira acento/pontuação e expande abreviações do IBGE
@@ -566,7 +591,8 @@ export default function CensoPage() {
     if (!ufGeo) return;
     const cols = ["cd_mun", "nm_mun", "populacao", "domicilios", "setores",
       "media_moradores", "taxa_alfabetizacao", "pct_pretos_pardos", "pct_urbana",
-      "renda_media", "renda_mediana"];
+      "renda_media", "renda_mediana", "pct_bolsa_familia", "pct_cadunico",
+      "cadunico_familias", "pbf_familias"];
     const lines = [cols.join(";")];
     for (const f of [...ufGeo.features].sort((a, b) =>
       String(a.properties.nm_mun).localeCompare(String(b.properties.nm_mun)))) {
@@ -1204,6 +1230,8 @@ export default function CensoPage() {
               ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
               ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+              ["Bolsa Família (% domicílios)", fa.pct_bolsa_familia as number | null, fb.pct_bolsa_familia as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["CadÚnico (% domicílios)", fa.pct_cadunico as number | null, fb.pct_cadunico as number | null, (v) => `${String(v).replace(".", ",")}%`],
             ];
             return (
               <div className="mt-4 overflow-x-auto mn-fade-in">

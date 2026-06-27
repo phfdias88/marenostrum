@@ -24,6 +24,7 @@ from app.models.tse import (
     Municipality,
     MunicipalityElectorate,
     Party,
+    PartyMembership,
     SyncJobStatus,
     TseSectionVote,
     TseSyncJob,
@@ -1408,7 +1409,69 @@ def municipality_electorate(
         by_gender=prof.by_gender or {},
         by_age=prof.by_age or {},
         by_education=prof.by_education or {},
+        by_marital_status=prof.by_marital_status or {},
+        by_race=prof.by_race or {},
     )
+
+
+@router.get(
+    "/parties/{number}/membership",
+    summary="Filiados do partido por município (TSE — perfil_filiacao_partidaria)",
+    description=(
+        "Total de filiados do partido e ranking por município (último snapshot). "
+        "uf filtra por estado. Vazio se o dataset 'filiacao_partidaria' não foi "
+        "sincronizado."
+    ),
+)
+def party_membership(
+    number: int,
+    ctx: CurrentTenant,
+    uf: str | None = Query(None, min_length=2, max_length=2),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> dict:
+    party = db.execute(
+        select(Party).where(Party.number == number)
+    ).scalar_one_or_none()
+    if party is None:
+        raise NotFoundError("Partido não encontrado")
+
+    period = db.execute(
+        select(func.max(PartyMembership.period)).where(
+            PartyMembership.party_id == party.id
+        )
+    ).scalar()
+    if period is None:
+        return {
+            "party": {"number": party.number, "name": party.name, "acronym": party.abbreviation},
+            "period": None, "total_filiados": 0, "municipios": [],
+        }
+
+    q = (
+        select(
+            Municipality.name.label("nm"),
+            Municipality.state.label("uf"),
+            PartyMembership.total.label("total"),
+        )
+        .join(Municipality, Municipality.id == PartyMembership.municipality_id)
+        .where(PartyMembership.party_id == party.id, PartyMembership.period == period)
+    )
+    if uf:
+        q = q.where(Municipality.state == uf.upper())
+    rows = db.execute(q).all()
+
+    total = sum(r.total for r in rows)
+    municipios = sorted(
+        ({"municipio": r.nm, "uf": r.uf, "filiados": r.total} for r in rows),
+        key=lambda x: x["filiados"],
+        reverse=True,
+    )[:limit]
+    return {
+        "party": {"number": party.number, "name": party.name, "acronym": party.abbreviation},
+        "period": period,
+        "total_filiados": total,
+        "municipios": municipios,
+    }
 
 
 @router.get(
