@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import type { MapGroup } from "@/components/map/CampaignMap";
+import { MapLayoutSelector } from "@/components/map/MapLayoutSelector";
 import { CONTACT_TYPE_LABELS, TSE_STATES, type ContactTag, type ContactType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -108,6 +109,7 @@ export default function MapPage() {
       {/* Mapa */}
       <div className="h-[55vh] lg:h-auto shrink-0 lg:flex-1 rounded-xl overflow-hidden border border-border relative">
         <CampaignMap groups={mapGroups} metricLabel={metricLabel} />
+        <MapLayoutSelector className="absolute top-3 right-3 z-[500]" />
         {loading && (
           <div className="absolute top-3 left-3 z-[500] bg-card/90 border border-border rounded-md px-2.5 py-1 text-xs flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" /> atualizando…

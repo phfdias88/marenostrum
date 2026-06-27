@@ -17,6 +17,7 @@ import type {
   TseCandidateResults,
 } from "@/lib/types";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import { MapLayoutSelector } from "@/components/map/MapLayoutSelector";
 
 const CandidateVoteMap = dynamic(
   () => import("@/components/map/CandidateVoteMap"),
@@ -153,6 +154,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 }
               />
             </div>
+            <MapLayoutSelector />
             <button
               onClick={onClose}
               className="text-muted-foreground hover:text-foreground p-2 hover:bg-accent rounded-md"
