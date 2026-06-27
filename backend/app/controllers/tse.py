@@ -2468,7 +2468,10 @@ def tse_voting_places_lookup(
     ).scalars().first()
     if muni is None:
         return []
-    stmt = select(TseVotingPlace).where(TseVotingPlace.municipality_id == muni.id)
+    stmt = select(TseVotingPlace).where(
+        TseVotingPlace.municipality_id == muni.id,
+        TseVotingPlace.year == 2024,  # cadastro de contato usa locais da eleição atual
+    )
     if search and search.strip():
         stmt = stmt.where(
             func.f_unaccent(TseVotingPlace.name).ilike(

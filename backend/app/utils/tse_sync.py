@@ -139,6 +139,22 @@ for _uf in ALL_UFS:
         "uf": _uf,
     }
 
+# Voto por bairro de anos anteriores (PDF item #4) — locais + seções por ANO.
+# Limitado ao RJ (estado do cliente) pra não estourar o VPS. Rodar o
+# locais_votacao_<ano> ANTES do votacao_secao_<ano>_<UF> (precisa do mapping).
+for _yr in (2020, 2022):
+    DATASETS[f"locais_votacao_{_yr}"] = {
+        "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_{_yr}.zip",
+        "year": _yr,
+        "processor": "locais_votacao",
+    }
+    DATASETS[f"votacao_secao_{_yr}_RJ"] = {
+        "url": f"{TSE_BASE_URL}/votacao_secao/votacao_secao_{_yr}_RJ.zip",
+        "year": _yr,
+        "processor": "votacao_secao",
+        "uf": "RJ",
+    }
+
 CACHE_DIR = Path("/tmp/tse_cache")
 MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
@@ -270,10 +286,13 @@ def run_sync_job(job_id: UUID) -> None:
             if processor == "candidato_munzona":
                 _process_candidato_munzona(db, job, zip_path)
             elif processor == "locais_votacao":
-                _process_locais_votacao(db, job, zip_path)
+                _process_locais_votacao(
+                    db, job, zip_path, year=dataset_meta.get("year", 2024),
+                )
             elif processor == "votacao_secao":
                 _process_votacao_secao(
                     db, job, zip_path, uf=dataset_meta["uf"],
+                    year=dataset_meta.get("year", 2024),
                 )
             elif processor == "perfil_eleitorado":
                 _process_perfil_eleitorado(db, job, zip_path)
@@ -621,7 +640,7 @@ def _flush_vote_results(
 
 
 def _process_locais_votacao(
-    db: Session, job: TseSyncJob, zip_path: Path,
+    db: Session, job: TseSyncJob, zip_path: Path, *, year: int = 2024,
 ) -> None:
     """
     Parseia eleitorado_local_votacao_2024.csv.
@@ -672,6 +691,7 @@ def _process_locais_votacao(
             lat, lng = centroid if centroid else (None, None)
         places_acc[key] = {
             "id": uuid4(),
+            "year": year,
             "local_code": local_code,
             "municipality_id": muni_id,
             "name": _s(row.get("NM_LOCAL_VOTACAO"), 200),
@@ -736,27 +756,30 @@ def _coord_in_brazil(lat, lng) -> bool:
 
 
 def _process_votacao_secao(
-    db: Session, job: TseSyncJob, zip_path: Path, *, uf: str,
+    db: Session, job: TseSyncJob, zip_path: Path, *, uf: str, year: int = 2024,
 ) -> None:
     """
-    Parseia votacao_secao_2024_<UF>.csv. Cada linha = (candidato, secao, votos).
+    Parseia votacao_secao_<year>_<UF>.csv. Cada linha = (candidato, secao, votos).
     Agregamos por (candidate_id, voting_place_id) → SUM(votos).
 
     Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_LOCAL_VOTACAO, QT_VOTOS
 
-    Pre-condicao: locais_votacao_2024 ja sincronizado (precisamos do mapping
-    (muni, local_code) → voting_place_id) E candidatos do UF ja sincronizados.
+    Pre-condicao: locais_votacao_<year> ja sincronizado (precisamos do mapping
+    (muni, local_code) → voting_place_id daquele ANO) E candidatos do UF/ano.
     """
-    # Cache 1: SQ_CANDIDATO → candidate_id (pre-filtrado por UF pra economizar RAM)
+    # Cache 1: SQ_CANDIDATO → candidate_id (pre-filtrado por UF+ANO pra RAM e
+    # pra não casar com candidato homônimo de outro ano).
     candidates_by_sq: dict[int, UUID] = {
         c.sq_candidato: c.id
         for c in db.execute(
-            select(Candidate).where(Candidate.state == uf)
+            select(Candidate)
+            .join(Election, Candidate.election_id == Election.id)
+            .where(Candidate.state == uf, Election.year == year)
         ).scalars()
     }
-    log.info("tse_secao_candidates_loaded", uf=uf, count=len(candidates_by_sq))
+    log.info("tse_secao_candidates_loaded", uf=uf, year=year, count=len(candidates_by_sq))
 
-    # Cache 2: (municipality_id, local_code) → voting_place_id (so do UF)
+    # Cache 2: (municipality_id, local_code) → voting_place_id (só do UF, ANO certo)
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(
             select(Municipality).where(Municipality.state == uf)
@@ -765,7 +788,8 @@ def _process_votacao_secao(
     voting_places_lookup: dict[tuple[UUID, int], UUID] = {}
     for vp in db.execute(
         select(TseVotingPlace).where(
-            TseVotingPlace.municipality_id.in_(list(munis_by_tse.values()))
+            TseVotingPlace.municipality_id.in_(list(munis_by_tse.values())),
+            TseVotingPlace.year == year,
         )
     ).scalars():
         voting_places_lookup[(vp.municipality_id, vp.local_code)] = vp.id

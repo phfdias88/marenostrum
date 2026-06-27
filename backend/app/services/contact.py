@@ -299,6 +299,7 @@ class ContactService:
                 "  FROM tse_voting_places tvp"
                 "  JOIN tse_municipalities tm ON tm.id = tvp.municipality_id"
                 "  WHERE tm.state = c.state"
+                "    AND tvp.year = 2024"  # campanha atual — não casa locais de anos antigos
                 "    AND public.f_unaccent(tm.name) ILIKE public.f_unaccent(c.city)"
                 "    AND public.f_unaccent(tvp.name) ILIKE public.f_unaccent(c.voting_place)"
                 "    AND tvp.latitude IS NOT NULL AND tvp.longitude IS NOT NULL"

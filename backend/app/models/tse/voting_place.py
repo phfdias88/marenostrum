@@ -17,7 +17,13 @@ from app.models.base import Base, TimestampMixin
 class TseVotingPlace(Base, TimestampMixin):
     __tablename__ = "tse_voting_places"
 
-    # NR_LOCAL_VOTACAO no TSE — unique POR municipio
+    # Ano da eleição a que estes locais pertencem (locais mudam entre pleitos).
+    # Default 2024 (era o único ano antes da dimensão de ano).
+    year: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=2024, server_default="2024", index=True
+    )
+
+    # NR_LOCAL_VOTACAO no TSE — unique POR (ano, municipio)
     local_code: Mapped[int] = mapped_column(Integer, nullable=False)
 
     municipality_id: Mapped[UUID] = mapped_column(
@@ -40,10 +46,10 @@ class TseVotingPlace(Base, TimestampMixin):
     electors_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
-        # Unique composto: mesmo numero pode existir em municipios diferentes
+        # Unique composto: mesmo numero pode existir em municipios/anos diferentes
         Index(
-            "ix_tse_voting_places_muni_code",
-            "municipality_id", "local_code",
+            "ix_tse_voting_places_year_muni_code",
+            "year", "municipality_id", "local_code",
             unique=True,
         ),
         # Index por bairro pra agregacao rapida

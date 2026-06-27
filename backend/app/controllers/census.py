@@ -355,6 +355,7 @@ def census_municipality_neighborhoods(
             "FROM tse_voting_places tvp "
             "JOIN tse_municipalities tm ON tm.id = tvp.municipality_id "
             "WHERE tm.state = :uf "
+            "  AND tvp.year = 2024 "
             "  AND upper(public.f_unaccent(tm.name)) = upper(public.f_unaccent(:mname)) "
             "  AND coalesce(tvp.neighborhood,'') <> '' "
             "ORDER BY nome"
