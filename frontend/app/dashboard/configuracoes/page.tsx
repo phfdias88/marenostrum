@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  History,
   KeyRound,
   Layers,
   Loader2,
@@ -104,8 +105,137 @@ export default function SettingsPage() {
         {me && me.role !== "volunteer" && (
           <TeamCard isOwner={me.role === "owner"} meId={me.user_id} />
         )}
+        {/* Trilha de auditoria — só o Administrador (Dono) vê. */}
+        {me && me.role === "owner" && <AuditCard />}
       </div>
     </div>
+  );
+}
+
+// ============================================================ auditoria
+
+type AuditItem = {
+  id: string;
+  user_name: string | null;
+  user_role: string | null;
+  action: string;
+  entity_type: string;
+  summary: string | null;
+  created_at: string;
+};
+
+const ACTION_LABEL: Record<string, string> = {
+  create: "Cadastro",
+  update: "Edição",
+  delete: "Exclusão",
+};
+const ACTION_STYLE: Record<string, string> = {
+  create: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  update: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  delete: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
+};
+
+function AuditCard() {
+  const [items, setItems] = useState<AuditItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [entity, setEntity] = useState<string>("");
+  const [action, setAction] = useState<string>("");
+
+  useEffect(() => {
+    setLoading(true);
+    const p = new URLSearchParams({ limit: "50" });
+    if (entity) p.set("entity_type", entity);
+    if (action) p.set("action", action);
+    api<{ items: AuditItem[]; total: number }>(`/v1/audit?${p.toString()}`)
+      .then((d) => {
+        setItems(d.items);
+        setTotal(d.total);
+      })
+      .catch(() => {
+        setItems([]);
+        setTotal(0);
+      })
+      .finally(() => setLoading(false));
+  }, [entity, action]);
+
+  return (
+    <section className="rounded-xl border bg-card p-6">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <History className="w-5 h-5 text-primary" />
+          <h2 className="text-lg font-semibold">Auditoria</h2>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {total.toLocaleString("pt-BR")} registro(s)
+        </span>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Quem cadastrou, editou ou excluiu o quê — pra rastrear qualquer alteração
+        na campanha.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <select
+          value={entity}
+          onChange={(e) => setEntity(e.target.value)}
+          className="px-2 py-1.5 rounded-md border border-border bg-background text-sm"
+        >
+          <option value="">Tudo</option>
+          <option value="contact">Contatos</option>
+          <option value="user">Usuários</option>
+        </select>
+        <select
+          value={action}
+          onChange={(e) => setAction(e.target.value)}
+          className="px-2 py-1.5 rounded-md border border-border bg-background text-sm"
+        >
+          <option value="">Todas as ações</option>
+          <option value="create">Cadastro</option>
+          <option value="update">Edição</option>
+          <option value="delete">Exclusão</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground inline-flex items-center gap-2 py-4">
+          <Loader2 className="w-4 h-4 animate-spin" /> Carregando trilha…
+        </p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4">
+          Nenhuma ação registrada ainda. Conforme a equipe cadastra e edita, tudo
+          aparece aqui.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border max-h-[28rem] overflow-auto -mx-2">
+          {items.map((it) => (
+            <li key={it.id} className="px-2 py-2.5 flex items-start gap-3">
+              <span
+                className={`shrink-0 mt-0.5 px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                  ACTION_STYLE[it.action] ?? "bg-muted text-muted-foreground"
+                }`}
+              >
+                {ACTION_LABEL[it.action] ?? it.action}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">{it.summary ?? `${it.action} ${it.entity_type}`}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <strong className="text-foreground">{it.user_name ?? "—"}</strong>
+                  {it.user_role ? ` · ${it.user_role}` : ""} ·{" "}
+                  {new Date(it.created_at).toLocaleString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

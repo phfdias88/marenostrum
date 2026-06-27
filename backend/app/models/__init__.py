@@ -1,5 +1,6 @@
 """Import central dos models (necessario para Alembic detectar metadata)."""
 from app.models.base import Base
+from app.models.audit_log import AuditLog
 from app.models.contact import Contact, ContactType
 from app.models.demand import Demand, DemandStatus
 from app.models.agenda_event import AgendaEvent
@@ -21,6 +22,7 @@ from app.models.voting_place import VotingPlace
 
 __all__ = [
     "Base",
+    "AuditLog",
     # CRM (multi-tenant)
     "Contact",
     "ContactType",

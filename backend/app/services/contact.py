@@ -14,12 +14,13 @@ from uuid import UUID
 import structlog
 from fastapi import BackgroundTasks
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, ForbiddenError, NotFoundError
 from app.core.tenant_context import TenantContext
 from app.models.contact import Contact
 from app.models.interaction import Interaction
 from app.repositories.contact import ContactRepository
 from app.repositories.interaction import InteractionRepository
+from app.services.audit import record_audit
 from app.schemas.contact import (
     BirthdayContact,
     ContactCreate,
@@ -70,9 +71,28 @@ def _schedule_geocoding(
 
 
 class ContactService:
+    # Papéis com edição TOTAL — podem alterar/excluir qualquer contato do
+    # tenant. Os demais (staff/"Comum", volunteer) só mexem no que cadastraram.
+    _FULL_EDIT_ROLES = {"owner", "manager"}
+
     def __init__(self, ctx: TenantContext) -> None:
         self._ctx = ctx
         self._repo = ContactRepository(ctx.db)
+
+    def _assert_can_edit(self, contact: Contact) -> None:
+        """Regra "Comum edita só o que enviou": papéis sem edição total só
+        podem alterar/excluir contatos que ELES mesmos cadastraram."""
+        role = (self._ctx.role or "").lower()
+        if role in self._FULL_EDIT_ROLES:
+            return
+        if (
+            contact.created_by_user_id is not None
+            and contact.created_by_user_id == self._ctx.user_id
+        ):
+            return
+        raise ForbiddenError(
+            "Você só pode editar ou excluir os contatos que você mesmo cadastrou."
+        )
 
     # ---------------------------------------------------------------- Create
 
@@ -94,6 +114,13 @@ class ContactService:
         contact = self._repo.create(
             tenant_id=self._ctx.tenant_id,
             data=data,
+        )
+        record_audit(
+            self._ctx,
+            action="create",
+            entity_type="contact",
+            entity_id=contact.id,
+            summary=f"Cadastrou contato {contact.full_name}",
         )
         self._ctx.db.commit()
 
@@ -342,6 +369,7 @@ class ContactService:
         background_tasks: BackgroundTasks | None = None,
     ) -> Contact:
         current = self.get_contact(contact_id)
+        self._assert_can_edit(current)
 
         data = payload.model_dump(exclude_unset=True)
         new_phone = data.get("phone")
@@ -368,6 +396,14 @@ class ContactService:
         )
         if updated is None:
             raise NotFoundError("Contato nao encontrado.")
+        record_audit(
+            self._ctx,
+            action="update",
+            entity_type="contact",
+            entity_id=contact_id,
+            summary=f"Editou contato {updated.full_name}",
+            meta={"campos": list(data.keys())},
+        )
         self._ctx.db.commit()
 
         log.info(
@@ -443,6 +479,14 @@ class ContactService:
             tenant_id=self._ctx.tenant_id,
             rows=to_insert,
         )
+        if inserted:
+            record_audit(
+                self._ctx,
+                action="create",
+                entity_type="contact",
+                summary=f"Importou {inserted} contato(s) via CSV",
+                meta={"importados": inserted, "ignorados": len(errors)},
+            )
         self._ctx.db.commit()
 
         log.info(
@@ -469,6 +513,10 @@ class ContactService:
         (some das listas, GET retorna 404), mas integridade referencial e'
         preservada — interactions e demands continuam validas.
         """
+        # Busca antes do delete: precisamos do nome (auditoria) e do dono
+        # (regra "Comum edita só o que enviou" — checada em _assert_can_edit).
+        contact = self.get_contact(contact_id)
+        self._assert_can_edit(contact)
         ok = self._repo.soft_delete(
             tenant_id=self._ctx.tenant_id,
             contact_id=contact_id,
@@ -476,6 +524,13 @@ class ContactService:
         if not ok:
             # Nao existe OU ja' estava inativo: mesma resposta 404.
             raise NotFoundError("Contato nao encontrado.")
+        record_audit(
+            self._ctx,
+            action="delete",
+            entity_type="contact",
+            entity_id=contact_id,
+            summary=f"Excluiu contato {contact.full_name}",
+        )
         self._ctx.db.commit()
         log.info(
             "contact_soft_deleted",

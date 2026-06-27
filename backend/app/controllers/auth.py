@@ -33,6 +33,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserListItem,
 )
+from app.services.audit import record_audit
 from app.services.auth import AuthService
 
 
@@ -295,6 +296,14 @@ def create_user(
         is_active=True,
     )
     db.add(user)
+    db.flush()  # atribui user.id antes de auditar
+    record_audit(
+        ctx,
+        action="create",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Criou usuário {user.email} ({role_enum.value})",
+    )
     db.commit()
     db.refresh(user)
 
@@ -331,6 +340,13 @@ def reset_user_password(
 
     temp = _gen_temp_password()
     user.hashed_password = hash_password(temp)
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Resetou a senha de {user.email}",
+    )
     db.commit()
     return CreateUserResponse(
         id=user.id,
@@ -365,6 +381,13 @@ def deactivate_user(
     if user.role == UserRole.OWNER:
         raise _ForbiddenError("Nao da pra desativar outro owner.")
     user.is_active = False
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Desativou o usuário {user.email}",
+    )
     db.commit()
 
 
@@ -386,6 +409,13 @@ def reactivate_user(
         raise NotFoundError("Usuario nao encontrado.")
     _require_can_manage(ctx, user)
     user.is_active = True
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Reativou o usuário {user.email}",
+    )
     db.commit()
 
 
@@ -445,6 +475,16 @@ def set_access_flag(
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
     setattr(user, _ACCESS_COLUMN[payload.area], bool(payload.enabled))
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=(
+            f"{'Liberou' if payload.enabled else 'Bloqueou'} o acesso "
+            f"'{payload.area}' de {user.email}"
+        ),
+    )
     db.commit()
 
 
@@ -473,7 +513,15 @@ def change_user_role(
     ).scalar_one_or_none()
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
+    old_role = user.role.value
     user.role = UserRole(payload.role)
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Mudou o papel de {user.email}: {old_role} → {payload.role}",
+    )
     db.commit()
 
 
@@ -503,6 +551,13 @@ def set_user_password(
     if user.role == UserRole.OWNER and user.id != ctx.user_id:
         raise _ForbiddenError("Nao da pra definir senha de outro owner.")
     user.hashed_password = hash_password(payload.password)
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=f"Definiu uma nova senha para {user.email}",
+    )
     db.commit()
 
 
@@ -538,5 +593,14 @@ def delete_user(
         )
     # FK contacts.created_by_user_id e' ON DELETE SET NULL — contatos ficam,
     # so perdem o vinculo de autor (o nome denormalizado permanece).
+    deleted_email = user.email
+    deleted_id = user.id
+    record_audit(
+        ctx,
+        action="delete",
+        entity_type="user",
+        entity_id=deleted_id,
+        summary=f"Excluiu o usuário {deleted_email}",
+    )
     db.delete(user)
     db.commit()
