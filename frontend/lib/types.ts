@@ -470,6 +470,16 @@ export type TseElectorate = {
   by_gender: Record<string, number>;
   by_age: Record<string, number>;
   by_education: Record<string, number>;
+  by_marital_status?: Record<string, number>;
+  by_race?: Record<string, number>;
+};
+
+/** Filiação partidária por município (TSE perfil_filiacao_partidaria). */
+export type TsePartyMembership = {
+  party: { number: number; name: string; acronym: string };
+  period: number | null;
+  total_filiados: number;
+  municipios: { municipio: string; uf: string; filiados: number }[];
 };
 
 export type TseZoneVoteItem = {

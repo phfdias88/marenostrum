@@ -234,6 +234,12 @@ export default function MunicipioDetailPage() {
               <Breakdown title="Gênero" data={electorate.by_gender} total={electorate.total} palette={PAL_GENDER} />
               <Breakdown title="Faixa etária" data={electorate.by_age} total={electorate.total} palette={PAL_AGE} />
               <Breakdown title="Escolaridade" data={electorate.by_education} total={electorate.total} palette={PAL_EDU} />
+              {electorate.by_marital_status && Object.keys(electorate.by_marital_status).length > 0 && (
+                <Breakdown title="Estado civil" data={electorate.by_marital_status} total={electorate.total} palette={PAL_MARITAL} />
+              )}
+              {electorate.by_race && Object.keys(electorate.by_race).length > 0 && (
+                <Breakdown title="Cor ou raça" data={electorate.by_race} total={electorate.total} palette={PAL_RACE} />
+              )}
             </div>
           </div>
         )}
@@ -496,6 +502,8 @@ function Breakdown({
 const PAL_GENDER = ["#ec4899", "#0ea5e9", "#a1a1aa"]; // F rosa, M azul, NI cinza
 const PAL_AGE = ["#fde68a", "#fbbf24", "#f59e0b", "#ea580c", "#c2410c", "#9a3412", "#7c2d12"];
 const PAL_EDU = ["#a1a1aa", "#94a3b8", "#22d3ee", "#0ea5e9", "#6366f1", "#a855f7"];
+const PAL_MARITAL = ["#34d399", "#0ea5e9", "#f59e0b", "#a855f7", "#f43f5e", "#a1a1aa"];
+const PAL_RACE = ["#fcd34d", "#7c2d12", "#d97706", "#fbbf24", "#16a34a", "#a1a1aa"];
 
 function Stat({
   label,

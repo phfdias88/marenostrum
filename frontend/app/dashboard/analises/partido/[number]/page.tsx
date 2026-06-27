@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import type {
   TseParty,
   TsePartyEvolution,
+  TsePartyMembership,
   TsePartyPerformanceResponse,
   TseTopCandidatesResponse,
 } from "@/lib/types";
@@ -65,6 +66,7 @@ export default function PartyDetailPage() {
   const [top, setTop] = useState<TseTopCandidatesResponse | null>(null);
   const [topLoading, setTopLoading] = useState(true);
   const [evolution, setEvolution] = useState<TsePartyEvolution | null>(null);
+  const [membership, setMembership] = useState<TsePartyMembership | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -93,6 +95,19 @@ export default function PartyDetailPage() {
       .catch(() => { if (!cancelled) setEvolution(null); });
     return () => { cancelled = true; };
   }, [num]);
+
+  // Filiados do partido (snapshot mensal). Filtra pela UF selecionada.
+  useEffect(() => {
+    let cancelled = false;
+    setMembership(null);
+    const p = new URLSearchParams();
+    if (state) p.set("uf", state);
+    const qs = p.toString();
+    api<TsePartyMembership>(`/v1/tse/parties/${num}/membership${qs ? `?${qs}` : ""}`)
+      .then((d) => { if (!cancelled) setMembership(d); })
+      .catch(() => { if (!cancelled) setMembership(null); });
+    return () => { cancelled = true; };
+  }, [num, state]);
 
   // Desempenho do partido (ano + cargo + UF)
   useEffect(() => {
@@ -252,6 +267,32 @@ export default function PartyDetailPage() {
         {/* Evolução do partido ao longo das eleições */}
         {evolution && evolution.items.length > 1 && (
           <PartyEvolution evolution={evolution} />
+        )}
+
+        {/* Filiados do partido (TSE perfil_filiacao_partidaria) */}
+        {membership && membership.total_filiados > 0 && (
+          <div className="mt-6">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5" /> Filiados{state ? ` em ${state}` : " no Brasil"} ·{" "}
+              <strong className="text-foreground font-mono">{numberFmt.format(membership.total_filiados)}</strong>
+            </p>
+            <div className="rounded-lg border bg-card p-4 space-y-2">
+              {membership.municipios.slice(0, 10).map((m) => {
+                const max = membership.municipios[0]?.filiados ?? 1;
+                return (
+                  <div key={`${m.uf}-${m.municipio}`}>
+                    <div className="flex items-center justify-between gap-2 text-sm mb-0.5">
+                      <span className="truncate">{m.municipio} <span className="text-muted-foreground text-xs">{m.uf}</span></span>
+                      <span className="font-mono tabular-nums">{numberFmt.format(m.filiados)}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full bg-primary rounded-full" style={{ width: `${(m.filiados / max) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Top candidatos */}
