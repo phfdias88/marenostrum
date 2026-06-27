@@ -762,6 +762,13 @@ function CompareSection({
                   adversaryName={adversary.urn_name}
                 />
               )}
+              {adversary && (
+                <BairroComparison
+                  candidateId={candidateId}
+                  candidateName={candidateName}
+                  adversary={adversary}
+                />
+              )}
               <button
                 onClick={() => {
                   setReport(null);
@@ -773,6 +780,167 @@ function CompareSection({
               </button>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------ Comparação por bairro (votos TSE 2024)
+
+function BairroComparison({
+  candidateId,
+  candidateName,
+  adversary,
+}: {
+  candidateId: string;
+  candidateName: string;
+  adversary: TseCandidate;
+}) {
+  const [rows, setRows] = useState<
+    { bairro: string; a: number; b: number; elect: number }[] | null
+  >(null);
+  const [muni, setMuni] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Recorte por bairro só existe pra eleições municipais (vereador/prefeito) de
+  // 2024 — não oferece o botão pra adversário de outro cargo.
+  if (adversary.office_code !== 11 && adversary.office_code !== 13) return null;
+
+  async function load() {
+    setLoading(true);
+    setMsg(null);
+    try {
+      const [ra, rb] = await Promise.all([
+        api<TseCandidateByNeighborhoodResponse>(
+          `/v1/tse/candidates/${candidateId}/by-neighborhood`,
+        ),
+        api<TseCandidateByNeighborhoodResponse>(
+          `/v1/tse/candidates/${adversary.id}/by-neighborhood`,
+        ),
+      ]);
+      if (!ra.items.length || !rb.items.length) {
+        setMsg(
+          "A comparação por bairro só funciona quando os DOIS são de eleições municipais de 2024 (vereador/prefeito) — é o único recorte com voto por bairro.",
+        );
+        return;
+      }
+      if (ra.municipality && rb.municipality && ra.municipality.id !== rb.municipality.id) {
+        setMsg(
+          `Vocês são de municípios diferentes (${ra.municipality.name} × ${rb.municipality.name}). A comparação por bairro só faz sentido no mesmo município.`,
+        );
+        return;
+      }
+      const map = new Map<string, { a: number; b: number; elect: number }>();
+      for (const it of ra.items) {
+        const cur = map.get(it.neighborhood) ?? { a: 0, b: 0, elect: 0 };
+        cur.a += it.votes;
+        cur.elect = Math.max(cur.elect, it.electors_total || 0);
+        map.set(it.neighborhood, cur);
+      }
+      for (const it of rb.items) {
+        const cur = map.get(it.neighborhood) ?? { a: 0, b: 0, elect: 0 };
+        cur.b += it.votes;
+        cur.elect = Math.max(cur.elect, it.electors_total || 0);
+        map.set(it.neighborhood, cur);
+      }
+      const merged = [...map.entries()]
+        .map(([bairro, v]) => ({ bairro, ...v }))
+        .sort((x, y) => y.a + y.b - (x.a + x.b));
+      setRows(merged);
+      setMuni((ra.municipality || rb.municipality)?.name ?? null);
+    } catch (e) {
+      const m =
+        e instanceof Error && e.message
+          ? e.message.replace(/^http \d+:?\s*/i, "")
+          : "Não foi possível comparar por bairro.";
+      toast.error(m || "Não foi possível comparar por bairro.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const totA = rows?.reduce((s, r) => s + r.a, 0) ?? 0;
+  const totB = rows?.reduce((s, r) => s + r.b, 0) ?? 0;
+
+  return (
+    <div className="mt-3 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3">
+      <p className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-400 mb-1 flex items-center gap-1.5">
+        <MapIcon className="w-3.5 h-3.5" /> Votos por bairro · {candidateName} × {adversary.urn_name}
+      </p>
+
+      {!rows && !msg && (
+        <>
+          <p className="text-[11px] text-muted-foreground mb-2">
+            Compara a votação dos dois, bairro a bairro (eleições municipais de 2024).
+          </p>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-sky-500/50 bg-sky-500/10 hover:border-sky-500/80 transition-colors text-sm font-medium disabled:opacity-60"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando bairros…
+              </>
+            ) : (
+              <>
+                <MapIcon className="w-4 h-4 text-sky-600" /> Comparar por bairro
+              </>
+            )}
+          </button>
+        </>
+      )}
+
+      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+
+      {rows && rows.length > 0 && (
+        <div className="mn-fade-in overflow-x-auto rounded-lg border bg-card">
+          <table className="w-full text-xs">
+            <thead className="text-muted-foreground border-b border-border">
+              <tr>
+                <th className="text-left font-medium px-2 py-1.5">Bairro</th>
+                <th className="text-right font-medium px-2 py-1.5 text-primary truncate max-w-[90px]">
+                  {candidateName}
+                </th>
+                <th className="text-right font-medium px-2 py-1.5 text-rose-600 truncate max-w-[90px]">
+                  {adversary.urn_name}
+                </th>
+                <th className="text-right font-medium px-2 py-1.5">Eleitorado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rows.slice(0, 25).map((r) => (
+                <tr key={r.bairro} className={r.a >= r.b ? "" : "bg-rose-500/[0.04]"}>
+                  <td className="px-2 py-1.5 truncate max-w-[150px]">{r.bairro}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-primary">
+                    {numberFmt.format(r.a)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-rose-600">
+                    {numberFmt.format(r.b)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                    {r.elect ? numberFmt.format(r.elect) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t border-border font-semibold">
+              <tr>
+                <td className="px-2 py-1.5">
+                  Total {muni ? `· ${muni}` : ""}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-primary">
+                  {numberFmt.format(totA)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums text-rose-600">
+                  {numberFmt.format(totB)}
+                </td>
+                <td className="px-2 py-1.5" />
+              </tr>
+            </tfoot>
+          </table>
         </div>
       )}
     </div>
