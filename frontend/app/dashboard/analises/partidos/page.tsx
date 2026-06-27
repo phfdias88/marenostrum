@@ -5,14 +5,17 @@
  * - Grid com os 29 partidos
  * - Clique em um -> mostra os candidatos do partido (filtravel por UF/cargo)
  */
-import { ArrowLeft, ArrowRight, BarChart3, Grid3x3, Loader2, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Grid3x3, Loader2, Search, Trophy, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/hooks";
 import type {
   Page,
   TseCandidate,
+  TseElection,
+  TseMunicipality,
   TseParty,
   TsePartyPerformanceResponse,
 } from "@/lib/types";
@@ -336,11 +339,47 @@ function PartyDrillDown({
 }) {
   const [state, setState] = useState<string>("");
   const [office, setOffice] = useState<string>("");
+  const [year, setYear] = useState<string>("");
+  const [order, setOrder] = useState<string>(""); // "" = A–Z, "votes" = mais votados
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 300);
   const [page, setPage] = useState(0);
   const [data, setData] = useState<Page<TseCandidate> | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => setPage(0), [state, office]);
+  // Eleições (anos) pro filtro
+  const [elections, setElections] = useState<TseElection[]>([]);
+  // Filtro de município (typeahead)
+  const [muniSearch, setMuniSearch] = useState("");
+  const muniDeb = useDebouncedValue(muniSearch, 300);
+  const [muniResults, setMuniResults] = useState<TseMunicipality[]>([]);
+  const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
+
+  useEffect(() => {
+    api<TseElection[]>("/v1/tse/elections")
+      .then((arr) => {
+        const years = Array.from(new Set(arr.map((e) => e.year))).sort((a, b) => b - a);
+        setElections(years.map((y) => arr.find((e) => e.year === y)!));
+      })
+      .catch(() => setElections([]));
+  }, []);
+
+  // Busca de município (só enquanto nenhum está selecionado)
+  useEffect(() => {
+    if (selectedMuni) return;
+    const q = muniDeb.trim();
+    if (q.length < 2) {
+      setMuniResults([]);
+      return;
+    }
+    const p = new URLSearchParams({ limit: "8", search: q });
+    if (state) p.set("state", state);
+    api<Page<TseMunicipality>>(`/v1/tse/municipalities?${p.toString()}`)
+      .then((r) => setMuniResults(r.items))
+      .catch(() => setMuniResults([]));
+  }, [muniDeb, state, selectedMuni]);
+
+  useEffect(() => setPage(0), [state, office, year, order, search, selectedMuni]);
 
   useEffect(() => {
     const params = new URLSearchParams({
@@ -350,6 +389,10 @@ function PartyDrillDown({
     });
     if (state) params.set("state", state);
     if (office) params.set("office_code", office);
+    if (year) params.set("year", year);
+    if (search.trim()) params.set("search", search.trim());
+    if (selectedMuni) params.set("municipality_id", selectedMuni.id);
+    if (order) params.set("order", order);
 
     setLoading(true);
     api<Page<TseCandidate>>(`/v1/tse/candidates?${params.toString()}`)
@@ -358,7 +401,7 @@ function PartyDrillDown({
         setData({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 }),
       )
       .finally(() => setLoading(false));
-  }, [party.number, state, office, page]);
+  }, [party.number, state, office, year, search, selectedMuni, order, page]);
 
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -390,7 +433,18 @@ function PartyDrillDown({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-5">
+      {/* Busca por nome de urna */}
+      <div className="relative mb-3 max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Buscar por nome de urna…"
+          className="w-full pl-9 pr-3 py-2 rounded-md bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-12 gap-3 mb-3">
         <Select
           label="UF"
           value={state}
@@ -398,6 +452,16 @@ function PartyDrillDown({
           options={[
             { value: "", label: "Todas" },
             ...TSE_STATES.map((s) => ({ value: s, label: s })),
+          ]}
+          className="md:col-span-3"
+        />
+        <Select
+          label="Ano"
+          value={year}
+          onChange={setYear}
+          options={[
+            { value: "", label: "Todos" },
+            ...elections.map((e) => ({ value: String(e.year), label: String(e.year) })),
           ]}
           className="md:col-span-3"
         />
@@ -412,8 +476,61 @@ function PartyDrillDown({
               label: v,
             })),
           ]}
-          className="md:col-span-4"
+          className="md:col-span-3"
         />
+        <Select
+          label="Ordenar"
+          value={order}
+          onChange={setOrder}
+          options={[
+            { value: "", label: "Nome (A–Z)" },
+            { value: "votes", label: "Mais votados" },
+          ]}
+          className="md:col-span-3"
+        />
+      </div>
+
+      {/* Filtro de município (essencial pra vereador) */}
+      <div className="mb-5 max-w-md">
+        {selectedMuni ? (
+          <div className="flex items-center gap-2 py-2 px-3 rounded-md bg-primary/10 border border-primary/40 text-sm">
+            <span className="text-xs uppercase tracking-wider text-primary font-semibold">Cidade:</span>
+            <span className="flex-1 font-semibold truncate">
+              {selectedMuni.name}<span className="text-muted-foreground font-normal">/{selectedMuni.state}</span>
+            </span>
+            <button
+              onClick={() => { setSelectedMuni(null); setMuniSearch(""); }}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+              aria-label="Remover filtro de cidade"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              value={muniSearch}
+              onChange={(e) => setMuniSearch(e.target.value)}
+              placeholder="Filtrar por município (opcional)…"
+              className="w-full pl-9 pr-3 py-2 rounded-md bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            {muniResults.length > 0 && (
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 rounded-md border bg-card shadow-xl max-h-48 overflow-auto divide-y divide-border">
+                {muniResults.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setSelectedMuni(m); setMuniResults([]); setMuniSearch(""); }}
+                    className="w-full px-3 py-2 text-left hover:bg-accent/50 transition-colors text-sm flex items-center justify-between"
+                  >
+                    <span>{m.name}</span>
+                    <span className="text-xs text-muted-foreground">{m.state}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="text-sm text-muted-foreground mb-2">
@@ -445,8 +562,14 @@ function PartyDrillDown({
               <p className="font-semibold truncate">{c.urn_name}</p>
               <p className="text-xs text-muted-foreground truncate">
                 {c.name} · {c.office_name} · {c.state}
+                {c.primary_municipality_name ? ` · ${c.primary_municipality_name}` : ""}
               </p>
             </div>
+            {c.total_votes != null && (
+              <span className="text-xs font-mono tabular-nums text-muted-foreground shrink-0">
+                {numberFmt.format(c.total_votes)} votos
+              </span>
+            )}
             <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
           </Link>
         ))}

@@ -57,6 +57,8 @@ class CandidateRead(BaseModel):
     # Município com mais votos — só pra cargo municipal (prefeito/vereador);
     # pro card exibir "UF - MUNICÍPIO - ANO" em vez de só "UF - ANO".
     primary_municipality_name: str | None = None
+    # Total de votos do candidato (pra exibir/ordenar na Análise por Partidos).
+    total_votes: int | None = None
     party: PartyRead
     election: ElectionRead
 

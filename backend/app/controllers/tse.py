@@ -339,6 +339,7 @@ def list_candidates(
     year: int | None = Query(None, description="Ano da eleição (2024, 2022...)"),
     elected_only: bool = Query(False, description="Filtra so candidatos eleitos"),
     municipality_id: UUID | None = Query(None, description="Filtra so candidatos que tiveram votos nesta cidade"),
+    order: str | None = Query(None, description="Ordenação: 'votes' (mais votados) ou 'urn_name' (alfabética)"),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
@@ -441,7 +442,13 @@ def list_candidates(
     total = int(db.execute(select(func.count()).select_from(capped_subq)).scalar_one())
 
     # Paginação — com busca, ordena por relevância; senão, alfabético.
+    # `order` explícito (votes/urn_name) tem prioridade — usado na Análise por
+    # Partidos pra ordenar por mais votados ou por nome de urna.
     order_cols = search_order if search_order is not None else [Candidate.urn_name]
+    if order == "votes":
+        order_cols = [Candidate.total_votes.desc().nulls_last(), Candidate.urn_name]
+    elif order == "urn_name":
+        order_cols = [Candidate.urn_name]
     rows = db.execute(
         stmt.order_by(*order_cols).limit(limit).offset(offset)
     ).scalars().all()
@@ -488,6 +495,7 @@ def list_candidates(
             situation=c.situation,
             result_status=c.result_status,
             primary_municipality_name=top_munis.get(c.id),
+            total_votes=c.total_votes,
             party=PartyRead.model_validate(parties_map[c.party_id]),
             election=ElectionRead.model_validate(elections_map[c.election_id]),
         ))

@@ -240,6 +240,8 @@ export type TseCandidate = {
   expense_total: number | null; // despesa de campanha (R$)
   /** Município com mais votos — só vem pra prefeito/vereador (null nos demais). */
   primary_municipality_name: string | null;
+  /** Total de votos do candidato (Análise por Partidos — exibir/ordenar). */
+  total_votes: number | null;
   party: TseParty;
   election: TseElection;
 };
