@@ -242,6 +242,8 @@ export type TseCandidate = {
   primary_municipality_name: string | null;
   /** Total de votos do candidato (Análise por Partidos — exibir/ordenar). */
   total_votes: number | null;
+  /** Nº de candidaturas da pessoa quando a busca agrupa (group_person). */
+  candidacy_count?: number | null;
   party: TseParty;
   election: TseElection;
 };

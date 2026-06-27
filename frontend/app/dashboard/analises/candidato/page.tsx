@@ -131,7 +131,12 @@ export default function CandidatoAnalysisPage() {
     if (year) params.set("year", year);
     if (state) params.set("state", state);
     if (office) params.set("office_code", office);
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (debouncedSearch.trim()) {
+      params.set("search", debouncedSearch.trim());
+      // Agrupa por pessoa na BUSCA: "jair bolsonaro" não repete 2018/2022.
+      // Só na busca (sem termo, evita rodar a janela na tabela inteira).
+      params.set("group_person", "true");
+    }
     if (electedOnly) params.set("elected_only", "true");
     if (selectedMuni) params.set("municipality_id", selectedMuni.id);
 
@@ -386,6 +391,11 @@ export default function CandidatoAnalysisPage() {
                     {c.primary_municipality_name ? ` · ${c.primary_municipality_name}` : ""}
                     {" · "}{c.election.year}
                   </p>
+                  {c.candidacy_count != null && c.candidacy_count > 1 && (
+                    <span className="inline-block mt-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-medium">
+                      {c.candidacy_count} candidaturas
+                    </span>
+                  )}
                 </div>
               </button>
             ))}

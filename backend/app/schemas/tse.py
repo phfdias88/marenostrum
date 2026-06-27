@@ -59,6 +59,9 @@ class CandidateRead(BaseModel):
     primary_municipality_name: str | None = None
     # Total de votos do candidato (pra exibir/ordenar na Análise por Partidos).
     total_votes: int | None = None
+    # Quando a busca agrupa por pessoa (group_person): quantas candidaturas essa
+    # pessoa tem (ex: Bolsonaro = 3). None na busca normal.
+    candidacy_count: int | None = None
     party: PartyRead
     election: ElectionRead
 

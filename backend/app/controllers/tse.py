@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
 from sqlalchemy import case, func, select, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.utils.agg_cache import agg_get, agg_set
 
@@ -341,6 +341,15 @@ def list_candidates(
     elected_only: bool = Query(False, description="Filtra so candidatos eleitos"),
     municipality_id: UUID | None = Query(None, description="Filtra so candidatos que tiveram votos nesta cidade"),
     order: str | None = Query(None, description="Ordenação: 'votes' (mais votados) ou 'urn_name' (alfabética)"),
+    group_person: bool = Query(
+        False,
+        description=(
+            "Agrupa por PESSOA (nome civil + UF): mostra 1 candidatura por "
+            "pessoa (a mais recente) com candidacy_count. Pra busca de pessoa "
+            "(ex: 'bolsonaro' não repete 2018/2022). NÃO usar em confronto/"
+            "comparativa, que precisam de uma candidatura específica."
+        ),
+    ),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
@@ -439,20 +448,60 @@ def list_candidates(
     # inutil pra UI. Limitamos a contagem em COUNT_CAP+1 — se passar, a UI
     # mostra "5000+". A subquery com LIMIT faz o Postgres parar cedo.
     COUNT_CAP = 5000
-    capped_subq = stmt.with_only_columns(Candidate.id).limit(COUNT_CAP + 1).subquery()
-    total = int(db.execute(select(func.count()).select_from(capped_subq)).scalar_one())
+    candidacy_counts: dict = {}
 
-    # Paginação — com busca, ordena por relevância; senão, alfabético.
-    # `order` explícito (votes/urn_name) tem prioridade — usado na Análise por
-    # Partidos pra ordenar por mais votados ou por nome de urna.
-    order_cols = search_order if search_order is not None else [Candidate.urn_name]
-    if order == "votes":
-        order_cols = [Candidate.total_votes.desc().nulls_last(), Candidate.urn_name]
-    elif order == "urn_name":
-        order_cols = [Candidate.urn_name]
-    rows = db.execute(
-        stmt.order_by(*order_cols).limit(limit).offset(offset)
-    ).scalars().all()
+    if group_person:
+        # Agrupa por PESSOA (nome civil normalizado + UF): 1 linha por pessoa,
+        # a candidatura MAIS RECENTE (ano desc, depois mais votada). Evita o
+        # "Bolsonaro 2014 + 2018 + 2022" repetido na busca. candidacy_count diz
+        # quantas candidaturas a pessoa tem. Sem CPF no TSE, homônimos da MESMA
+        # UF ainda podem fundir (raro) — o detalhe/trajetória mostra tudo.
+        el_a = aliased(Election)
+        filtered = stmt.subquery()
+        cand = aliased(Candidate, filtered)
+        # Chave da pessoa: nome civil + UF. EXCEÇÃO: presidente (cargo 1) é
+        # nacional e o TSE traz UF inconsistente entre anos (Bolsonaro 2018=RS,
+        # 2022=MA) — então president cai num bucket único "BR" pra unificar.
+        state_key = case((cand.office_code == 1, "BR"), else_=cand.state)
+        part = (func.lower(func.f_unaccent(cand.name)), state_key)
+        ranked = (
+            select(
+                cand,
+                func.row_number().over(
+                    partition_by=part,
+                    order_by=(el_a.year.desc(), func.coalesce(cand.total_votes, 0).desc()),
+                ).label("rn"),
+                func.count().over(partition_by=part).label("cnt"),
+            )
+            .join(el_a, cand.election_id == el_a.id)
+            .subquery()
+        )
+        person = aliased(Candidate, ranked)
+        grouped = select(person, ranked.c.cnt).where(ranked.c.rn == 1)
+        cap = select(ranked.c.id).where(ranked.c.rn == 1).limit(COUNT_CAP + 1).subquery()
+        total = int(db.execute(select(func.count()).select_from(cap)).scalar_one())
+        grouped_rows = db.execute(
+            grouped.order_by(func.coalesce(person.total_votes, 0).desc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        rows = [r[0] for r in grouped_rows]
+        candidacy_counts = {r[0].id: int(r[1]) for r in grouped_rows}
+    else:
+        capped_subq = stmt.with_only_columns(Candidate.id).limit(COUNT_CAP + 1).subquery()
+        total = int(db.execute(select(func.count()).select_from(capped_subq)).scalar_one())
+
+        # Paginação — com busca, ordena por relevância; senão, alfabético.
+        # `order` explícito (votes/urn_name) tem prioridade — usado na Análise
+        # por Partidos pra ordenar por mais votados ou por nome de urna.
+        order_cols = search_order if search_order is not None else [Candidate.urn_name]
+        if order == "votes":
+            order_cols = [Candidate.total_votes.desc().nulls_last(), Candidate.urn_name]
+        elif order == "urn_name":
+            order_cols = [Candidate.urn_name]
+        rows = db.execute(
+            stmt.order_by(*order_cols).limit(limit).offset(offset)
+        ).scalars().all()
 
     # Hidrata party + election em batch (evita N+1)
     party_ids = {c.party_id for c in rows}
@@ -497,6 +546,7 @@ def list_candidates(
             result_status=c.result_status,
             primary_municipality_name=top_munis.get(c.id),
             total_votes=c.total_votes,
+            candidacy_count=candidacy_counts.get(c.id),
             party=PartyRead.model_validate(parties_map[c.party_id]),
             election=ElectionRead.model_validate(elections_map[c.election_id]),
         ))
