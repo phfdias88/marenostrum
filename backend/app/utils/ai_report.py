@@ -94,7 +94,10 @@ def _gather_facts(db: Session, candidate: Candidate) -> dict:
         .join(Election, Candidate.election_id == Election.id)
         .where(
             func.lower(func.f_unaccent(Candidate.name))
-            == func.lower(func.f_unaccent(candidate.name))
+            == func.lower(func.f_unaccent(candidate.name)),
+            # mesma UF — evita fundir homônimos de estados diferentes (sem CPF
+            # no TSE, só o nome civil fundiria pessoas distintas).
+            Candidate.state == candidate.state,
         )
         .order_by(Election.year.desc())
     ).all()

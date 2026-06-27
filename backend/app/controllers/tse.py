@@ -1102,12 +1102,21 @@ def candidate_trajectory(
     # Match por nome civil completo (NM_CANDIDATO) normalizado — estável entre
     # eleições (nome de urna muda mais). f_unaccent + lower pra robustez.
     # Index ix_tse_candidates_name_unaccent_trgm acelera o filtro.
+    #
+    # IMPORTANTE: restringe à MESMA UF. O TSE não traz CPF aqui, então só o
+    # nome civil pode fundir HOMÔNIMOS de estados diferentes (pessoas distintas)
+    # — daí a foto/dados de outro candidato apareciam. Político concorre quase
+    # sempre na mesma UF; o filtro por estado elimina o grosso desses enganos.
+    # (Precisão 100% exigiria importar o CPF — re-sync de candidatos.)
     norm = func.lower(func.f_unaccent(base.name))
     stmt = (
         select(Candidate, Election, Party)
         .join(Election, Candidate.election_id == Election.id)
         .join(Party, Candidate.party_id == Party.id)
-        .where(func.lower(func.f_unaccent(Candidate.name)) == norm)
+        .where(
+            func.lower(func.f_unaccent(Candidate.name)) == norm,
+            Candidate.state == base.state,
+        )
         .order_by(Election.year.desc(), Candidate.office_code.asc())
     )
     rows = db.execute(stmt).all()
