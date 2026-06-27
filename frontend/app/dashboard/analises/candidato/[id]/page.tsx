@@ -17,6 +17,7 @@ import {
   Target,
   TrendingUp,
   Trophy,
+  Users,
   UserX,
 } from "lucide-react";
 import Link from "next/link";
@@ -30,6 +31,7 @@ import type {
   Page,
   TseAiCompare,
   TseAiReport,
+  TseAiTerritory,
   TseCandidate,
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
@@ -753,6 +755,13 @@ function CompareSection({
                 <p className="text-xs font-semibold text-primary mb-0.5">Recomendação final</p>
                 <p className="text-sm">{report.recomendacao_final}</p>
               </div>
+              {adversary && (
+                <TerritorySection
+                  candidateId={candidateId}
+                  adversaryId={adversary.id}
+                  adversaryName={adversary.urn_name}
+                />
+              )}
               <button
                 onClick={() => {
                   setReport(null);
@@ -764,6 +773,195 @@ function CompareSection({
               </button>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------ Inteligência de Território (contatos × IA)
+
+function TerritorySection({
+  candidateId,
+  adversaryId,
+  adversaryName,
+}: {
+  candidateId: string;
+  adversaryId: string;
+  adversaryName: string;
+}) {
+  const [report, setReport] = useState<TseAiTerritory | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function generate() {
+    setLoading(true);
+    try {
+      const d = await api<TseAiTerritory>(
+        `/v1/tse/candidates/${candidateId}/ai-territory/${adversaryId}`,
+      );
+      setReport(d);
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message.replace(/^http \d+:?\s*/i, "")
+          : "Não foi possível gerar a análise de território.";
+      toast.error(msg || "Não foi possível gerar a análise de território.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const muni = report?.dados?.por_municipio ?? [];
+  const bairros = report?.dados?.bairros_cidade_principal ?? [];
+  const fmt = (n: number | null | undefined) =>
+    n == null ? "—" : n.toLocaleString("pt-BR");
+
+  return (
+    <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
+      <p className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-1 flex items-center gap-1.5">
+        <Users className="w-3.5 h-3.5" /> Inteligência de Território · meus contatos × {adversaryName}
+      </p>
+
+      {!report && (
+        <>
+          <p className="text-[11px] text-muted-foreground mb-2">
+            Cruza os <strong>contatos cadastrados pela sua campanha</strong> com o
+            eleitorado e os votos do adversário, por município e bairro — e aponta
+            onde você já tem base e onde falta cadastrar. (Análise privada da sua
+            campanha.)
+          </p>
+          <button
+            onClick={generate}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-emerald-500/50 bg-emerald-500/10 hover:border-emerald-500/80 transition-colors text-sm font-medium disabled:opacity-60"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Maré IA cruzando seus contatos…
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-emerald-600" /> Gerar inteligência de território
+              </>
+            )}
+          </button>
+        </>
+      )}
+
+      {report && (
+        <div className="mn-fade-in">
+          <div className="rounded-lg border bg-background p-3 mb-3">
+            <p className="text-sm">{report.panorama}</p>
+            {report.dados?.total_contatos_campanha != null && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {report.dados.total_contatos_campanha.toLocaleString("pt-BR")} contato(s)
+                cadastrado(s){" "}
+                {report.dados.cidade_principal ? `· base em ${report.dados.cidade_principal}` : ""}
+              </p>
+            )}
+          </div>
+
+          {/* Tabela por município: contatos × eleitorado × votos */}
+          {muni.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border bg-card mb-3">
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground border-b border-border">
+                  <tr>
+                    <th className="text-left font-medium px-2 py-1.5">Município</th>
+                    <th className="text-right font-medium px-2 py-1.5">Meus contatos</th>
+                    <th className="text-right font-medium px-2 py-1.5">Eleitorado</th>
+                    <th className="text-right font-medium px-2 py-1.5">Cobertura</th>
+                    <th className="text-right font-medium px-2 py-1.5">Meus votos</th>
+                    <th className="text-right font-medium px-2 py-1.5">Adversário</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {muni.slice(0, 12).map((m) => (
+                    <tr key={m.municipio}>
+                      <td className="px-2 py-1.5 truncate max-w-[140px]">{m.municipio}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-emerald-700 dark:text-emerald-400">
+                        {fmt(m.contatos)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.eleitorado)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">
+                        {m.cobertura_pct == null ? "—" : `${m.cobertura_pct}%`}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.votos_candidato)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
+                        {fmt(m.votos_adversario)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Bairros da cidade principal */}
+          {bairros.length > 0 && (
+            <div className="rounded-lg border bg-card p-3 mb-3">
+              <p className="text-xs font-semibold mb-1.5">
+                Contatos por bairro {report.dados?.cidade_principal ? `· ${report.dados.cidade_principal}` : ""}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {bairros.map((b) => (
+                  <span
+                    key={b.bairro}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px]"
+                    title={
+                      b.populacao_censo
+                        ? `${b.contatos} contato(s) · ${b.populacao_censo.toLocaleString("pt-BR")} hab. (censo)${b.cobertura_pct != null ? ` · ${b.cobertura_pct}%` : ""}`
+                        : `${b.contatos} contato(s)`
+                    }
+                  >
+                    {b.bairro}
+                    <strong className="text-emerald-700 dark:text-emerald-400">{b.contatos}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <AiBlock
+              title="Onde já tenho base"
+              items={report.onde_tenho_base}
+              icon={<Users className="w-3.5 h-3.5" />}
+              accent="bg-emerald-500/10 text-emerald-700"
+            />
+            <AiBlock
+              title="Onde falta cadastrar"
+              items={report.onde_falta_cadastrar}
+              icon={<Target className="w-3.5 h-3.5" />}
+              accent="bg-amber-500/10 text-amber-700"
+            />
+            <AiBlock
+              title="Onde disputar o adversário"
+              items={report.onde_disputar_adversario}
+              icon={<Swords className="w-3.5 h-3.5" />}
+              accent="bg-rose-500/10 text-rose-700"
+            />
+            <AiBlock
+              title="Metas de cadastro"
+              items={report.meta_cadastro}
+              icon={<TrendingUp className="w-3.5 h-3.5" />}
+              accent="bg-primary/10 text-primary"
+            />
+          </div>
+
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 mt-3">
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 mb-1">
+              Ações prioritárias de campo
+            </p>
+            <ul className="space-y-1">
+              {report.acoes_prioritarias.map((a, i) => (
+                <li key={i} className="text-sm flex gap-1.5">
+                  <span className="text-emerald-600">•</span>
+                  {a}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
     </div>

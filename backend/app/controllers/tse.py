@@ -48,6 +48,7 @@ from app.schemas.tse import (
     MunicipalityTimelineResponse,
     AiCompareReport,
     AiReport,
+    AiTerritoryReport,
     ElectorateProfileResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
@@ -820,6 +821,36 @@ def candidate_ai_compare(
     except AiReportError as e:
         raise _ConflictError(str(e))
     return AiCompareReport(**report)
+
+
+@router.get(
+    "/candidates/{candidate_id}/ai-territory/{adversary_id}",
+    response_model=AiTerritoryReport,
+    summary="Inteligência de Território por IA (contatos da campanha × adversário)",
+    description=(
+        "Cruza os CONTATOS cadastrados por ESTA campanha (CRM privado) com o "
+        "eleitorado e os votos do candidato e do adversário, por município e "
+        "bairro, e gera uma leitura tática: onde a campanha já tem base, onde "
+        "falta cadastrar e onde disputar o adversário. Análise PRIVADA — "
+        "cacheada por (campanha, candidato, adversário), nunca compartilhada."
+    ),
+)
+@limiter.limit("20/hour")
+def candidate_ai_territory(
+    request: Request,
+    candidate_id: UUID,
+    adversary_id: UUID,
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> AiTerritoryReport:
+    from app.utils.campaign_territory import generate_territory
+    from app.utils.ai_report import AiReportError
+
+    try:
+        report = generate_territory(db, ctx.tenant_id, candidate_id, adversary_id)
+    except AiReportError as e:
+        raise _ConflictError(str(e))
+    return AiTerritoryReport(**report)
 
 
 def _pct_dict(counts: dict[str, float], total: float) -> dict[str, float]:

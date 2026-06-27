@@ -306,6 +306,19 @@ class AiCompareReport(BaseModel):
     confronto: dict | None = None
 
 
+class AiTerritoryReport(BaseModel):
+    """Inteligência de Território (Maré IA): contatos da campanha × eleitorado
+    × votos do adversário, por município/bairro. Análise PRIVADA do tenant."""
+    panorama: str
+    onde_tenho_base: list[str]
+    onde_falta_cadastrar: list[str]
+    onde_disputar_adversario: list[str]
+    meta_cadastro: list[str]
+    acoes_prioritarias: list[str]
+    # Tabelas de números (anexadas pelo serviço pro frontend exibir).
+    dados: dict | None = None
+
+
 class ElectorateResponse(BaseModel):
     """Perfil do eleitorado de um município (gênero/idade/escolaridade)."""
     municipality: MunicipalityRead

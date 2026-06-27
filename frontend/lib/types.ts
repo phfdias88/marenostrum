@@ -386,6 +386,42 @@ export type TseAiCompare = {
   } | null;
 };
 
+/** Inteligência de Território (Maré IA): contatos da campanha × eleitorado ×
+ * votos do adversário, por município/bairro. Análise PRIVADA do tenant. */
+export type TseAiTerritoryMuni = {
+  municipio: string;
+  contatos: number;
+  eleitorado: number | null;
+  cobertura_pct: number | null;
+  votos_candidato: number | null;
+  votos_adversario: number | null;
+  casado_tse: boolean;
+};
+
+export type TseAiTerritoryBairro = {
+  bairro: string;
+  contatos: number;
+  populacao_censo: number | null;
+  cobertura_pct: number | null;
+};
+
+export type TseAiTerritory = {
+  panorama: string;
+  onde_tenho_base: string[];
+  onde_falta_cadastrar: string[];
+  onde_disputar_adversario: string[];
+  meta_cadastro: string[];
+  acoes_prioritarias: string[];
+  dados?: {
+    candidato?: { nome: string; cargo: string; partido: string | null; ano: number | null };
+    adversario?: { nome: string; cargo: string; partido: string | null; ano: number | null };
+    total_contatos_campanha?: number;
+    cidade_principal?: string | null;
+    por_municipio?: TseAiTerritoryMuni[];
+    bairros_cidade_principal?: TseAiTerritoryBairro[];
+  } | null;
+};
+
 /** Relatório estratégico gerado por IA (Gemini) sobre o candidato. */
 export type TseAiReport = {
   diagnostico: string;
