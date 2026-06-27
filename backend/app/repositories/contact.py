@@ -311,6 +311,8 @@ class ContactRepository:
         *,
         tenant_id: UUID,
         rows: list[dict[str, Any]],
+        created_by_user_id: UUID | None = None,
+        created_by_name: str | None = None,
     ) -> int:
         if not rows:
             return 0
@@ -324,6 +326,11 @@ class ContactRepository:
                     "tenant_id": tenant_id,
                     "created_at": now,
                     "updated_at": now,
+                    # Carimba quem importou — senão o contato fica com autor NULL
+                    # e o próprio importador (staff) não consegue editá-lo pela
+                    # regra "Comum edita só o que enviou".
+                    "created_by_user_id": created_by_user_id,
+                    "created_by_name": created_by_name,
                     **row,
                 }
             )

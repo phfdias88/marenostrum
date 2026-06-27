@@ -184,7 +184,9 @@ def census_setores(
                 "pct_pretos_pardos": (
                     round(100 * ((r["raca_preta"] or 0) + (r["raca_parda"] or 0))
                           / r["populacao"], 1)
-                    if r["populacao"] and r["raca_parda"] is not None else None
+                    if (r["populacao"] or 0) > 0
+                    and (r["raca_preta"] is not None or r["raca_parda"] is not None)
+                    else None
                 ),
                 "raca_branca": r["raca_branca"],
                 "raca_preta": r["raca_preta"],

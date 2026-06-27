@@ -202,6 +202,13 @@ def change_password(
     if user is None or not verify_password(payload.current_password, user.hashed_password):
         raise UnauthorizedError("Senha atual incorreta")
     user.hashed_password = hash_password(payload.new_password)
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=ctx.user_id,
+        summary="Alterou a própria senha",
+    )
     db.commit()
 
 
@@ -438,6 +445,16 @@ def set_census_flag(
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
     user.census_enabled = bool(payload.enabled)
+    record_audit(
+        ctx,
+        action="update",
+        entity_type="user",
+        entity_id=user.id,
+        summary=(
+            f"{'Liberou' if payload.enabled else 'Bloqueou'} o módulo Censo "
+            f"para {user.email}"
+        ),
+    )
     db.commit()
 
 

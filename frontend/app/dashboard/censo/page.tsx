@@ -401,14 +401,25 @@ export default function CensoPage() {
   // Agregação por bairro (se houver) ou distrito: pop, domicílios, área, setores.
   const hasBairros = !!setores?.features.some((f) => f.properties.nm_bairro);
   // A malha "bairro" só faz sentido se o município tiver bairros mapeados —
-  // senão cai pra distrito (Seropédica, p.ex., só tem distrito).
-  const effMalha: Malha = malha === "bairro" && !hasBairros ? "distrito" : malha;
+  // senão cai pra distrito (Seropédica, p.ex., só tem distrito). Cascata
+  // defensiva: bairro → distrito → setor, validando que o nível existe.
+  const hasDistritos = !!setores?.features.some(
+    (f) => f.properties.nm_dist && String(f.properties.nm_dist).trim() !== "",
+  );
+  const effMalha: Malha =
+    malha === "bairro" && !hasBairros
+      ? hasDistritos
+        ? "distrito"
+        : "setor"
+      : malha === "distrito" && !hasDistritos
+        ? "setor"
+        : malha;
   // Coluna de agrupamento da área conforme a malha escolhida.
   const areaGroupOf = (p: Record<string, number | string | null>) =>
     effMalha === "distrito"
       ? String(p.nm_dist || "—")
       : String(p.nm_bairro || p.nm_dist || "—");
-  const areaKind = effMalha === "distrito" ? "Distritos" : "Bairros";
+  const areaKind = effMalha === "distrito" || !hasBairros ? "Distritos" : "Bairros";
   const areasAgg = (() => {
     if (view !== "municipio" || !setores) return [];
     // "Regra da sensibilidade" centralizada em lib/censusAggregate:

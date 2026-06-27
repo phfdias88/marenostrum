@@ -478,6 +478,8 @@ class ContactService:
         inserted = self._repo.bulk_create(
             tenant_id=self._ctx.tenant_id,
             rows=to_insert,
+            created_by_user_id=self._ctx.user_id,
+            created_by_name=self._ctx.user_name or None,
         )
         if inserted:
             record_audit(
