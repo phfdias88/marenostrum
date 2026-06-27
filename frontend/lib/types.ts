@@ -238,6 +238,8 @@ export type TseCandidate = {
   social_links: string[] | null; // URLs de redes sociais
   revenue_total: number | null; // receita de campanha (R$)
   expense_total: number | null; // despesa de campanha (R$)
+  /** Município com mais votos — só vem pra prefeito/vereador (null nos demais). */
+  primary_municipality_name: string | null;
   party: TseParty;
   election: TseElection;
 };

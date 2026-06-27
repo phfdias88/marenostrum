@@ -460,6 +460,21 @@ def list_candidates(
         ).scalars()
     }
 
+    # Município com mais votos — só pra cargos municipais (prefeito=11,
+    # vereador=13), pro card exibir "UF - MUNICÍPIO - ANO". 1 query batch
+    # (N+1-safe). Estadual/nacional concorre no estado todo → fica só a UF.
+    muni_cand_ids = [c.id for c in rows if c.office_code in (11, 13)]
+    top_munis: dict = {}
+    if muni_cand_ids:
+        muni_rows = db.execute(
+            select(VoteResult.candidate_id, Municipality.name)
+            .join(Municipality, Municipality.id == VoteResult.municipality_id)
+            .where(VoteResult.candidate_id.in_(muni_cand_ids))
+            .order_by(VoteResult.candidate_id, VoteResult.votes.desc())
+            .distinct(VoteResult.candidate_id)
+        ).all()
+        top_munis = {r[0]: r[1] for r in muni_rows}
+
     items = []
     for c in rows:
         items.append(CandidateRead(
@@ -472,6 +487,7 @@ def list_candidates(
             state=c.state,
             situation=c.situation,
             result_status=c.result_status,
+            primary_municipality_name=top_munis.get(c.id),
             party=PartyRead.model_validate(parties_map[c.party_id]),
             election=ElectionRead.model_validate(elections_map[c.election_id]),
         ))

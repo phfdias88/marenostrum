@@ -54,6 +54,9 @@ class CandidateRead(BaseModel):
     # Financas de campanha (prestacao de contas)
     revenue_total: float | None = None
     expense_total: float | None = None
+    # Município com mais votos — só pra cargo municipal (prefeito/vereador);
+    # pro card exibir "UF - MUNICÍPIO - ANO" em vez de só "UF - ANO".
+    primary_municipality_name: str | None = None
     party: PartyRead
     election: ElectionRead
 
