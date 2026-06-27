@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.dependencies import CurrentTenant
 from app.models.monitored_candidate import MonitoredCandidate
-from app.models.tse import Candidate, Municipality, Party
+from app.models.tse import Candidate, Municipality, Party, VoteResult
 from app.schemas.monitored_candidate import (
     MonitoredCandidateRead,
     MonitoredCreate,
@@ -23,17 +23,35 @@ from app.schemas.monitored_candidate import (
 router = APIRouter(prefix="/monitored", tags=["monitored-candidates"])
 
 
+def _top_municipality_name(db, cand: Candidate | None) -> str | None:
+    """
+    Município com mais votos do candidato — só faz sentido pra cargo MUNICIPAL
+    (prefeito=11, vereador=13). Pra cargos estaduais/nacionais o candidato
+    concorre no estado todo, então retornamos None (mostra só a UF).
+    """
+    if cand is None or cand.office_code not in (11, 13):
+        return None
+    return db.execute(
+        select(Municipality.name)
+        .join(VoteResult, VoteResult.municipality_id == Municipality.id)
+        .where(VoteResult.candidate_id == cand.id)
+        .order_by(VoteResult.votes.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def _enrich(db, monitored: MonitoredCandidate) -> MonitoredCandidateRead:
     """Carrega snapshot do candidato TSE — None se nao existir mais."""
     cand = db.get(Candidate, monitored.candidate_id)
     party = db.get(Party, cand.party_id) if cand is not None and cand.party_id else None
-    return _build_read(monitored, cand, party)
+    return _build_read(monitored, cand, party, _top_municipality_name(db, cand))
 
 
 def _build_read(
     monitored: MonitoredCandidate,
     cand: Candidate | None,
     party: Party | None,
+    municipality_name: str | None = None,
 ) -> MonitoredCandidateRead:
     if cand is None:
         return MonitoredCandidateRead(
@@ -46,9 +64,8 @@ def _build_read(
             created_at=monitored.created_at,
             candidate_found=False,
         )
-    # tse_candidates nao tem direct FK pra municipality;
-    # municipality_id existe em vote_results. Aqui retornamos None — UI
-    # mostra "UF" suficiente.
+    # município (com mais votos) só vem pra cargo municipal — ver
+    # _top_municipality_name. Pra estadual/nacional fica None (mostra só UF).
     return MonitoredCandidateRead(
         id=monitored.id,
         candidate_id=monitored.candidate_id,
@@ -63,7 +80,7 @@ def _build_read(
         candidate_party_abbr=party.abbreviation if party else None,
         candidate_office_name=cand.office_name,
         candidate_state=cand.state,
-        candidate_municipality_name=None,
+        candidate_municipality_name=municipality_name,
         candidate_total_votes=cand.total_votes,
         candidate_was_elected=(cand.result_status or "").upper().startswith("ELEITO")
         if cand.result_status
@@ -101,12 +118,25 @@ def list_monitored(ctx: CurrentTenant) -> list[MonitoredCandidateRead]:
             select(Party).where(Party.id.in_(party_ids))
         ).scalars()
     } if party_ids else {}
+    # Município (com mais votos) — só pra cargos municipais. 1 query batch.
+    muni_cand_ids = [c.id for c in cands.values() if c.office_code in (11, 13)]
+    top_munis: dict = {}
+    if muni_cand_ids:
+        muni_rows = ctx.db.execute(
+            select(VoteResult.candidate_id, Municipality.name)
+            .join(Municipality, Municipality.id == VoteResult.municipality_id)
+            .where(VoteResult.candidate_id.in_(muni_cand_ids))
+            .order_by(VoteResult.candidate_id, VoteResult.votes.desc())
+            .distinct(VoteResult.candidate_id)
+        ).all()
+        top_munis = {r[0]: r[1] for r in muni_rows}
     return [
         _build_read(
             m,
             cands.get(m.candidate_id),
             parties.get(cands[m.candidate_id].party_id)
             if m.candidate_id in cands and cands[m.candidate_id].party_id else None,
+            top_munis.get(m.candidate_id),
         )
         for m in rows
     ]

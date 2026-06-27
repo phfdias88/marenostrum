@@ -296,7 +296,7 @@ function ComparisonReport({
                   </td>
                   <td className="py-2 px-2 text-muted-foreground">{r.candidate_party_abbr ?? "—"}</td>
                   <td className="py-2 px-2 text-muted-foreground">
-                    {r.candidate_office_name}{r.candidate_state ? ` · ${r.candidate_state}` : ""}
+                    {r.candidate_office_name}{r.candidate_municipality_name ? ` · ${r.candidate_municipality_name}` : ""}{r.candidate_state ? ` · ${r.candidate_state}` : ""}
                   </td>
                   <td className="py-2 pl-2 text-right font-mono tabular-nums">
                     {r.candidate_total_votes != null ? numberFmt.format(r.candidate_total_votes) : "—"}
@@ -383,6 +383,7 @@ function Card({
           </Link>
           <p className="text-xs text-muted-foreground truncate">
             {m.candidate_number} · {m.candidate_party_abbr} · {m.candidate_office_name}
+            {m.candidate_municipality_name ? ` · ${m.candidate_municipality_name}` : ""}
             {m.candidate_state ? ` · ${m.candidate_state}` : ""}
           </p>
           <div className="flex items-center gap-3 mt-2 text-sm">
