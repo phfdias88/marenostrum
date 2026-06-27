@@ -8,6 +8,7 @@
 import {
   ArrowLeft,
   FileDown,
+  Info,
   Loader2,
   Map as MapIcon,
   Shield,
@@ -982,11 +983,21 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
           <p className="text-lg font-bold text-primary">
             {numberFmt.format(data.total_electorate_reached)}
           </p>
-          <p className="text-[11px] text-muted-foreground">Eleitorado alcançado</p>
+          <p
+            className="text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1 cursor-help"
+            title="Soma do eleitorado dos municípios onde você teve pelo menos 1 voto — é o seu ALCANCE territorial, NÃO os votos conquistados."
+          >
+            Eleitorado alcançado <Info className="w-3 h-3" />
+          </p>
         </div>
         <div className="rounded-lg border bg-card p-3 text-center">
           <p className="text-lg font-bold">{pctFmt(data.avg_penetration_pct)}%</p>
-          <p className="text-[11px] text-muted-foreground">Penetração média</p>
+          <p
+            className="text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1 cursor-help"
+            title="Média, por município, de (seus votos ÷ eleitorado do município). Mede o quanto você penetrou no eleitorado de cada lugar onde concorreu."
+          >
+            Penetração média <Info className="w-3 h-3" />
+          </p>
         </div>
         <div className="rounded-lg border bg-card p-3 text-center">
           <p className="text-lg font-bold text-emerald-600">

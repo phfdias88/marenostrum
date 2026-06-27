@@ -5,7 +5,7 @@
  * - Lista das eleicoes importadas (ordinaria 2024, 2o turno, suplementares)
  * - Clique em uma -> stats agregados + drill pra busca de candidatos
  */
-import { ArrowLeft, FileBarChart, Loader2, Vote } from "lucide-react";
+import { ArrowLeft, FileBarChart, Loader2, Search, Vote } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -22,6 +22,18 @@ const numberFmt = new Intl.NumberFormat("pt-BR");
 export default function EleicoesAnalysisPage() {
   const [elections, setElections] = useState<TseElection[] | null>(null);
   const [selected, setSelected] = useState<TseElection | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // Filtro client-side por nome, ano ou tipo (há MUITA eleição suplementar).
+  const filteredElections = elections?.filter((e) => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return true;
+    return (
+      e.name.toLowerCase().includes(term) ||
+      String(e.year).includes(term) ||
+      (e.type_name?.toLowerCase().includes(term) ?? false)
+    );
+  });
 
   useEffect(() => {
     api<TseElection[]>("/v1/tse/elections")
@@ -72,35 +84,52 @@ export default function EleicoesAnalysisPage() {
           ))}
         </div>
       ) : (
-        <ul className="rounded-lg border bg-card divide-y divide-border">
-          {elections.map((e) => {
-            const isOrd = (e.type_name ?? "").toLowerCase().includes("ordin");
-            return (
-              <button
-                key={e.id}
-                onClick={() => setSelected(e)}
-                className="w-full text-left p-4 hover:bg-accent/50 transition-colors flex items-center gap-4"
-              >
-                <span
-                  className={`grid place-items-center w-10 h-10 rounded-md shrink-0 ${
-                    isOrd
-                      ? "bg-primary/20 text-primary"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <Vote className="w-5 h-5" />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{e.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {e.year} · {e.round}º turno · cod TSE {e.tse_code} ·{" "}
-                    {e.type_name}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
-        </ul>
+        <>
+          <div className="mb-4 relative max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Filtrar por nome, ano ou tipo…"
+              className="w-full pl-9 pr-3 py-2 rounded-md bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          {filteredElections && filteredElections.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              Nenhuma eleição encontrada para “{searchTerm.trim()}”.
+            </div>
+          ) : (
+            <ul className="rounded-lg border bg-card divide-y divide-border">
+              {filteredElections?.map((e) => {
+                const isOrd = (e.type_name ?? "").toLowerCase().includes("ordin");
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => setSelected(e)}
+                    className="w-full text-left p-4 hover:bg-accent/50 transition-colors flex items-center gap-4"
+                  >
+                    <span
+                      className={`grid place-items-center w-10 h-10 rounded-md shrink-0 ${
+                        isOrd
+                          ? "bg-primary/20 text-primary"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <Vote className="w-5 h-5" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold truncate">{e.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {e.year} · {e.round}º turno · cod TSE {e.tse_code} ·{" "}
+                        {e.type_name}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

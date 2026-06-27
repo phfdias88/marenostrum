@@ -984,7 +984,9 @@ def candidate_results(
     stmt = (
         select(VoteResult, Municipality)
         .join(Municipality, VoteResult.municipality_id == Municipality.id)
-        .where(VoteResult.candidate_id == candidate_id)
+        # votes > 0: candidatos a cargos gerais (dep/senador) não devem mostrar
+        # municípios onde tiveram 0 votos no mapa (pedido do sócio).
+        .where(VoteResult.candidate_id == candidate_id, VoteResult.votes > 0)
         .order_by(VoteResult.votes.desc())
     )
     rows = db.execute(stmt).all()
@@ -1736,7 +1738,10 @@ def winners_map(
         JOIN tse_municipalities m ON m.id = vr.municipality_id
         WHERE e.year = :year AND c.office_code = :office
           AND m.latitude IS NOT NULL
-        ORDER BY vr.municipality_id, vr.votes DESC
+        -- tiebreaker estável (urn_name): sem ele, em empate de votos o
+        -- DISTINCT ON pegava um vencedor não-determinístico → cor errada
+        -- (ex: prefeito do Rio aparecendo na cor de outro partido).
+        ORDER BY vr.municipality_id, vr.votes DESC, c.urn_name ASC
         """
     )
     rows = db.execute(sql, {"year": year, "office": office_code}).mappings().all()
@@ -1978,11 +1983,32 @@ def candidate_by_neighborhood(
             func.coalesce(func.sum(TseVotingPlace.electors_total), 0).label(
                 "electors_total",
             ),
-            func.avg(TseVotingPlace.latitude).label("avg_lat"),
-            func.avg(TseVotingPlace.longitude).label("avg_lng"),
+            # Só promedia coordenadas DENTRO do Brasil (bbox) — locais sem
+            # coordenada recebem do TSE um padrão que cai no Atlântico (0,0);
+            # incluí-los jogava a bolha do bairro no oceano.
+            func.avg(
+                case(
+                    (
+                        (TseVotingPlace.latitude.between(-33.7, 5.3))
+                        & (TseVotingPlace.longitude.between(-73.9, -34.8)),
+                        TseVotingPlace.latitude,
+                    ),
+                    else_=None,
+                )
+            ).label("avg_lat"),
+            func.avg(
+                case(
+                    (
+                        (TseVotingPlace.latitude.between(-33.7, 5.3))
+                        & (TseVotingPlace.longitude.between(-73.9, -34.8)),
+                        TseVotingPlace.longitude,
+                    ),
+                    else_=None,
+                )
+            ).label("avg_lng"),
         )
         .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
-        .where(TseSectionVote.candidate_id == candidate_id)
+        .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
     )
     if municipality_id is not None:
         stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)

@@ -469,7 +469,7 @@ function SearchModal({
     setSearching(true);
     const t = setTimeout(() => {
       api<{ items: TseCandidate[] }>(
-        `/v1/tse/candidates?q=${encodeURIComponent(q.trim())}&limit=20`,
+        `/v1/tse/candidates?search=${encodeURIComponent(q.trim())}&limit=20`,
       )
         .then((r) => setResults(r.items))
         .catch(() => setResults([]))

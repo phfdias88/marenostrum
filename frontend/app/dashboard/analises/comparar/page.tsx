@@ -22,6 +22,7 @@ import type {
   Page,
   TseCandidate,
   TseCandidateResults,
+  TseElection,
   TseMunicipality,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
@@ -351,6 +352,21 @@ function SearchModal({
   const muniDebounced = useDebounce(muniSearch, 300);
   const [muniResults, setMuniResults] = useState<TseMunicipality[]>([]);
   const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
+  // Ano da eleição — evita comparar candidatos de pleitos diferentes sem perceber.
+  const [elections, setElections] = useState<TseElection[]>([]);
+  const [year, setYear] = useState<string>("");
+
+  useEffect(() => {
+    api<TseElection[]>("/v1/tse/elections")
+      .then((arr) => {
+        // anos distintos, mais recente primeiro
+        const years = Array.from(new Set(arr.map((e) => e.year))).sort((a, b) => b - a);
+        const uniq = years.map((y) => arr.find((e) => e.year === y)!);
+        setElections(uniq);
+        if (years.length) setYear(String(years[0])); // default: ano mais recente
+      })
+      .catch(() => setElections([]));
+  }, []);
 
   // Busca municipios conforme digita (so se nao tem selecionado)
   useEffect(() => {
@@ -371,6 +387,7 @@ function SearchModal({
     const p = new URLSearchParams({ limit: "20" });
     if (state) p.set("state", state);
     if (office) p.set("office_code", office);
+    if (year) p.set("year", year);
     if (debounced.trim()) p.set("search", debounced.trim());
     if (selectedMuni) p.set("municipality_id", selectedMuni.id);
     setLoading(true);
@@ -378,7 +395,7 @@ function SearchModal({
       .then(setData)
       .catch(() => setData({ items: [], total: 0, limit: 20, offset: 0 }))
       .finally(() => setLoading(false));
-  }, [state, office, debounced, selectedMuni]);
+  }, [state, office, year, debounced, selectedMuni]);
 
   async function pick(c: TseCandidate) {
     setPicking(c.id);
@@ -411,7 +428,7 @@ function SearchModal({
             <select
               value={state}
               onChange={(e) => setState(e.target.value)}
-              className="col-span-3 py-2 px-3 rounded-md bg-background border border-border text-sm"
+              className="col-span-2 py-2 px-3 rounded-md bg-background border border-border text-sm"
             >
               <option value="">UF</option>
               {TSE_STATES.map((s) => (
@@ -421,9 +438,22 @@ function SearchModal({
               ))}
             </select>
             <select
+              value={year}
+              onChange={(e) => setYear(e.target.value)}
+              className="col-span-2 py-2 px-3 rounded-md bg-background border border-border text-sm"
+              title="Ano da eleição"
+            >
+              <option value="">Ano</option>
+              {elections.map((e) => (
+                <option key={e.year} value={e.year}>
+                  {e.year}
+                </option>
+              ))}
+            </select>
+            <select
               value={office}
               onChange={(e) => setOffice(e.target.value)}
-              className="col-span-4 py-2 px-3 rounded-md bg-background border border-border text-sm"
+              className="col-span-3 py-2 px-3 rounded-md bg-background border border-border text-sm"
             >
               <option value="">Cargo</option>
               {Object.entries(TSE_OFFICES).map(([k, v]) => (
