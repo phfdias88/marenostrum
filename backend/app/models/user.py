@@ -37,6 +37,10 @@ class User(Base, TenantMixin, TimestampMixin):
         default=UserRole.STAFF,
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # Super-acesso da consultoria Mare Nostrum: vê a auditoria de TODAS as
+    # campanhas (cross-tenant). Setado só direto no banco (sem endpoint, anti-
+    # escalonamento). Default false.
+    is_superadmin: Mapped[bool] = mapped_column(default=False, nullable=False)
     # Feature-flag: libera o módulo de Dados Censitários (IBGE) no menu do
     # usuário. Controlado pelo owner em Configurações > Equipe.
     census_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)

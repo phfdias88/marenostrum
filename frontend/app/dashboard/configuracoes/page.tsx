@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
-type Me = { user_id: string; role: string; tenant_name: string };
+type Me = { user_id: string; role: string; tenant_name: string; is_superadmin?: boolean };
 
 type TeamUser = {
   id: string;
@@ -105,8 +105,11 @@ export default function SettingsPage() {
         {me && me.role !== "volunteer" && (
           <TeamCard isOwner={me.role === "owner"} meId={me.user_id} />
         )}
-        {/* Trilha de auditoria — só o Administrador (Dono) vê. */}
-        {me && me.role === "owner" && <AuditCard />}
+        {/* Trilha de auditoria — Dono vê a da campanha; super-admin Mare
+            Nostrum vê todas (toggle dentro do card). */}
+        {me && (me.role === "owner" || me.is_superadmin) && (
+          <AuditCard superadmin={!!me.is_superadmin} />
+        )}
       </div>
     </div>
   );
@@ -122,6 +125,7 @@ type AuditItem = {
   entity_type: string;
   summary: string | null;
   created_at: string;
+  tenant_name?: string | null;
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -135,19 +139,22 @@ const ACTION_STYLE: Record<string, string> = {
   delete: "bg-rose-500/10 text-rose-700 dark:text-rose-400",
 };
 
-function AuditCard() {
+function AuditCard({ superadmin = false }: { superadmin?: boolean }) {
   const [items, setItems] = useState<AuditItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [entity, setEntity] = useState<string>("");
   const [action, setAction] = useState<string>("");
+  // Mare Nostrum: alterna entre auditoria DESTA campanha e de TODAS (cross-tenant).
+  const [scope, setScope] = useState<"tenant" | "all">("tenant");
 
   useEffect(() => {
     setLoading(true);
     const p = new URLSearchParams({ limit: "50" });
     if (entity) p.set("entity_type", entity);
     if (action) p.set("action", action);
-    api<{ items: AuditItem[]; total: number }>(`/v1/audit?${p.toString()}`)
+    const base = superadmin && scope === "all" ? "/v1/audit/cross-tenant" : "/v1/audit";
+    api<{ items: AuditItem[]; total: number }>(`${base}?${p.toString()}`)
       .then((d) => {
         setItems(d.items);
         setTotal(d.total);
@@ -157,7 +164,7 @@ function AuditCard() {
         setTotal(0);
       })
       .finally(() => setLoading(false));
-  }, [entity, action]);
+  }, [entity, action, scope, superadmin]);
 
   return (
     <section className="rounded-xl border bg-card p-6">
@@ -195,6 +202,23 @@ function AuditCard() {
           <option value="update">Edição</option>
           <option value="delete">Exclusão</option>
         </select>
+        {superadmin && (
+          <div className="flex rounded-md border border-border overflow-hidden text-sm ml-auto">
+            <button
+              onClick={() => setScope("tenant")}
+              className={`px-2.5 py-1.5 ${scope === "tenant" ? "bg-primary/10 text-primary font-semibold" : "bg-background hover:bg-accent/40"}`}
+            >
+              Esta campanha
+            </button>
+            <button
+              onClick={() => setScope("all")}
+              title="Mare Nostrum — auditoria de todas as campanhas"
+              className={`px-2.5 py-1.5 border-l border-border inline-flex items-center gap-1 ${scope === "all" ? "bg-primary/10 text-primary font-semibold" : "bg-background hover:bg-accent/40"}`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" /> Todas
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -220,6 +244,9 @@ function AuditCard() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm">{it.summary ?? `${it.action} ${it.entity_type}`}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {it.tenant_name && (
+                    <span className="text-primary font-medium">{it.tenant_name} · </span>
+                  )}
                   <strong className="text-foreground">{it.user_name ?? "—"}</strong>
                   {it.user_role ? ` · ${it.user_role}` : ""} ·{" "}
                   {new Date(it.created_at).toLocaleString("pt-BR", {

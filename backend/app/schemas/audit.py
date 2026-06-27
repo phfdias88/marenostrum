@@ -15,6 +15,8 @@ class AuditLogItem(BaseModel):
     entity_id: UUID | None = None
     summary: str | None = None
     created_at: datetime
+    # Preenchido só na visão cross-tenant (Mare Nostrum) — qual campanha.
+    tenant_name: str | None = None
 
     model_config = {"from_attributes": True}
 

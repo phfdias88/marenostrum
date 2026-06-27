@@ -85,6 +85,7 @@ class AuthService:
             tenant_id=tenant.id,
             tenant_slug=tenant.slug,
             tenant_name=tenant.name,
+            is_superadmin=bool(getattr(user, "is_superadmin", False)),
             census_enabled=bool(getattr(user, "census_enabled", False)),
             analytics_enabled=bool(getattr(user, "analytics_enabled", True)),
             panel_enabled=bool(getattr(user, "panel_enabled", True)),

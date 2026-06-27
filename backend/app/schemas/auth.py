@@ -102,6 +102,8 @@ class MeResponse(BaseModel):
     tenant_id: UUID
     tenant_slug: str
     tenant_name: str
+    # Super-acesso Mare Nostrum (auditoria cross-tenant). Default false.
+    is_superadmin: bool = False
     census_enabled: bool = False
     # Acesso por área (configurável pelo owner). Default amplo.
     analytics_enabled: bool = True

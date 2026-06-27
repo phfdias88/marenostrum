@@ -16,6 +16,8 @@ from app.core.database import get_db
 from app.core.dependencies import CurrentTenant
 from app.core.errors import DomainError
 from app.models.audit_log import AuditLog
+from app.models.tenant import Tenant
+from app.models.user import User
 from app.schemas.audit import AuditLogItem, AuditLogList
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -80,3 +82,56 @@ def list_audit(
         items=[AuditLogItem.model_validate(r) for r in rows],
         total=total,
     )
+
+
+@router.get(
+    "/cross-tenant",
+    response_model=AuditLogList,
+    summary="Auditoria de TODAS as campanhas (Mare Nostrum / super-admin)",
+    description=(
+        "Visão da consultoria Mare Nostrum: a trilha de auditoria de TODOS os "
+        "tenants (cross-tenant), com o nome da campanha em cada linha. Restrito "
+        "a usuários com is_superadmin=true (setado só no banco). Permite "
+        "responsabilizar quem editou/excluiu o quê em qualquer cliente."
+    ),
+)
+def list_audit_cross_tenant(
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    entity_type: str | None = Query(None),
+    action: str | None = Query(None),
+) -> AuditLogList:
+    # Checagem ESTRITA: super-acesso é uma flag do banco, não um papel/tenant.
+    user = db.get(User, ctx.user_id)
+    if user is None or not getattr(user, "is_superadmin", False):
+        raise _ForbiddenError(
+            "Acesso restrito à equipe Mare Nostrum (super-admin)."
+        )
+
+    filters = []
+    if entity_type:
+        filters.append(AuditLog.entity_type == entity_type)
+    if action:
+        filters.append(AuditLog.action == action)
+
+    total = int(
+        db.execute(select(func.count()).select_from(AuditLog).where(*filters)).scalar()
+        or 0
+    )
+    rows = db.execute(
+        select(AuditLog, Tenant.name)
+        .join(Tenant, Tenant.id == AuditLog.tenant_id)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+
+    items: list[AuditLogItem] = []
+    for al, tenant_name in rows:
+        it = AuditLogItem.model_validate(al)
+        it.tenant_name = tenant_name
+        items.append(it)
+    return AuditLogList(items=items, total=total)
