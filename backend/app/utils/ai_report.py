@@ -261,7 +261,13 @@ def _call_gemini(prompt: str) -> dict:
 
 
 def _head_to_head(db: Session, a: Candidate, b: Candidate) -> dict:
-    """Municípios onde A e B têm voto: quem lidera e por quanto."""
+    """Municípios onde A e B têm voto: quem lidera, por quanto e quanto do
+    eleitorado NENHUM dos dois atingiu.
+
+    Calcula o "eleitorado não atingido" (eleitorado − votosA − votosB) e a %
+    EXATOS no código e injeta no confronto — antes a IA não tinha o eleitorado
+    no JSON e chutava a porcentagem (ex.: 97% no lugar de 96%).
+    """
     va = dict(
         db.execute(
             select(VoteResult.municipality_id, VoteResult.votes).where(
@@ -277,6 +283,34 @@ def _head_to_head(db: Session, a: Candidate, b: Candidate) -> dict:
         ).all()
     )
     shared = set(va) & set(vb)
+
+    # Eleitorado mais recente por município disputado (pra % exata, sem mistura
+    # de cargos — votos vêm por candidato, que é uma só candidatura/cargo).
+    elect_map: dict = {}
+    if shared:
+        latest_elect = (
+            select(
+                MunicipalityElectorate.municipality_id.label("mid"),
+                func.max(MunicipalityElectorate.year).label("y"),
+            )
+            .group_by(MunicipalityElectorate.municipality_id)
+            .subquery()
+        )
+        elect_map = dict(
+            db.execute(
+                select(
+                    MunicipalityElectorate.municipality_id,
+                    MunicipalityElectorate.total,
+                )
+                .join(
+                    latest_elect,
+                    (MunicipalityElectorate.municipality_id == latest_elect.c.mid)
+                    & (MunicipalityElectorate.year == latest_elect.c.y),
+                )
+                .where(MunicipalityElectorate.municipality_id.in_(shared))
+            ).all()
+        )
+
     name_map = {
         m.id: f"{m.name}/{m.state}"
         for m in db.execute(
@@ -286,14 +320,38 @@ def _head_to_head(db: Session, a: Candidate, b: Candidate) -> dict:
 
     rows = []
     for mid in shared:
-        diff = int(va[mid] or 0) - int(vb[mid] or 0)
-        rows.append((name_map.get(mid, "?"), int(va[mid] or 0), int(vb[mid] or 0), diff))
-    a_leads = sorted([r for r in rows if r[3] > 0], key=lambda r: r[3], reverse=True)[:10]
-    b_leads = sorted([r for r in rows if r[3] < 0], key=lambda r: r[3])[:10]
+        vot_a = int(va[mid] or 0)
+        vot_b = int(vb[mid] or 0)
+        elect = int(elect_map.get(mid, 0) or 0)
+        nao_atingido = max(0, elect - vot_a - vot_b) if elect else None
+        nao_atingido_pct = (
+            round(100 * nao_atingido / elect, 1) if elect and nao_atingido is not None else None
+        )
+        rows.append(
+            {
+                "municipio": name_map.get(mid, "?"),
+                "voce": vot_a,
+                "adversario": vot_b,
+                "diff": vot_a - vot_b,
+                "eleitorado_total": elect or None,
+                "eleitorado_nao_atingido": nao_atingido,
+                "nao_atingido_pct": nao_atingido_pct,
+            }
+        )
+    a_leads = sorted([r for r in rows if r["diff"] > 0], key=lambda r: r["diff"], reverse=True)[:10]
+    b_leads = sorted([r for r in rows if r["diff"] < 0], key=lambda r: r["diff"])[:10]
+
+    def _fmt(r: dict, key_vant: str) -> dict:
+        out = {k: r[k] for k in ("municipio", "voce", "adversario", "eleitorado_total",
+                                 "eleitorado_nao_atingido", "nao_atingido_pct")}
+        out[key_vant] = abs(r["diff"])
+        return out
+
     return {
         "municipios_disputados": len(shared),
-        "a_lidera_em": [{"municipio": r[0], "voce": r[1], "adversario": r[2], "vantagem": r[3]} for r in a_leads],
-        "adversario_lidera_em": [{"municipio": r[0], "voce": r[1], "adversario": r[2], "desvantagem": -r[3]} for r in b_leads],
+        "cargo": a.office_name,
+        "a_lidera_em": [_fmt(r, "vantagem") for r in a_leads],
+        "adversario_lidera_em": [_fmt(r, "desvantagem") for r in b_leads],
     }
 
 
@@ -307,8 +365,16 @@ CANDIDATO (você assessora este):
 ADVERSÁRIO:
 {adversario}
 
-CONFRONTO MUNICÍPIO A MUNICÍPIO:
+CONFRONTO MUNICÍPIO A MUNICÍPIO (dados verificados do TSE — cargo: {cargo}):
 {confronto}
+
+REGRAS CRÍTICAS DE NÚMEROS (não desobedeça):
+- "eleitorado_nao_atingido" e "nao_atingido_pct" no confronto já vêm CALCULADOS \
+(eleitorado − seus votos − votos do adversário). USE esses números EXATAMENTE; \
+NUNCA recalcule nem invente porcentagens.
+- Todos os votos são do MESMO cargo ({cargo}) — não some votos de cargos diferentes.
+- Em "onde_atacar", priorize municípios com maior "eleitorado_nao_atingido" e \
+cite o número/percentual exato do JSON.
 
 Responda APENAS com JSON válido (sem markdown), nesta estrutura exata:
 {{
@@ -316,7 +382,7 @@ Responda APENAS com JSON válido (sem markdown), nesta estrutura exata:
   "quem_lidera": "<nome do que está em melhor posição> + 1 frase do porquê",
   "minhas_vantagens": ["3-4 vantagens concretas do CANDIDATO sobre o adversário"],
   "vantagens_adversario": ["3-4 forças do adversário que o candidato precisa observar"],
-  "onde_atacar": ["3-4 municípios/segmentos onde o candidato pode tomar voto do adversário"],
+  "onde_atacar": ["3-4 municípios onde há mais eleitorado não atingido — cite o número exato do JSON"],
   "onde_defender": ["3-4 municípios/segmentos onde o candidato precisa segurar a base"],
   "recomendacao_final": "1-2 frases de estratégia direta pro candidato vencer o confronto"
 }}
@@ -352,6 +418,14 @@ def generate_comparison(
     if a is None or b is None:
         raise AiReportError("Candidato ou adversário não encontrado")
 
+    # Confronto só faz sentido entre o MESMO cargo — comparar vereador com
+    # prefeito mistura disputas diferentes (e distorceria a % de eleitorado).
+    if a.office_code != b.office_code:
+        raise AiReportError(
+            f"Os dois concorrem a cargos diferentes ({a.office_name} × "
+            f"{b.office_name}). Escolha um adversário do mesmo cargo."
+        )
+
     fa = _gather_facts(db, a)
     fb = _gather_facts(db, b)
     h2h = _head_to_head(db, a, b)
@@ -359,6 +433,7 @@ def generate_comparison(
         candidato=json.dumps(fa, ensure_ascii=False, indent=2),
         adversario=json.dumps(fb, ensure_ascii=False, indent=2),
         confronto=json.dumps(h2h, ensure_ascii=False, indent=2),
+        cargo=a.office_name,
     )
     report = _call_gemini(prompt)
     report["confronto"] = h2h  # anexa os números pro frontend exibir

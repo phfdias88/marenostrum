@@ -13,7 +13,7 @@
  * CampaignMap é importado via next/dynamic({ssr:false}) — Leaflet usa window.
  */
 import dynamic from "next/dynamic";
-import { BarChart3, Loader2, MapPinned, Users, X } from "lucide-react";
+import { BarChart3, Flame, Loader2, MapPinned, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -48,6 +48,7 @@ function useDebounce<T>(v: T, ms: number): T {
 export default function MapPage() {
   const [metric, setMetric] = useState<Metric>("contacts");
   const [groupBy, setGroupBy] = useState<GroupBy>("neighborhood");
+  const [viz, setViz] = useState<"bubbles" | "heatmap">("bubbles");
   const [uf, setUf] = useState("");
   const [city, setCity] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
@@ -108,7 +109,11 @@ export default function MapPage() {
     <div className="flex flex-col lg:flex-row gap-4 p-3 sm:p-4 lg:h-[calc(100dvh-3.5rem)]">
       {/* Mapa */}
       <div className="h-[55vh] lg:h-auto shrink-0 lg:flex-1 rounded-xl overflow-hidden border border-border relative">
-        <CampaignMap groups={mapGroups} metricLabel={metricLabel} />
+        <CampaignMap
+          groups={mapGroups}
+          metricLabel={metricLabel}
+          showHeatmap={viz === "heatmap"}
+        />
         <MapLayoutSelector className="absolute top-3 right-3 z-[500]" />
         {loading && (
           <div className="absolute top-3 left-3 z-[500] bg-card/90 border border-border rounded-md px-2.5 py-1 text-xs flex items-center gap-1.5">
@@ -137,6 +142,15 @@ export default function MapPage() {
             options={[
               { value: "neighborhood", label: "Bairro" },
               { value: "voting_place", label: "Local de votação" },
+            ]}
+          />
+          <Toggle
+            label="Visualização"
+            value={viz}
+            onChange={(v) => setViz(v as "bubbles" | "heatmap")}
+            options={[
+              { value: "bubbles", label: "Bolhas", icon: <MapPinned className="w-3.5 h-3.5" /> },
+              { value: "heatmap", label: "Heatmap", icon: <Flame className="w-3.5 h-3.5" /> },
             ]}
           />
         </div>
