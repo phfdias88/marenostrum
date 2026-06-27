@@ -51,14 +51,18 @@ function FitToGroups({ groups }: { groups: MapGroup[] }) {
     const id = setTimeout(() => {
       map.invalidateSize();
       if (!pts.length) return;
-      // 1 ponto só: fitBounds degenera e não centraliza (o mapa ficava no
-      // default do Rio mesmo com contato em Seropédica). setView resolve.
+      // animate:false é ESSENCIAL — o setView/fitBounds animado é engolido
+      // durante o churn de init do mapa (invalidateSize), deixando o mapa no
+      // centro default. Sem animação, aplica na hora.
+      // 1 ponto só: fitBounds degenera; setView direto.
       if (pts.length === 1) {
-        map.setView(pts[0], 13);
+        map.setView(pts[0], 13, { animate: false });
         return;
       }
       const b = L.latLngBounds(pts);
-      if (b.isValid()) map.fitBounds(b, { padding: [40, 40], maxZoom: 14 });
+      if (b.isValid()) {
+        map.fitBounds(b, { padding: [40, 40], maxZoom: 14, animate: false });
+      }
     }, 300);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
