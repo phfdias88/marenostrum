@@ -978,7 +978,7 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
       </p>
 
       {/* Resumo */}
-      <div className="grid grid-cols-3 gap-2 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
         <div className="rounded-lg border bg-card p-3 text-center">
           <p className="text-lg font-bold text-primary">
             {numberFmt.format(data.total_electorate_reached)}
@@ -988,6 +988,17 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
             title="Soma do eleitorado dos municípios onde você teve pelo menos 1 voto — é o seu ALCANCE territorial, NÃO os votos conquistados."
           >
             Eleitorado alcançado <Info className="w-3 h-3" />
+          </p>
+        </div>
+        <div className="rounded-lg border bg-card p-3 text-center">
+          <p className="text-lg font-bold text-amber-500">
+            {numberFmt.format(Math.max(0, data.total_electorate_reached - data.total_votes))}
+          </p>
+          <p
+            className="text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1 cursor-help"
+            title="Eleitores dos municípios onde você concorreu que NÃO votaram em você (eleitorado alcançado − seus votos). É o potencial ainda não conquistado no seu território."
+          >
+            Eleitorado que não alcançou <Info className="w-3 h-3" />
           </p>
         </div>
         <div className="rounded-lg border bg-card p-3 text-center">
