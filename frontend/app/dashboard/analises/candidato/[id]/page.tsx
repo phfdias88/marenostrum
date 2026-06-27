@@ -826,9 +826,14 @@ function BairroComparison({
         );
         return;
       }
-      if (ra.municipality && rb.municipality && ra.municipality.id !== rb.municipality.id) {
+      // Mesmo município? (vereador é de 1 município; bairros homônimos entre
+      // cidades — ex. "Centro" — não podem se misturar). Usa o município do
+      // candidato (mais confiável que o campo municipality, que vem null aqui).
+      const muA = ra.candidate.primary_municipality_name || ra.municipality?.name || null;
+      const muB = rb.candidate.primary_municipality_name || rb.municipality?.name || null;
+      if (muA && muB && muA !== muB) {
         setMsg(
-          `Vocês são de municípios diferentes (${ra.municipality.name} × ${rb.municipality.name}). A comparação por bairro só faz sentido no mesmo município.`,
+          `Vocês são de municípios diferentes (${muA} × ${muB}). A comparação por bairro só faz sentido no mesmo município.`,
         );
         return;
       }
@@ -849,7 +854,7 @@ function BairroComparison({
         .map(([bairro, v]) => ({ bairro, ...v }))
         .sort((x, y) => y.a + y.b - (x.a + x.b));
       setRows(merged);
-      setMuni((ra.municipality || rb.municipality)?.name ?? null);
+      setMuni(muA || muB);
     } catch (e) {
       const m =
         e instanceof Error && e.message
