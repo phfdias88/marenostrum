@@ -459,11 +459,14 @@ def list_candidates(
         el_a = aliased(Election)
         filtered = stmt.subquery()
         cand = aliased(Candidate, filtered)
-        # Chave da pessoa: nome civil + UF. EXCEÇÃO: presidente (cargo 1) é
-        # nacional e o TSE traz UF inconsistente entre anos (Bolsonaro 2018=RS,
-        # 2022=MA) — então president cai num bucket único "BR" pra unificar.
+        # Chave da PESSOA. Preferência: CPF (ID único entre eleições/cargos/UFs
+        # — unifica Bolsonaro, Dilma presidente+senadora, etc.). Fallback p/ quem
+        # ainda não tem CPF importado: nome civil + UF, com presidente (cargo 1)
+        # num bucket "BR" (o TSE traz UF inconsistente p/ cargo nacional).
         state_key = case((cand.office_code == 1, "BR"), else_=cand.state)
-        part = (func.lower(func.f_unaccent(cand.name)), state_key)
+        name_key = func.concat(func.lower(func.f_unaccent(cand.name)), "|", state_key)
+        person_key = func.coalesce(func.nullif(cand.cpf, ""), name_key)
+        part = (person_key,)
         ranked = (
             select(
                 cand,

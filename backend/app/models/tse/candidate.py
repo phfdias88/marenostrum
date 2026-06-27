@@ -39,6 +39,11 @@ class Candidate(Base, TimestampMixin):
     # UF onde concorreu (SG_UF)
     state: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
 
+    # CPF da PESSOA (NR_CPF_CANDIDATO, do dataset consulta_cand) — ID único entre
+    # eleições/cargos/UFs. Usado pra agrupar candidaturas da mesma pessoa na
+    # busca. Nullable (anos sem consulta_cand importado). NÃO exposto na API (PII).
+    cpf: Mapped[str | None] = mapped_column(String(11), nullable=True)
+
     # Situação final (DS_SITUACAO_CANDIDATURA): DEFERIDO, INDEFERIDO, RENUNCIA
     situation: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
@@ -65,4 +70,6 @@ class Candidate(Base, TimestampMixin):
             "ix_tse_candidates_search",
             "election_id", "state", "office_code",
         ),
+        # Agrupamento por pessoa via CPF.
+        Index("ix_tse_candidates_cpf", "cpf"),
     )

@@ -155,6 +155,17 @@ for _yr in (2020, 2022):
         "uf": "RJ",
     }
 
+# CPF dos candidatos (dataset consulta_cand do TSE) — popula tse_candidates.cpf
+# (por SQ_CANDIDATO) pra agrupar candidaturas da MESMA pessoa por CPF na busca.
+# 1 zip por ano, com todas as UFs.
+for _yr in (2014, 2016, 2018, 2020, 2022, 2024):
+    DATASETS[f"consulta_cand_{_yr}"] = {
+        "url": f"{TSE_BASE_URL}/consulta_cand/consulta_cand_{_yr}.zip",
+        "year": _yr,
+        "processor": "consulta_cand",
+        "max_mb": 600,
+    }
+
 CACHE_DIR = Path("/tmp/tse_cache")
 MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
@@ -298,6 +309,8 @@ def run_sync_job(job_id: UUID) -> None:
                 _process_perfil_eleitorado(db, job, zip_path)
             elif processor == "zona_votos":
                 _process_zona_votos(db, job, zip_path, year=dataset_meta["year"])
+            elif processor == "consulta_cand":
+                _process_consulta_cand(db, job, zip_path)
             else:
                 _fail(db, job, f"Processor desconhecido: {processor}")
                 return
@@ -747,6 +760,59 @@ def _coord_in_brazil(lat, lng) -> bool:
         and lng is not None
         and -34 <= lat <= 6
         and -74 <= lng <= -34
+    )
+
+
+# ====================================================================
+# Processor: consulta_cand (consulta_cand_<ano>.zip) — popula o CPF
+# ====================================================================
+
+
+def _process_consulta_cand(db: Session, job: TseSyncJob, zip_path: Path) -> None:
+    """
+    Parseia consulta_cand_<ano> (registro de candidaturas) e grava o CPF em
+    tse_candidates, casando por SQ_CANDIDATO. CPF é o ID único da PESSOA entre
+    eleições/cargos/UFs — é o que o agrupamento da busca usa.
+
+    Lê só o arquivo _BRASIL (o zip tem 1 csv por UF com os mesmos dados).
+    Colunas: SQ_CANDIDATO, NR_CPF_CANDIDATO.
+    """
+    from sqlalchemy import bindparam, update as _update
+
+    sq_to_cpf: dict[int, str] = {}
+    rows_processed = 0
+    for _csv_name, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
+        rows_processed += 1
+        sq = _i(row.get("SQ_CANDIDATO"))
+        cpf_raw = str(row.get("NR_CPF_CANDIDATO") or "")
+        cpf = "".join(ch for ch in cpf_raw if ch.isdigit())
+        # TSE às vezes mascara/zera o CPF — só guarda 11 dígitos plausíveis.
+        if sq and len(cpf) == 11 and cpf != "00000000000":
+            sq_to_cpf[sq] = cpf
+        if rows_processed % 50000 == 0:
+            job.rows_processed = rows_processed
+            db.commit()
+            log.info("tse_consulta_cand_progress", rows=rows_processed, cpfs=len(sq_to_cpf))
+
+    # Batch UPDATE por SQ_CANDIDATO (índice único → rápido). synchronize_session
+    # =None: executemany de UPDATE com WHERE exige bypass do sync da sessão ORM.
+    stmt = (
+        _update(Candidate)
+        .where(Candidate.sq_candidato == bindparam("b_sq"))
+        .values(cpf=bindparam("b_cpf"))
+        .execution_options(synchronize_session=None)
+    )
+    items = [{"b_sq": sq, "b_cpf": cpf} for sq, cpf in sq_to_cpf.items()]
+    for i in range(0, len(items), CHUNK_SIZE):
+        db.execute(stmt, items[i : i + CHUNK_SIZE])
+        db.commit()
+
+    job.rows_processed = rows_processed
+    db.commit()
+    log.info(
+        "tse_consulta_cand_done",
+        rows=rows_processed,
+        cpfs_encontrados=len(sq_to_cpf),
     )
 
 
