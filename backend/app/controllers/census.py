@@ -54,6 +54,7 @@ def census_uf_overview(
     rows = db.execute(
         text(
             "SELECT g.cd_mun, g.nm_mun, g.populacao, g.domicilios, g.geometry, "
+            "       g.renda_media_domiciliar, g.renda_mediana_domiciliar, "
             "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana "
             "FROM census_geo g "
             "LEFT JOIN LATERAL ("
@@ -90,6 +91,14 @@ def census_uf_overview(
             ),
             "pct_urbana": (
                 float(r["pct_urbana"]) if r["pct_urbana"] is not None else None
+            ),
+            "renda_media": (
+                float(r["renda_media_domiciliar"])
+                if r["renda_media_domiciliar"] is not None else None
+            ),
+            "renda_mediana": (
+                float(r["renda_mediana_domiciliar"])
+                if r["renda_mediana_domiciliar"] is not None else None
             ),
         },
     } for r in rows]

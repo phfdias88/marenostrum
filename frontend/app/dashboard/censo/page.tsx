@@ -115,10 +115,10 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
     label: "Renda",
     vars: [
       {
-        key: "populacao", // placeholder — não é usado (disabled)
+        key: "renda_media",
         label: "Renda média",
         disabled: true,
-        note: "O Censo 2022 ainda não publica renda por setor — só por município. Entra quando o dado sair.",
+        note: "Renda é por MUNICÍPIO (IBGE não publica por setor). Veja na visão estadual: o mapa colore cada município pela renda média domiciliar.",
       },
     ],
   },
@@ -236,6 +236,8 @@ export default function CensoPage() {
   function openMunicipio(props: Record<string, number | string | null>) {
     setMuniProps(props);
     setView("municipio");
+    // renda só existe por município; ao entrar no setor volta pra população.
+    if (indicator === "renda_media") { setIndicator("populacao"); setSelectedDict("dominios"); }
     setSel(null);
     setSelArea(null);
     setSetores(null);
@@ -368,9 +370,17 @@ export default function CensoPage() {
 
   const mapData = view === "estado" ? ufGeo : setores;
   // Estado não tem densidade (sem área por município) — cai pra População.
-  const stateIndicators = INDICATORS.filter((i) => i.key !== "densidade_hab_km2");
+  // Visão estadual (coroplético por município) ganha a RENDA, que só existe
+  // nesse nível (IBGE não publica renda por setor).
+  const stateIndicators = [
+    ...INDICATORS.filter((i) => i.key !== "densidade_hab_km2"),
+    { key: "renda_media" as CensusIndicator, label: "Renda média" },
+  ];
   const mapIndicator: CensusIndicator =
-    view === "estado" && indicator === "densidade_hab_km2" ? "populacao" : indicator;
+    view === "estado" && indicator === "densidade_hab_km2" ? "populacao"
+      // renda não existe por setor → cai pra população ao entrar no município.
+      : view === "municipio" && indicator === "renda_media" ? "populacao"
+        : indicator;
 
   // Busca tolerante: tira acento/pontuação e expande abreviações do IBGE
   // (ex.: "N. S. das Graças" <-> "Nossa Senhora das Graças", "Jd" -> "Jardim").
@@ -555,7 +565,8 @@ export default function CensoPage() {
   function exportCsvEstado() {
     if (!ufGeo) return;
     const cols = ["cd_mun", "nm_mun", "populacao", "domicilios", "setores",
-      "media_moradores", "taxa_alfabetizacao", "pct_pretos_pardos", "pct_urbana"];
+      "media_moradores", "taxa_alfabetizacao", "pct_pretos_pardos", "pct_urbana",
+      "renda_media", "renda_mediana"];
     const lines = [cols.join(";")];
     for (const f of [...ufGeo.features].sort((a, b) =>
       String(a.properties.nm_mun).localeCompare(String(b.properties.nm_mun)))) {
@@ -1191,6 +1202,8 @@ export default function CensoPage() {
               ["Alfabetização 15+ (%)", fa.taxa_alfabetizacao as number | null, fb.taxa_alfabetizacao as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["Cor ou raça — pretos e pardos (%)", fa.pct_pretos_pardos as number | null, fb.pct_pretos_pardos as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+              ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
             ];
             return (
               <div className="mt-4 overflow-x-auto mn-fade-in">

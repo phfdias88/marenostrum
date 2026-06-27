@@ -794,13 +794,13 @@ def _process_consulta_cand(db: Session, job: TseSyncJob, zip_path: Path) -> None
             db.commit()
             log.info("tse_consulta_cand_progress", rows=rows_processed, cpfs=len(sq_to_cpf))
 
-    # Batch UPDATE por SQ_CANDIDATO (índice único → rápido). synchronize_session
-    # =None: executemany de UPDATE com WHERE exige bypass do sync da sessão ORM.
+    # Batch UPDATE por SQ_CANDIDATO (índice único → rápido). Core table update
+    # (não o ORM update(Candidate)) — executemany de UPDATE...WHERE; o ORM
+    # interpretaria a lista de dicts como "bulk update by PK" e exigiria o id.
     stmt = (
-        _update(Candidate)
-        .where(Candidate.sq_candidato == bindparam("b_sq"))
+        _update(Candidate.__table__)
+        .where(Candidate.__table__.c.sq_candidato == bindparam("b_sq"))
         .values(cpf=bindparam("b_cpf"))
-        .execution_options(synchronize_session=None)
     )
     items = [{"b_sq": sq, "b_cpf": cpf} for sq, cpf in sq_to_cpf.items()]
     for i in range(0, len(items), CHUNK_SIZE):
