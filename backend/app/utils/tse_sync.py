@@ -632,10 +632,14 @@ def _process_locais_votacao(
       CD_MUNICIPIO, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
       NM_BAIRRO, NR_LATITUDE, NR_LONGITUDE, QT_ELEITOR_SECAO
     """
-    # Cache: tse_code → municipality_id
-    munis_by_tse: dict[int, UUID] = {
-        m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
-    }
+    # Cache: tse_code → municipality_id + centroide do município (pro fallback
+    # de coordenada quando o local vem sem coord do TSE).
+    munis_by_tse: dict[int, UUID] = {}
+    muni_centroid_by_id: dict[UUID, tuple[float, float]] = {}
+    for m in db.execute(select(Municipality)).scalars():
+        munis_by_tse[m.tse_code] = m.id
+        if _coord_in_brazil(m.latitude, m.longitude):
+            muni_centroid_by_id[m.id] = (m.latitude, m.longitude)
 
     # Cache em memoria: (municipality_id, local_code) → dict do local
     places_acc: dict[tuple[UUID, int], dict] = {}
@@ -660,6 +664,12 @@ def _process_locais_votacao(
 
         lat = _to_float(row.get("NR_LATITUDE"))
         lng = _to_float(row.get("NR_LONGITUDE"))
+        # TSE manda -1,-1 (ou lixo) quando o local não tem coordenada — isso
+        # jogava o local "no meio do Atlântico". Cai no centroide do município
+        # (cidade certa) em vez de uma coord inválida.
+        if not _coord_in_brazil(lat, lng):
+            centroid = muni_centroid_by_id.get(muni_id)
+            lat, lng = centroid if centroid else (None, None)
         places_acc[key] = {
             "id": uuid4(),
             "local_code": local_code,
@@ -708,6 +718,16 @@ def _to_float(value) -> float | None:
     except (ValueError, TypeError, AttributeError):
         pass
     return None
+
+
+def _coord_in_brazil(lat, lng) -> bool:
+    """Coordenada dentro da bbox do Brasil — descarta o -1,-1 (e lixo) do TSE."""
+    return (
+        lat is not None
+        and lng is not None
+        and -34 <= lat <= 6
+        and -74 <= lng <= -34
+    )
 
 
 # ====================================================================
