@@ -23,6 +23,23 @@ router = APIRouter(prefix="/census", tags=["census"])
 _CACHE = "public, max-age=900, stale-while-revalidate=604800"
 
 
+def _round_coords(obj, nd: int = 5):
+    """Arredonda recursivamente as coordenadas (lat/lng) de um GeoJSON.
+    5 casas decimais ≈ 1,1 m — invisível no zoom de cidade, mas corta ~40% do
+    payload (Rio: 10MB→~6MB). Carregamento do mapa mais leve, principalmente mobile."""
+    if isinstance(obj, list):
+        return [_round_coords(x, nd) for x in obj]
+    if isinstance(obj, float):
+        return round(obj, nd)
+    return obj
+
+
+def _round_geom(geom, nd: int = 5):
+    if not isinstance(geom, dict) or "coordinates" not in geom:
+        return geom
+    return {**geom, "coordinates": _round_coords(geom["coordinates"], nd)}
+
+
 @router.get(
     "/municipalities",
     summary="Municípios com dados censitários disponíveis",
@@ -223,7 +240,7 @@ def census_setores(
     for r in rows:
         features.append({
             "type": "Feature",
-            "geometry": r["geometry"],
+            "geometry": _round_geom(r["geometry"]),
             "properties": {
                 "cd_setor": r["cd_setor"],
                 "nm_mun": r["nm_mun"],

@@ -468,11 +468,13 @@ def list_candidates(
         #    office_code+total_votes faz disso um index scan rápido) → cabeça exata.
         #  - COM busca: pega os primeiros N (busca específica casa < N → exato;
         #    sobrenome comum casa muito → resultado aproximado, mas instantâneo).
-        GROUP_CAP = 7000
         if search:
-            base = stmt.limit(GROUP_CAP)
+            # Busca: cap menor — termo específico casa < 4000 (exato); comum casa
+            # muito (aproximado, mas as-you-type instantâneo).
+            base = stmt.limit(4000)
         else:
-            base = stmt.order_by(Candidate.total_votes.desc().nulls_last()).limit(GROUP_CAP)
+            # Navegação: cap maior pelos mais votados (index scan via composto).
+            base = stmt.order_by(Candidate.total_votes.desc().nulls_last()).limit(7000)
         filtered = base.subquery()
         cand = aliased(Candidate, filtered)
         # Chave da PESSOA. Preferência: CPF (ID único entre eleições/cargos/UFs
