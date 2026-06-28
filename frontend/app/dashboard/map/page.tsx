@@ -81,16 +81,20 @@ export default function MapPage() {
     if (tag) base.set("tag", tag);
     const url = (m: Metric) =>
       `/v1/contacts/map-aggregate?${base.toString()}&metric=${m}`;
+    let active = true; // anti-race: filtro mais lento não sobrescreve o atual
     Promise.all([api<MapGroup[]>(url("contacts")), api<MapGroup[]>(url("demands"))])
       .then(([c, d]) => {
+        if (!active) return;
         setContactGroups(c);
         setDemandGroups(d);
       })
       .catch(() => {
+        if (!active) return;
         setContactGroups([]);
         setDemandGroups([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [groupBy, uf, cityD, nbD, type, tag]);
 
   const mapGroups = metric === "contacts" ? contactGroups : demandGroups;

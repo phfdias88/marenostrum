@@ -533,7 +533,7 @@ function SearchModal({
                 <CandidatePhoto
                   candidateId={c.id}
                   name={c.urn_name}
-                  partyNumber={c.number}
+                  partyNumber={c.party.number}
                   size="md"
                 />
                 <div className="flex-1 min-w-0">

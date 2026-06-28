@@ -92,7 +92,7 @@ function HeatLayer({ data }: { data: HeatmapResponse }) {
       const bounds = L.latLngBounds(
         data.points.map((p) => [p.lat, p.lng] as [number, number]),
       );
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13, animate: false });
     }
 
     return () => {

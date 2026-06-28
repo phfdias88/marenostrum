@@ -126,17 +126,22 @@ export function GlobalSearch() {
     }
     setLoading(true);
     const enc = encodeURIComponent(term);
+    // Guard anti-race: resposta de um termo antigo (mais lenta) não pode
+    // sobrescrever a do termo atual. Só aplica se este effect ainda é o vigente.
+    let active = true;
     Promise.allSettled([
       api<Page<TseCandidate>>(`/v1/tse/candidates?search=${enc}&group_person=true&limit=6`),
       api<Page<TseMunicipality>>(`/v1/tse/municipalities?search=${enc}&limit=5`),
       api<CensusArea[]>(`/v1/census/search-areas?q=${enc}`),
     ])
       .then(([c, m, a]) => {
+        if (!active) return;
         setCands(c.status === "fulfilled" ? c.value.items : []);
         setMunis(m.status === "fulfilled" ? m.value.items : []);
         setAreas(a.status === "fulfilled" ? a.value : []);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [debounced]);
 
   function go(href: string) {

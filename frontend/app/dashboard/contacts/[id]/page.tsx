@@ -72,9 +72,10 @@ export default function ContactDetailPage() {
       );
       setInteractions(res.items);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        setNotFound(true);
-      } else {
+      // Erro na TIMELINE não pode marcar o CONTATO como inexistente (escondia o
+      // contato já carregado). Só o loadContact decide notFound. Aqui: timeline vazia.
+      setInteractions([]);
+      if (!(err instanceof ApiError && err.status === 404)) {
         toast.error(err instanceof ApiError ? err.message : "Erro ao carregar timeline.");
       }
     } finally {

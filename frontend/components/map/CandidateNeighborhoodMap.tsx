@@ -138,11 +138,12 @@ function AutoFit({ points }: { points: [number, number][] }) {
   useEffect(() => {
     if (points.length === 0) return;
     if (points.length === 1) {
-      map.setView(points[0], 14);
+      map.setView(points[0], 14, { animate: false });
       return;
     }
     const bounds = L.latLngBounds(points);
-    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+    // animate:false — senão o enquadramento é engolido na init do mapa (gotcha).
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14, animate: false });
   }, [points, map]);
   return null;
 }
