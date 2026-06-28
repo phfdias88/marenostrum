@@ -55,7 +55,7 @@ def ingest_year(db, year: int) -> None:
 
     elections_by_tse = {e.tse_code: e.id for e in db.execute(select(Election)).scalars()}
     parties_by_number = {p.number: p.id for p in db.execute(select(Party)).scalars()}
-    year_eids = [e.id for e in db.execute(select(Election.id).where(Election.year == year)).scalars()]
+    year_eids = list(db.execute(select(Election.id).where(Election.year == year)).scalars())
     cands_by_sq = {}
     if year_eids:
         cands_by_sq = {
