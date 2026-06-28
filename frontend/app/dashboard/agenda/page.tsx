@@ -104,6 +104,8 @@ export default function AgendaPage() {
         </p>
       </header>
 
+      <GoogleCalendarCard />
+
       {items === null ? (
         <div className="space-y-3">
           {[0, 1, 2].map((i) => (
@@ -147,6 +149,147 @@ export default function AgendaPage() {
             load();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+type GEvent = {
+  google_id: string;
+  title: string;
+  starts_at: string;
+  all_day?: boolean;
+  location?: string | null;
+  html_link?: string | null;
+};
+
+// Card de integração com o Google Agenda (read-only). Só aparece se o SERVIDOR
+// tiver as credenciais OAuth configuradas (status.configured). Cada usuário
+// conecta a própria conta; os eventos do Google entram aqui em modo leitura.
+function GoogleCalendarCard() {
+  const [status, setStatus] = useState<{
+    configured: boolean;
+    connected: boolean;
+    email: string | null;
+  } | null>(null);
+  const [events, setEvents] = useState<GEvent[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await api<{ configured: boolean; connected: boolean; email: string | null }>(
+        "/v1/agenda/google/status",
+      );
+      setStatus(s);
+      if (s.connected) {
+        setEvents(await api<GEvent[]>("/v1/agenda/google/events?days=60").catch(() => []));
+      }
+    } catch {
+      setStatus({ configured: false, connected: false, email: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+    const p = new URLSearchParams(window.location.search).get("google");
+    if (p === "ok") toast.success("Google Agenda conectada!");
+    else if (p === "erro") toast.error("Não foi possível conectar a Google Agenda.");
+    if (p) window.history.replaceState(null, "", "/dashboard/agenda");
+  }, [loadStatus]);
+
+  async function connect() {
+    setBusy(true);
+    try {
+      const { url } = await api<{ url: string }>("/v1/agenda/google/connect");
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Erro ao conectar.");
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    try {
+      await api("/v1/agenda/google/disconnect", { method: "DELETE" });
+      toast.success("Google Agenda desconectada.");
+      setEvents([]);
+      loadStatus();
+    } catch {
+      toast.error("Erro ao desconectar.");
+    }
+  }
+
+  // Gated: sem credenciais no servidor, a integração nem aparece.
+  if (!status || !status.configured) return null;
+
+  return (
+    <div className="mb-6 rounded-xl border bg-card/60 p-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-sm">
+          <CalendarClock className="w-4 h-4 text-primary" />
+          {status.connected ? (
+            <span>
+              Google Agenda conectada
+              {status.email ? <span className="text-muted-foreground"> · {status.email}</span> : null}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">
+              Conecte sua Google Agenda para ver seus compromissos aqui (somente leitura).
+            </span>
+          )}
+        </div>
+        {status.connected ? (
+          <button
+            onClick={disconnect}
+            className="text-xs px-2.5 py-1.5 rounded-md border border-border hover:border-primary/50 transition-colors"
+          >
+            Desconectar
+          </button>
+        ) : (
+          <button
+            onClick={connect}
+            disabled={busy}
+            className="text-sm px-3 py-1.5 rounded-md bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-60"
+          >
+            {busy ? "Abrindo…" : "Conectar Google Agenda"}
+          </button>
+        )}
+      </div>
+
+      {status.connected && events.length > 0 && (
+        <ul className="mt-3 space-y-1.5 border-t border-border pt-3">
+          {events.slice(0, 12).map((e) => (
+            <li key={e.google_id} className="flex items-center justify-between gap-2 text-sm">
+              <span className="truncate">
+                <span className="text-primary font-medium mr-2 tabular-nums">
+                  {new Date(e.starts_at).toLocaleDateString("pt-BR", {
+                    day: "2-digit", month: "2-digit",
+                  })}
+                  {!e.all_day &&
+                    " " +
+                      new Date(e.starts_at).toLocaleTimeString("pt-BR", {
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                </span>
+                {e.html_link ? (
+                  <a href={e.html_link} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                    {e.title}
+                  </a>
+                ) : (
+                  e.title
+                )}
+                {e.location ? (
+                  <span className="text-muted-foreground"> · {e.location}</span>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {status.connected && events.length === 0 && (
+        <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+          Nenhum evento no Google Agenda nos próximos dias.
+        </p>
       )}
     </div>
   );
