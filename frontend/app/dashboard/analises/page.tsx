@@ -132,7 +132,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
-    description: "Eleições municipais 2024 + gerais 2022 (presidente, governador, deputados).",
+    description: "Eleições de 2002 a 2024 — municipais e gerais (presidente, governador, deputados).",
   },
   {
     href: "/dashboard/analises/comparar",
@@ -254,7 +254,7 @@ export default function AnalisesHubPage() {
           </p>
           <h1 className="text-3xl font-bold mt-1">Análises (TSE)</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
-            Brasil inteiro — eleições 2024 (municipais) e 2022 (federais/estaduais).
+            Brasil inteiro — eleições de 2002 a 2024 (municipais e gerais).
           </p>
         </div>
 
@@ -271,7 +271,7 @@ export default function AnalisesHubPage() {
           <Stat
             label="Candidatos"
             value={stats?.candidates ?? 0}
-            hint="2024 + 2022 combinados"
+            hint="de 2002 a 2024"
             gradient="from-blue-600/20 to-blue-500/5"
             accent="text-blue-400"
           />

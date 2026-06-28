@@ -769,7 +769,7 @@ export default function CensoPage() {
             <button
               onClick={exportCsvEstado}
               disabled={!ufGeo}
-              title="Baixar os 92 municípios em CSV"
+              title={`Baixar os ${ufGeo?.features.length ?? ""} municípios em CSV`}
               className="py-1.5 px-2.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" /> CSV
@@ -972,7 +972,7 @@ export default function CensoPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
         {view === "estado" && ufTotals ? (
           <>
-            <Stat icon={<Users className="w-4 h-4" />} label="População RJ" value={numberFmt.format(ufTotals.pop)} />
+            <Stat icon={<Users className="w-4 h-4" />} label={`População ${UF_NOMES[uf] ?? uf}`} value={numberFmt.format(ufTotals.pop)} />
             <Stat icon={<Building2 className="w-4 h-4" />} label="Domicílios" value={numberFmt.format(ufTotals.dom)} />
             <Stat icon={<Layers className="w-4 h-4" />} label="Setores" value={numberFmt.format(ufTotals.setores)} />
             <Stat icon={<MapPin className="w-4 h-4" />} label="Municípios" value={String(ufGeo?.features.length ?? 0)} />
@@ -1402,9 +1402,9 @@ export default function CensoPage() {
       <p className="text-[11px] text-muted-foreground mt-3">
         Fonte: <span className="text-foreground">IBGE — Censo Demográfico 2022</span> (Agregados por
         Setores Censitários, release mai/2026 — o dado censitário mais recente do país).
-        Cobertura: <span className="text-foreground">92/92 municípios e 41.700 setores (100%)</span>.
+        Cobertura: <span className="text-foreground">{ufGeo?.features.length ?? "…"} municípios de {UF_NOMES[uf] ?? uf}</span>.
         Áreas em cinza são setores sem população residente (parque, indústria, área militar etc.),
-        não falta de dado. Cores por quantis (mais escuro = maior). POC: Rio de Janeiro.
+        não falta de dado. Cores por quantis (mais escuro = maior).
       </p>
     </div>
   );

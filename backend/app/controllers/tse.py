@@ -1759,28 +1759,44 @@ def election_stats(
     if election is None:
         raise NotFoundError("Eleicao nao encontrada")
 
-    candidates_count = int(
-        db.execute(
-            select(func.count(Candidate.id)).where(Candidate.election_id == election_id)
-        ).scalar_one()
-    )
-    # Sum votos cruzando candidatos da eleicao com vote_results
-    candidate_ids_subq = select(Candidate.id).where(Candidate.election_id == election_id)
-    total_votes_q = select(func.coalesce(func.sum(VoteResult.votes), 0)).where(
-        VoteResult.candidate_id.in_(candidate_ids_subq)
-    )
-    total_votes = int(db.execute(total_votes_q).scalar_one())
-    # Distinct municipios com voto pra eleicao
-    munis_q = select(func.count(func.distinct(VoteResult.municipality_id))).where(
-        VoteResult.candidate_id.in_(candidate_ids_subq)
-    )
-    munis_count = int(db.execute(munis_q).scalar_one())
+    # Cache em memória: o sumário é estático por eleição (dado histórico).
+    from app.utils.agg_cache import agg_get, agg_set
+
+    ck = f"election_stats:{election_id}"
+    cached = agg_get(ck)
+    if cached is None:
+        candidates_count = int(
+            db.execute(
+                select(func.count(Candidate.id)).where(Candidate.election_id == election_id)
+            ).scalar_one()
+        )
+        # total_votes vem do Candidate.total_votes JÁ PRÉ-COMPUTADO (soma na
+        # tabela de candidatos, ~centenas de milhares de linhas) — NÃO varre
+        # vote_results (5GB+), que dava timeout em eleições municipais grandes.
+        total_votes = int(
+            db.execute(
+                select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(
+                    Candidate.election_id == election_id
+                )
+            ).scalar_one()
+        )
+        # Distinct municípios: JOIN direto (melhor que IN-subquery pro planner).
+        munis_count = int(
+            db.execute(
+                select(func.count(func.distinct(VoteResult.municipality_id)))
+                .select_from(VoteResult)
+                .join(Candidate, Candidate.id == VoteResult.candidate_id)
+                .where(Candidate.election_id == election_id)
+            ).scalar_one()
+        )
+        cached = {"c": candidates_count, "v": total_votes, "m": munis_count}
+        agg_set(ck, cached)
 
     return ElectionStatsResponse(
         election=ElectionRead.model_validate(election),
-        candidates_count=candidates_count,
-        municipalities_count=munis_count,
-        total_votes=total_votes,
+        candidates_count=cached["c"],
+        municipalities_count=cached["m"],
+        total_votes=cached["v"],
     )
 
 

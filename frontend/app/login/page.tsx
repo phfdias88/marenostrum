@@ -19,7 +19,11 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const search = useSearchParams();
-  const nextUrl = search.get("next") ?? "/dashboard";
+  // Sanitiza o ?next: só aceita caminho INTERNO (começa com "/" mas não "//").
+  // Evita open-redirect (?next=//site-malicioso ou ?next=https://...).
+  const rawNext = search.get("next") ?? "/dashboard";
+  const nextUrl =
+    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
 
   // Slug fixo — campanha única; backend continua recebendo no body.
   const tenantSlug = "marenostrum-admin";

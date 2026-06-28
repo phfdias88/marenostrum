@@ -29,13 +29,16 @@ function fill(body: string, c: Contact): string {
     .replaceAll("{cidade}", c.city ?? "")
     .replaceAll("{bairro}", c.neighborhood ?? "")
     .replaceAll("{tratamento}", "") // reservado; sem campo dedicado ainda
+    .replace(/\s+([,.;:!?])/g, "$1") // tira pontuação órfã ("Prezado(a) ," -> "Prezado(a),")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 export function WhatsAppSender({ contact }: { contact: Contact }) {
   const [open, setOpen] = useState(false);
-  const phone = digits(contact.phone);
+  // Preferência: campo WhatsApp dedicado; cai pro telefone se não houver.
+  // Contato com SÓ o WhatsApp preenchido não devia ficar sem botão de enviar.
+  const phone = digits(contact.whatsapp ?? contact.phone);
 
   if (!phone) {
     return (
