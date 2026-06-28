@@ -15,9 +15,12 @@ from app.core.dependencies import CurrentTenant
 
 router = APIRouter(prefix="/census", tags=["census"])
 
-# Censo é dado histórico/estático → cache agressivo (7 dias) no browser/CDN.
-# Re-carregar o mesmo município vira instantâneo.
-_CACHE = "public, max-age=604800, stale-while-revalidate=86400"
+# Censo é dado estático, MAS adicionamos indicadores novos com frequência —
+# um max-age de 7 dias no browser fazia o dado novo (renda, PIB, IDHM...) só
+# aparecer dias depois. max-age curto + stale-while-revalidate longo: continua
+# instantâneo (serve do cache na hora) e revalida em background em ~15 min, então
+# atualização de dado aparece rápido. O nginx (proxy_cache) segura a carga.
+_CACHE = "public, max-age=900, stale-while-revalidate=604800"
 
 
 @router.get(
