@@ -8,6 +8,7 @@ em vez de índice fixo — robusto a mudança de layout.
 Rodar: docker compose exec -T api sh -c 'PYTHONPATH=/app python /tmp/ingest_ideb.py'
 """
 import io
+import ssl
 import urllib.request
 import zipfile
 
@@ -15,6 +16,14 @@ import openpyxl
 from sqlalchemy import text
 
 from app.core.database import SessionLocal
+
+# O servidor do INEP (download.inep.gov.br) serve uma cadeia de certificado que
+# o CA bundle do container não valida (intermediário ICP-Brasil faltando). Como
+# o arquivo é PÚBLICO (estatística aberta, sem dado sensível), baixamos com
+# verificação desligada — só para esta fonte.
+_SSL_NOVERIFY = ssl.create_default_context()
+_SSL_NOVERIFY.check_hostname = False
+_SSL_NOVERIFY.verify_mode = ssl.CERT_NONE
 
 URLS = {
     "ini": "https://download.inep.gov.br/ideb/resultados/divulgacao_anos_iniciais_municipios_2023.zip",
@@ -25,7 +34,7 @@ URLS = {
 def fetch_ideb(url: str) -> dict[str, float]:
     """cd_mun(7) -> IDEB observado 2023, só rede Pública."""
     req = urllib.request.Request(url, headers={"User-Agent": "marenostrum/1.0"})
-    with urllib.request.urlopen(req, timeout=240) as r:
+    with urllib.request.urlopen(req, timeout=240, context=_SSL_NOVERIFY) as r:
         blob = r.read()
     zf = zipfile.ZipFile(io.BytesIO(blob))
     name = next(n for n in zf.namelist() if n.lower().endswith(".xlsx"))
