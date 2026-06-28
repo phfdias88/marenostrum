@@ -127,7 +127,7 @@ export function GlobalSearch() {
     setLoading(true);
     const enc = encodeURIComponent(term);
     Promise.allSettled([
-      api<Page<TseCandidate>>(`/v1/tse/candidates?search=${enc}&limit=6`),
+      api<Page<TseCandidate>>(`/v1/tse/candidates?search=${enc}&group_person=true&limit=6`),
       api<Page<TseMunicipality>>(`/v1/tse/municipalities?search=${enc}&limit=5`),
       api<CensusArea[]>(`/v1/census/search-areas?q=${enc}`),
     ])
@@ -338,6 +338,9 @@ function ResultList({
                 <p className={titleCls}>{c.urn_name}</p>
                 <p className={subCls}>
                   {c.party.abbreviation} · {c.office_name} · {c.state} · {c.election.year}
+                  {c.candidacy_count && c.candidacy_count > 1 ? (
+                    <span className="ml-1.5 text-primary/80">· {c.candidacy_count} candidaturas</span>
+                  ) : null}
                 </p>
                 {/* Nome civil — desambigua homônimos (vários candidatos com o
                     mesmo nome de urna são pessoas diferentes). */}
