@@ -557,6 +557,17 @@ export default function CensoPage() {
     }));
   })();
   const topAreas = areasAgg.slice(0, 12);
+  // Em modo SETOR o ranking lista os próprios setores por população (a malha do
+  // mapa é o setor) — antes ficava preso nos bairros. Setor não tem nome, então
+  // rotulamos com o bairro/distrito-pai + o final do código.
+  const topSetores =
+    view === "municipio" && setores && effMalha === "setor"
+      ? [...setores.features]
+          .map((f) => ({ props: f.properties, pop: Number(f.properties.populacao ?? 0) }))
+          .filter((s) => s.pop > 0)
+          .sort((a, b) => b.pop - a.pop)
+          .slice(0, 12)
+      : [];
 
   // Malha distrito/bairro: cada setor é colorido pelo AGREGADO da área-pai
   // (efeito visual de "malha por bairro" sem dissolver geometria — sem PostGIS).
@@ -1215,9 +1226,42 @@ export default function CensoPage() {
                 <span className="text-foreground font-medium">{String(muniProps?.nm_mun ?? "")}</span>
               </nav>
               <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5" /> {areaKind} por população
+                <Layers className="w-3.5 h-3.5" /> {effMalha === "setor" ? "Setores" : areaKind} por população
               </p>
-              {topAreas.length > 0 ? (
+              {effMalha === "setor" ? (
+                topSetores.length > 0 ? (
+                  <ul className="space-y-2">
+                    {topSetores.map((s, i) => {
+                      const max = topSetores[0]?.pop || 1;
+                      const parent = prettyName(String(s.props.nm_bairro || s.props.nm_dist || ""));
+                      const code = String(s.props.cd_setor ?? "").slice(-3);
+                      return (
+                        <li key={String(s.props.cd_setor)}>
+                          <button onClick={() => onSetorClick(s.props)} className="w-full text-left group">
+                            <div className="flex items-center justify-between gap-2 text-sm">
+                              <span className="truncate group-hover:text-primary transition-colors">
+                                <span className="text-primary font-bold text-xs mr-1.5">{i + 1}º</span>
+                                {parent ? `${parent} · setor ${code}` : `Setor ${code}`}
+                              </span>
+                              <span className="font-mono text-xs shrink-0 tabular-nums">
+                                {numberFmt.format(s.pop)}
+                              </span>
+                            </div>
+                            <div className="mt-1.5 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 shadow-[0_0_10px_rgba(232,200,121,0.4)] transition-[width] duration-500"
+                                style={{ width: `${(s.pop / max) * 100}%` }}
+                              />
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Carregando…</p>
+                )
+              ) : topAreas.length > 0 ? (
                 <ul className="space-y-2">
                   {topAreas.map((d, i) => {
                     const max = topAreas[0]?.pop || 1;

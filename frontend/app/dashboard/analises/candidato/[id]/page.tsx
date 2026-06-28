@@ -183,6 +183,11 @@ export default function CandidateDetailPage() {
   const hasCoords = data.results.some(
     (r) => r.municipality.latitude != null && r.municipality.longitude != null,
   );
+  // Foto sempre da candidatura MAIS RECENTE: o TSE só tem foto colorida nos anos
+  // recentes (as antigas costumam ser P&B). Cai pra atual se não houver trajetória.
+  const bestPhotoId = trajectory?.items?.length
+    ? trajectory.items.reduce((a, b) => (b.year > a.year ? b : a)).candidate_id
+    : c.id;
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -219,7 +224,7 @@ export default function CandidateDetailPage() {
         <div className="relative overflow-hidden mn-glass mn-glow rounded-xl p-4 sm:p-6 flex flex-row sm:flex-row items-start gap-4 sm:gap-5">
           <div className="shrink-0">
             <CandidatePhoto
-              candidateId={c.id}
+              candidateId={bestPhotoId}
               name={c.urn_name}
               partyNumber={c.party.number}
               size="lg"
@@ -661,12 +666,18 @@ function CompareSection({
   return (
     <div className="mt-5" data-html2canvas-ignore>
       {!open && !report ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg border border-rose-500/40 bg-gradient-to-r from-rose-500/10 to-primary/10 hover:border-rose-500/70 transition-colors font-medium"
-        >
-          <Swords className="w-4 h-4 text-rose-500" /> Confronto com adversário (Maré IA)
-        </button>
+        <>
+          <button
+            onClick={() => setOpen(true)}
+            className="w-full inline-flex items-center justify-center gap-2 py-3 rounded-lg border border-rose-500/40 bg-gradient-to-r from-rose-500/10 to-primary/10 hover:border-rose-500/70 transition-colors font-medium"
+          >
+            <Swords className="w-4 h-4 text-rose-500" /> Confronto com adversário (Maré IA)
+          </button>
+          <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
+            Escolha um adversário e a <span className="font-semibold text-foreground">Maré IA</span> compara os
+            dois lado a lado: forças e fraquezas de cada um, onde você ganha, onde perde e onde disputar voto a voto.
+          </p>
+        </>
       ) : (
         <div className="rounded-lg border bg-card p-3">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">

@@ -960,6 +960,16 @@ def build_candidate_dossier(
     ]))
     flow.append(stats)
 
+    # Resumo executivo — o essencial em 1 frase, com os números reais.
+    _muni_word = "município" if muni_count == 1 else "municípios"
+    _resumo = (
+        f"Como <b>{office_name}</b> em {state} ({year}), <b>{urn_name}</b> somou "
+        f"<b>{_fmt_int(total_votes)}</b> votos em {_fmt_int(muni_count)} {_muni_word}. "
+        f"Situação final: <b>{(result_status or '—')}</b>."
+    )
+    flow.append(Spacer(1, 10))
+    flow.append(Paragraph(_resumo, st["body"]))
+
     # Pizza UF (se muni_rows tem mais de 1 UF)
     uf_votes: Counter = Counter()
     for _, uf, v in muni_rows:

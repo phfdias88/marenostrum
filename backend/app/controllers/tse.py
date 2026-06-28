@@ -2471,14 +2471,33 @@ def candidate_dossier_pdf(
     ).all()
     zone_results = [(int(z), n, s, int(v)) for z, n, s, v in zone_rows]
 
-    # Foto (best-effort — sem foto, segue sem)
+    # Foto: usa a candidatura MAIS RECENTE da mesma pessoa — o TSE só tem foto
+    # colorida nos anos recentes (as antigas costumam ser P&B). Cai pra atual se falhar.
     photo_bytes: bytes | None = None
     try:
-        year_p = election.year if election else 2024
-        uf_p = "BR" if candidate.office_code == 1 else candidate.state
-        photo_bytes = get_candidate_photo(uf_p, candidate.sq_candidato, year_p)
+        if candidate.cpf:
+            _pmatch = Candidate.cpf == candidate.cpf
+        else:
+            _pmatch = and_(Candidate.name == candidate.name, Candidate.state == candidate.state)
+        _recent = db.execute(
+            select(Candidate.sq_candidato, Candidate.state, Candidate.office_code, Election.year)
+            .join(Election, Election.id == Candidate.election_id)
+            .where(_pmatch)
+            .order_by(Election.year.desc())
+            .limit(1)
+        ).first()
+        if _recent:
+            _sq, _st, _oc, _yr = _recent
+            photo_bytes = get_candidate_photo("BR" if _oc == 1 else _st, _sq, _yr)
     except Exception:
         photo_bytes = None
+    if photo_bytes is None:  # fallback: foto da candidatura atual
+        try:
+            year_p = election.year if election else 2024
+            uf_p = "BR" if candidate.office_code == 1 else candidate.state
+            photo_bytes = get_candidate_photo(uf_p, candidate.sq_candidato, year_p)
+        except Exception:
+            photo_bytes = None
 
     # Seções de inteligência (best-effort — PDF não falha se uma der erro).
     # Maré IA: só o que já está em cache (não dispara chamada ao Gemini aqui).
