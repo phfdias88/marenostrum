@@ -921,6 +921,39 @@ def build_candidate_dossier(
         st["body"],
     ))
 
+    # --- "Como ler este relatório": mini-glossário dos termos técnicos, pra o
+    # cliente leigo entender cada número sem precisar perguntar.
+    flow.append(Spacer(1, 0.7 * cm))
+    _glossario = [
+        ("Votos nominais", "Votos dados diretamente ao candidato; não inclui o voto de legenda (no partido)."),
+        ("Municípios com votos", "Cidades onde o candidato recebeu pelo menos um voto."),
+        ("Quociente eleitoral", 'Em cargos proporcionais (vereador/deputado), quantos votos "custa" cada cadeira.'),
+        ("Caminho da vitória", "Quantos votos faltariam para vencer e em quais cidades buscá-los."),
+        ("Oportunidade (radar)", "Lugar populoso onde o candidato ainda teve poucos votos: espaço para crescer."),
+        ("Zona eleitoral", "Divisão administrativa do TSE dentro da cidade (não é o bairro)."),
+    ]
+    _glo_rows = [[
+        Paragraph('<font color="#8C6E2A"><b>COMO LER ESTE RELATÓRIO</b></font>', st["small"]),
+        Paragraph("<i>Glossário rápido dos termos das próximas páginas.</i>", st["small"]),
+    ]]
+    for _t, _d in _glossario:
+        _glo_rows.append([
+            Paragraph(f'<font color="#8C6E2A"><b>{_t}</b></font>', st["small"]),
+            Paragraph(_d, st["small"]),
+        ])
+    _glo = Table(_glo_rows, colWidths=[4.5 * cm, 12.0 * cm])
+    _glo.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), CREAM_DARK),
+        ("LINEABOVE", (0, 0), (-1, 0), 2, GOLD),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.3, BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    flow.append(_glo)
+
     flow.append(PageBreak())
 
     # ============ PAG 3 — VISAO GERAL ============
