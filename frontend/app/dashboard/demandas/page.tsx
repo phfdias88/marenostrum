@@ -167,10 +167,10 @@ export default function DemandasPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir demanda?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação não pode ser desfeita.{" "}
               <strong className="text-foreground">{deleting?.title}</strong> será
-              removida permanentemente. Pra manter histórico, mude o status pra
-              <em> Cancelada</em>.
+              removida permanentemente — esta ação não pode ser desfeita. Se quiser
+              manter o histórico, em vez de excluir mude o status para{" "}
+              <em>Cancelada</em>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

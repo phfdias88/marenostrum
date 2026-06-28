@@ -100,7 +100,8 @@ export default function CompararMunicipiosPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Comparar municípios</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Até {MAX} cidades lado a lado — vencedor de prefeito 2024, votos e participação.
+          Eleição municipal de 2024 (Prefeito/Vereador) — até {MAX} cidades lado a
+          lado: prefeito eleito, votos e participação.
         </p>
       </header>
 
@@ -205,7 +206,10 @@ function MuniCard({
                 {winner.candidate.urn_name}
                 <ResultBadge status={winner.candidate.result_status} size="sm" />
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p
+                className="text-xs text-muted-foreground"
+                title="% dos votos nominais da cidade"
+              >
                 {winner.candidate.party.abbreviation} · {pctFmt.format(pct)}%
               </p>
             </div>
@@ -221,7 +225,7 @@ function MuniCard({
             />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            {numberFmt.format(res.total_votes)} votos válidos no total
+            {numberFmt.format(res.total_votes)} votos válidos na cidade
           </p>
         </>
       ) : (

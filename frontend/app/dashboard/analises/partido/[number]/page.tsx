@@ -252,15 +252,19 @@ export default function PartyDetailPage() {
           <Stat
             label="Votos nominais"
             value={perfLoading ? null : mine?.total_votes ?? 0}
+            titleHint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
           />
           <Stat
             label="Candidatos"
             value={perfLoading ? null : mine?.candidates_count ?? 0}
           />
         </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          {year} · {OFFICES_BY_YEAR[year]?.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Brasil"}
+        </p>
         {!perfLoading && rank && (
           <p className="text-xs text-muted-foreground mt-2">
-            🏆 {rank}º partido em eleitos no Brasil para esse cargo/ano.
+            🏆 {rank}º partido em eleitos {state ? `em ${state}` : "no Brasil"} para esse cargo/ano.
           </p>
         )}
 
@@ -361,13 +365,15 @@ function Stat({
   label,
   value,
   accent,
+  titleHint,
 }: {
   label: string;
   value: number | null;
   accent?: string;
+  titleHint?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card/60 p-4 text-center">
+    <div className="rounded-lg border bg-card/60 p-4 text-center" title={titleHint}>
       {value === null ? (
         <div className="h-8 w-16 mx-auto rounded bg-muted animate-pulse" />
       ) : (

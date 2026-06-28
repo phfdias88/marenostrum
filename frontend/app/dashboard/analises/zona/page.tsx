@@ -58,9 +58,15 @@ export default function ZonaAnalysisPage() {
           <Compass className="w-5 h-5" />
         </span>
         <div>
-          <h1 className="text-2xl font-bold">Zona eleitoral</h1>
+          <h1
+            className="text-2xl font-bold"
+            title="Zona eleitoral = divisão administrativa do TSE dentro do município."
+          >
+            Zona eleitoral
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Candidatos mais votados em cada zona de uma cidade.
+            Candidatos mais votados em cada zona de uma cidade — eleição municipal
+            de 2024.
           </p>
         </div>
       </header>
@@ -198,12 +204,6 @@ function ZoneDrill({ muni, onBack }: { muni: TseMunicipality; onBack: () => void
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <Select
-          label="Ano"
-          value={year}
-          onChange={(v) => { setYear(v); setOffice(OFFICES_BY_YEAR[v][0].value); }}
-          options={[{ value: "2024", label: "2024 (Municipal)" }]}
-        />
         <Select label="Cargo" value={office} onChange={setOffice} options={OFFICES_BY_YEAR[year]} />
       </div>
 
@@ -224,7 +224,7 @@ function ZoneDrill({ muni, onBack }: { muni: TseMunicipality; onBack: () => void
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-semibold text-sm">Zona {z.zone}</span>
                   <span className="text-xs text-muted-foreground font-mono">
-                    {numberFmt.format(z.total_votes)} votos
+                    {numberFmt.format(z.total_votes)} votos na zona (todos os candidatos) · top 5 exibidos
                   </span>
                 </div>
                 <ol className="space-y-1">

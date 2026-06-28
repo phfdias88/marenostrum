@@ -878,11 +878,13 @@ function BairroComparison({
       {!rows && !msg && (
         <>
           <p className="text-[11px] text-muted-foreground mb-2">
-            Compara a votação dos dois, bairro a bairro (eleições municipais de 2024).
+            Compara a votação dos dois, bairro a bairro. Só vale para a eleição municipal de 2024
+            (vereador/prefeito) — é o único pleito com voto por bairro.
           </p>
           <button
             onClick={load}
             disabled={loading}
+            title="Disponível apenas para a eleição municipal de 2024 (vereador/prefeito)"
             className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-sky-500/50 bg-sky-500/10 hover:border-sky-500/80 transition-colors text-sm font-medium disabled:opacity-60"
           >
             {loading ? (
@@ -1329,8 +1331,9 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
             </div>
           )}
           <p className="text-[11px] text-muted-foreground mt-1.5">
-            Meta = votos do 1º colocado + 1. A distribuição é proporcional à folga de eleitorado
-            (eleitorado − seus votos) por município. Use como referência de esforço.
+            Meta simplificada = votos do 1º colocado + 1 (não considera 2º turno). A distribuição é
+            proporcional à folga de eleitorado (eleitorado − seus votos) por município. Use como
+            referência de esforço.
           </p>
         </>
       )}
@@ -1358,7 +1361,7 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
             className="text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1 cursor-help"
             title="Soma do eleitorado dos municípios onde você teve pelo menos 1 voto — é o seu ALCANCE territorial, NÃO os votos conquistados."
           >
-            Eleitorado alcançado <Info className="w-3 h-3" />
+            Eleitorado nos seus municípios <Info className="w-3 h-3" />
           </p>
         </div>
         <div className="rounded-lg border bg-card p-3 text-center">
@@ -1525,7 +1528,7 @@ function TrajectorySection({
         })}
       </ol>
       <p className="text-[11px] text-muted-foreground mt-1.5">
-        Mesma pessoa (unificada por CPF) nas eleições disponíveis. Clique num ano para abrir.
+        Todas as candidaturas da mesma pessoa — clique num ano para abrir.
       </p>
     </div>
   );

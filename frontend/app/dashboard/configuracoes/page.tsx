@@ -56,7 +56,7 @@ const ACCESS_AREAS: { area: string; flag: keyof TeamUser; label: string }[] = [
   { area: "map", flag: "map_enabled", label: "Mapa" },
   { area: "demands", flag: "demands_enabled", label: "Demandas" },
   { area: "agenda", flag: "agenda_enabled", label: "Agenda" },
-  { area: "census", flag: "census_enabled", label: "Censo" },
+  { area: "census", flag: "census_enabled", label: "Censo (perfil do eleitorado)" },
 ];
 
 type CreatedUser = {
@@ -833,7 +833,11 @@ function UserRow({
 
       {/* Acessos por área — o Dono liga/desliga cada seção por pessoa. */}
       {showAccess && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2.5">
+          <p className="text-[11px] text-muted-foreground mb-1.5">
+            Ligue/desligue o que cada pessoa pode acessar no menu.
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground mr-0.5 inline-flex items-center gap-1">
             <Layers className="w-3 h-3" /> Acessos:
           </span>
@@ -856,6 +860,7 @@ function UserRow({
               </button>
             );
           })}
+          </div>
         </div>
       )}
     </div>

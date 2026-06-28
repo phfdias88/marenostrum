@@ -81,7 +81,7 @@ export default function RankingPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Ranking nacional</h1>
           <p className="text-sm text-muted-foreground">
-            Os 50 candidatos mais votados por cargo.
+            Os mais votados — {OFFICES_BY_YEAR[year].find((o) => o.value === office)?.label ?? "todos os cargos"} · {state || "Brasil (todas)"} · {year}
           </p>
         </div>
         <button
@@ -147,7 +147,7 @@ export default function RankingPage() {
           value={state}
           onChange={setState}
           options={[
-            { value: "", label: "Brasil" },
+            { value: "", label: "Brasil (todas)" },
             ...TSE_STATES.map((s) => ({ value: s, label: s })),
           ]}
           className="md:col-span-2"
@@ -216,7 +216,11 @@ export default function RankingPage() {
         </ol>
       )}
       <p className="text-xs text-muted-foreground text-center pt-4">
-        Fonte: TSE · votos nominais somados
+        Fonte: TSE ·{" "}
+        <span title="Votos dados diretamente aos candidatos (não inclui voto de legenda).">
+          votos nominais
+        </span>{" "}
+        somados
       </p>
     </div>
   );

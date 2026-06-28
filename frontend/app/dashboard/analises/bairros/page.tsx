@@ -78,7 +78,8 @@ export default function BairrosPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise por Bairro</h1>
           <p className="text-sm text-muted-foreground">
-            Votos de um candidato distribuídos por bairro da cidade (TSE).
+            Votos de um candidato distribuídos por bairro da cidade — eleição
+            municipal de 2024 (TSE).
           </p>
         </div>
       </header>
@@ -450,16 +451,11 @@ function NeighborhoodResult({
               votação até o nível de <strong>município</strong> — use o botão
               “Ver no mapa” na Análise de Candidato.
             </p>
-          ) : muni.state === "BA" || muni.state === "SP" ? (
-            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-              A votação por seção de <strong>{muni.state}</strong> ainda está
-              sendo importada (estado grande). Os demais 24 estados já estão
-              disponíveis.
-            </p>
           ) : (
             <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-              Não há votação por seção registrada para este candidato em{" "}
-              {muni.name}.
+              A votação por seção está disponível para a eleição{" "}
+              <strong>municipal de 2024</strong> (Brasil inteiro). Não há registro
+              por seção para este candidato em {muni.name}.
             </p>
           )}
         </div>
@@ -478,7 +474,7 @@ function NeighborhoodResult({
                         {isOpportunity(n) && (
                           <span
                             className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-400 border border-amber-400/30"
-                            title="Bairro populoso com baixa penetração — potencial de crescimento"
+                            title="Oportunidade = bairro populoso onde o candidato ainda teve poucos votos (espaço pra crescer)."
                           >
                             💡 oportunidade
                           </span>
@@ -511,9 +507,9 @@ function NeighborhoodResult({
                                     ? "text-amber-400 font-semibold"
                                     : "text-foreground/80 font-medium"
                                 }
-                                title="Votos ÷ eleitores aptos dos locais de votação deste bairro"
+                                title="Estimativa: votos do candidato ÷ eleitores aptos dos locais de votação deste bairro"
                               >
-                                {String(n.penetration_pct).replace(".", ",")}% dos eleitores
+                                {String(n.penetration_pct).replace(".", ",")}% de alcance no bairro (estimativa)
                               </span>
                             </>
                           )}

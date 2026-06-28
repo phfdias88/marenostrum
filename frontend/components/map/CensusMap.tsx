@@ -74,7 +74,7 @@ const LABEL: Record<CensusIndicator, string> = {
   renda_media: "Renda média domiciliar (R$, 2010)",
   pct_bolsa_familia: "Bolsa Família (% domicílios)",
   pct_cadunico: "CadÚnico (% domicílios)",
-  pib_per_capita: "PIB per capita (R$)",
+  pib_per_capita: "PIB per capita (R$, 2023)",
   idhm: "IDHM (2010)",
   ideb_anos_iniciais: "IDEB anos iniciais (2023)",
   ideb_anos_finais: "IDEB anos finais (2023)",

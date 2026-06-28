@@ -202,6 +202,16 @@ const INDICATORS: { key: CensusIndicator; label: string }[] = DICTIONARIES
   .filter((v) => !v.disabled)
   .map((v) => ({ key: v.key, label: v.label }));
 
+// Explicações (tooltip nativo) dos botões de indicador da visão ESTADUAL —
+// cada fonte/ano é própria, não é tudo "Censo 2022".
+const STATE_INDICATOR_HINTS: Partial<Record<CensusIndicator, string>> = {
+  renda_media: "Renda média domiciliar (IBGE/Atlas, base 2010), em R$ por mês",
+  idhm: "Desenvolvimento humano municipal (0 a 1, maior é melhor) — Atlas/PNUD, base 2010",
+  ideb_anos_iniciais: "Qualidade da educação básica (0 a 10) — INEP 2023",
+  pct_cadunico: "% de domicílios no Cadastro Único — MDS",
+  pib_per_capita: "Riqueza do município dividida pelos habitantes (IBGE 2023), em R$/ano por pessoa",
+};
+
 export type Malha = "setor" | "distrito" | "bairro";
 
 // Versão dos dados do censo. A resposta tem Cache-Control de 7 dias (perf), então
@@ -709,7 +719,7 @@ export default function CensoPage() {
           </div>
           <div>
             <p className="text-[11px] uppercase tracking-wider text-primary mb-0.5">
-              Inteligência Censitária · IBGE Censo 2022
+              Inteligência Censitária e Socioeconômica · IBGE, INEP, PNUD e MDS
             </p>
             <h1 className="text-2xl font-bold leading-tight">Dados do Censo — {UF_NOMES[uf] ?? uf}</h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
@@ -757,6 +767,7 @@ export default function CensoPage() {
               <button
                 key={i.key}
                 onClick={() => setIndicator(i.key)}
+                title={STATE_INDICATOR_HINTS[i.key]}
                 className={`py-1.5 px-2.5 rounded-md border text-xs transition-colors ${
                   mapIndicator === i.key
                     ? "border-primary bg-primary/10 text-primary font-semibold"
@@ -1334,7 +1345,7 @@ export default function CensoPage() {
                     })}
                   </tbody>
                 </table>
-                <p className="text-[11px] text-muted-foreground mt-2">Em dourado: o maior valor de cada linha. Fonte: IBGE Censo 2022.</p>
+                <p className="text-[11px] text-muted-foreground mt-2">Em dourado: o maior valor de cada linha. Fontes — População e perfil: Censo IBGE 2022 · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) · IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.</p>
               </div>
             );
           })()}
@@ -1392,7 +1403,7 @@ export default function CensoPage() {
                 )}
               </div>
               <p className="md:col-span-2 text-[11px] text-muted-foreground border-t border-border pt-2">
-                Gerado pela Maré IA a partir do Censo IBGE 2022. Use como apoio à decisão — valide no território.
+                Gerado pela Maré IA a partir de dados do IBGE, INEP, PNUD e MDS. Use como apoio à decisão — valide no território.
               </p>
             </div>
           )}
@@ -1400,11 +1411,12 @@ export default function CensoPage() {
       )}
 
       <p className="text-[11px] text-muted-foreground mt-3">
-        Fonte: <span className="text-foreground">IBGE — Censo Demográfico 2022</span> (Agregados por
-        Setores Censitários, release mai/2026 — o dado censitário mais recente do país).
+        Fontes: <span className="text-foreground">População e perfil: Censo IBGE 2022</span> (Agregados por
+        Setores Censitários, release mai/2026) · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) ·
+        IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.
         Cobertura: <span className="text-foreground">{ufGeo?.features.length ?? "…"} municípios de {UF_NOMES[uf] ?? uf}</span>.
         Áreas em cinza são setores sem população residente (parque, indústria, área militar etc.),
-        não falta de dado. Cores por quantis (mais escuro = maior).
+        não falta de dado. Cores em 6 faixas de igual tamanho (mais escuro = maior).
       </p>
     </div>
   );

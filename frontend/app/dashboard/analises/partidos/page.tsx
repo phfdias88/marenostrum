@@ -188,7 +188,7 @@ function PartyPerformance({
         <CandidateListSkeleton rows={8} />
       ) : !data || ranked.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-10">
-          Sem dados para esse filtro.
+          Nenhum resultado para esse cargo/ano/UF. Tente outro ano, cargo ou UF.
         </p>
       ) : (
         <>
@@ -197,7 +197,7 @@ function PartyPerformance({
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Total eleitos</p>
               <p className="text-2xl font-bold text-primary">{numberFmt.format(data.total_elected)}</p>
             </div>
-            <div className="rounded-lg border bg-card/60 px-4 py-2">
+            <div className="rounded-lg border bg-card/60 px-4 py-2" title="Votos dados diretamente aos candidatos (não inclui voto de legenda).">
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Votos nominais</p>
               <p className="text-2xl font-bold">{numberFmt.format(data.total_votes)}</p>
             </div>

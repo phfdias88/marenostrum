@@ -133,7 +133,7 @@ export default function MapaPage() {
           <div>
             <h1 className="text-2xl font-bold">Mapa partidário do Brasil</h1>
             <p className="text-sm text-muted-foreground">
-              Cada município pintado pela cor do partido vencedor.
+              Cada município pintado pela cor do partido mais votado.
             </p>
           </div>
         </div>
@@ -264,6 +264,11 @@ export default function MapaPage() {
               })}
             </ul>
             <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
+                Pontos dourados = os 3 municípios com mais votos neste pleito.
+              </span>
+              <br />
               Clique num partido pra destacar só os municípios dele. Use os chips
               acima do mapa pra ir direto pra uma UF.
             </p>

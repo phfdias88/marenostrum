@@ -213,7 +213,7 @@ export default function ContactDetailPage() {
         <TabsContent value="timeline">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-muted-foreground">
-              Eventos de WhatsApp recebidos do BotConversa
+              Mensagens de WhatsApp registradas para este contato.
             </p>
             <Button
               variant="ghost"
@@ -226,7 +226,16 @@ export default function ContactDetailPage() {
               Atualizar
             </Button>
           </div>
-          <InteractionTimeline items={interactions} loading={loadingTimeline} />
+          {!loadingTimeline && interactions.length === 0 ? (
+            <div className="text-center py-12 border border-dashed rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Sem mensagens ainda — aparecem aqui quando o contato interage
+                pelo WhatsApp.
+              </p>
+            </div>
+          ) : (
+            <InteractionTimeline items={interactions} loading={loadingTimeline} />
+          )}
         </TabsContent>
 
         <TabsContent value="demands">

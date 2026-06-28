@@ -46,7 +46,7 @@ function useDebounce<T>(value: T, ms: number): T {
 
 export default function CandidatoAnalysisPage() {
   const [year, setYear] = useState<string>(""); // "" = todos os anos
-  const [state, setState] = useState<string>("MG");
+  const [state, setState] = useState<string>(""); // "" = todas as UFs
   const [office, setOffice] = useState<string>("11"); // prefeito
   const [search, setSearch] = useState("");
   const [electedOnly, setElectedOnly] = useState(false);
@@ -193,7 +193,7 @@ export default function CandidatoAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise de Candidato</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Busque qualquer candidato registrado no TSE — eleições de 2014 a 2024.
+          Busque qualquer candidato registrado no TSE — candidaturas de 2002 a 2024.
         </p>
       </header>
 
@@ -211,6 +211,9 @@ export default function CandidatoAnalysisPage() {
             { value: "2018", label: "2018" },
             { value: "2016", label: "2016" },
             { value: "2014", label: "2014" },
+            { value: "2010", label: "2010" },
+            { value: "2006", label: "2006" },
+            { value: "2002", label: "2002" },
           ]}
           className="md:col-span-2"
         />
@@ -219,7 +222,7 @@ export default function CandidatoAnalysisPage() {
           value={state}
           onChange={setState}
           options={[
-            { value: "", label: "Todas" },
+            { value: "", label: "Brasil (todas)" },
             ...TSE_STATES.map((s) => ({ value: s, label: s })),
           ]}
           className="md:col-span-2"
@@ -328,8 +331,10 @@ export default function CandidatoAnalysisPage() {
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="w-3 h-3 animate-spin" /> carregando…
                 </span>
+              ) : total === 1 ? (
+                "1 candidato encontrado"
               ) : (
-                `${numberFmt.format(total)} candidato(s) encontrado(s)`
+                `${numberFmt.format(total)} candidatos encontrados`
               )}
             </span>
             {!loading && total > 0 && (
@@ -392,7 +397,10 @@ export default function CandidatoAnalysisPage() {
                     {" · "}{c.election.year}
                   </p>
                   {c.candidacy_count != null && c.candidacy_count > 1 && (
-                    <span className="inline-block mt-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-medium">
+                    <span
+                      className="inline-block mt-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-medium"
+                      title={`Concorreu em ${c.candidacy_count} eleições — clique para ver a trajetória`}
+                    >
                       {c.candidacy_count} candidaturas
                     </span>
                   )}

@@ -250,10 +250,8 @@ function CompareCard({
           <p className="font-medium">{c.state}</p>
         </div>
         <div className="text-xs">
-          <p className="text-muted-foreground">Situação</p>
-          <p className="font-medium truncate">
-            {c.situation && !c.situation.startsWith("#") ? c.situation : "-"}
-          </p>
+          <p className="text-muted-foreground">Ano</p>
+          <p className="font-medium">{c.election?.year ?? "-"}</p>
         </div>
       </div>
 
@@ -587,6 +585,13 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
   const diffAbs = leader.total_votes - last.total_votes;
   const diffPct = last.total_votes > 0 ? (diffAbs / last.total_votes) * 100 : 100;
 
+  // A busca não trava o pleito — dá pra comparar candidatos de cargos/UF/anos
+  // diferentes. Nesse caso os votos não são diretamente comparáveis: avisa.
+  const notComparable =
+    new Set(pool.map((p) => p.candidate.office_name)).size > 1 ||
+    new Set(pool.map((p) => p.candidate.state)).size > 1 ||
+    new Set(pool.map((p) => p.candidate.election?.year)).size > 1;
+
   // Municipios compartilhados — onde 2+ candidatos tem votos
   const muniMap = new Map<string, { name: string; state: string; votes: Map<string, number> }>();
   pool.forEach((p) => {
@@ -651,6 +656,13 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
         </div>
       </header>
 
+      {notComparable && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+          Atenção: candidatos de cargos/eleições diferentes — os votos não são
+          diretamente comparáveis.
+        </div>
+      )}
+
       {/* Insights principais — 4 mini-cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
         <div className="rounded-lg border bg-background/50 p-3">
@@ -664,7 +676,9 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Diferença</p>
           <p className="font-bold mt-0.5 tabular-nums">{numberFmt.format(diffAbs)}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            {diffPct >= 1000 ? "+1000%" : diffPct.toFixed(1) + "%"} vs último
+            {last.total_votes === 0
+              ? "—"
+              : (diffPct >= 1000 ? "+1000%" : diffPct.toFixed(1) + "%") + " vs último"}
           </p>
         </div>
         <div className="rounded-lg border bg-background/50 p-3">
@@ -687,6 +701,9 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
       <div>
         <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
           Berço eleitoral de cada candidato
+          <span className="block normal-case font-normal text-[11px] tracking-normal text-muted-foreground/80">
+            Onde teve mais votos (top cidades)
+          </span>
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {topCidadesPorCandidato.map((c) => (
@@ -758,7 +775,10 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
       {/* Resumo financeiro */}
       {pool.some((p) => p.candidate.expense_total) && (
         <div>
-          <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+          <p
+            className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2"
+            title="Quantos votos cada R$1 de campanha rendeu — quanto maior, mais barato o voto."
+          >
             Eficiência eleitoral (votos por R$ gasto em campanha)
           </p>
           <div className="rounded-lg border bg-background/40 divide-y divide-border">

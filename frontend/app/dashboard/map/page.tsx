@@ -261,7 +261,7 @@ function BarCard({
                 <span className="truncate" title={g.key}>
                   {g.key}
                   {g.lat == null && (
-                    <span className="text-[10px] text-muted-foreground ml-1">(sem mapa)</span>
+                    <span className="text-[10px] text-muted-foreground ml-1">(sem endereço)</span>
                   )}
                 </span>
                 <span className="font-mono text-xs shrink-0 tabular-nums">{numberFmt.format(g.count)}</span>

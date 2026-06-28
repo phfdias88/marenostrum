@@ -84,6 +84,11 @@ export default function CompararPartidosPage() {
     ...selected.map((n) => perfByNumber.get(n)?.elected_count ?? 0),
   );
 
+  // Cargo majoritário (Presidente=1, Governador=3, Senador=5): "eleitos" vira
+  // "vitórias" — não há bancada proporcional, o partido vence ou não a vaga.
+  const isMajoritarian = office === "1" || office === "3" || office === "5";
+  const electedLabel = isMajoritarian ? "Vitórias" : "Eleitos";
+
   function toggle(n: number) {
     setSelected((cur) =>
       cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n].slice(0, MAX),
@@ -207,7 +212,7 @@ export default function CompararPartidosPage() {
                   isLeader ? "border-primary ring-1 ring-primary/40" : "border-border"
                 }`}
               >
-                {isLeader && (
+                {isLeader && !isMajoritarian && (
                   <span className="absolute -top-2 left-1/2 -translate-x-1/2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
                     <Trophy className="w-3 h-3" /> MAIS ELEITOS
                   </span>
@@ -232,7 +237,7 @@ export default function CompararPartidosPage() {
                 <hr className="my-3 border-border" />
                 <div className="space-y-3">
                   <div>
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Eleitos</p>
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">{electedLabel}</p>
                     <p className="text-2xl font-bold text-primary">{numberFmt.format(elected)}</p>
                     <div className="mt-1 h-2 rounded-full bg-muted overflow-hidden">
                       <div
@@ -241,7 +246,11 @@ export default function CompararPartidosPage() {
                       />
                     </div>
                   </div>
-                  <Metric label="Votos nominais" value={item?.total_votes ?? 0} />
+                  <Metric
+                    label="Votos nominais"
+                    value={item?.total_votes ?? 0}
+                    title="Soma dos votos dados aos candidatos do partido (não inclui votos de legenda)."
+                  />
                   <Metric label="Candidatos" value={item?.candidates_count ?? 0} />
                 </div>
               </div>
@@ -253,10 +262,10 @@ export default function CompararPartidosPage() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value, title }: { label: string; value: number; title?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 text-sm border-t border-border/40 pt-2">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="text-muted-foreground" title={title}>{label}</span>
       <span className="font-mono font-semibold">{numberFmt.format(value)}</span>
     </div>
   );

@@ -77,7 +77,7 @@ export default function MunicipiosAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise por Município</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Top candidatos por cidade — 5.571 municípios do Brasil.
+          Top candidatos por cidade — busque qualquer município do Brasil.
         </p>
       </header>
 
@@ -153,7 +153,7 @@ export default function MunicipiosAnalysisPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold truncate">{m.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {m.state} · TSE {m.tse_code}
+                    {m.state} · <span title="Código TSE do município">cód. TSE {m.tse_code}</span>
                   </p>
                 </div>
               </button>
@@ -229,7 +229,7 @@ function MunicipalityDrill({
         <div className="flex-1">
           <h2 className="text-2xl font-bold">{muni.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {muni.state} · TSE {muni.tse_code}
+            {muni.state} · <span title="Código TSE do município">cód. TSE {muni.tse_code}</span>
           </p>
           <Link
             href={`/dashboard/analises/municipio/${muni.id}`}

@@ -94,6 +94,9 @@ export default function PainelPage() {
         <p className="text-muted-foreground mt-1">
           Sua campanha (CRM) + a base eleitoral pública do TSE, num só lugar.
         </p>
+        <p className="text-xs text-muted-foreground mt-3 rounded-md border border-border bg-card px-3 py-2">
+          Os gráficos abaixo consideram apenas a eleição para Prefeito (2024).
+        </p>
       </header>
 
       {/* Base TSE */}
@@ -169,11 +172,15 @@ export default function PainelPage() {
       {/* Votos nominais por partido + concentração */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <SectionTitle icon={Vote} title="Votos nominais por partido — prefeito (2024)" />
+          <SectionTitle
+            icon={Vote}
+            title="Votos nominais por partido — prefeito (2024)"
+            hint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
+          />
           <PartyVotesChart data={perf} />
         </div>
         <div>
-          <SectionTitle icon={Landmark} title="Concentração" />
+          <SectionTitle icon={Landmark} title="Concentração de prefeituras (top 5 partidos)" />
           <ConcentrationDonut data={perf} />
         </div>
       </section>
@@ -453,9 +460,17 @@ function PartyBarChart({ data }: { data: TsePartyPerformanceResponse | null }) {
   );
 }
 
-function SectionTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
+function SectionTitle({
+  icon: Icon,
+  title,
+  hint,
+}: {
+  icon: LucideIcon;
+  title: string;
+  hint?: string;
+}) {
   return (
-    <div className="flex items-center gap-2 mb-3">
+    <div className="flex items-center gap-2 mb-3" title={hint}>
       <Icon className="w-5 h-5 text-muted-foreground" />
       <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
     </div>

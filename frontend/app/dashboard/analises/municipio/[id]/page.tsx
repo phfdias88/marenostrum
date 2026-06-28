@@ -219,6 +219,7 @@ export default function MunicipioDetailPage() {
             value={loading ? null : totalVotes}
             accent="text-primary"
             hint={["11", "1", "3"].includes(office) ? "votação de 1º turno" : undefined}
+            titleHint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
           />
           <Stat label="Candidatos com votos" value={loading ? null : data?.total_results ?? 0} />
         </div>
@@ -394,7 +395,9 @@ function TimelineGrid({ items }: { items: import("@/lib/types").TseTimelineItem[
           <div className="px-4 py-2 bg-primary/10 border-b border-primary/20 flex items-center gap-2">
             <span className="text-lg font-bold text-primary tabular-nums">{y}</span>
             <span className="text-xs text-muted-foreground">
-              {y === 2024 ? "Eleições Municipais" : y === 2022 ? "Eleições Gerais" : ""}
+              {[2024, 2020, 2016, 2012, 2008, 2004].includes(y)
+                ? "Eleições Municipais"
+                : "Eleições Gerais"}
             </span>
           </div>
           <ul className="divide-y divide-border">
@@ -510,14 +513,16 @@ function Stat({
   value,
   accent,
   hint,
+  titleHint,
 }: {
   label: string;
   value: number | null;
   accent?: string;
   hint?: string;
+  titleHint?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card/60 p-4 text-center">
+    <div className="rounded-lg border bg-card/60 p-4 text-center" title={titleHint}>
       {value === null ? (
         <div className="h-8 w-20 mx-auto rounded bg-muted animate-pulse" />
       ) : (

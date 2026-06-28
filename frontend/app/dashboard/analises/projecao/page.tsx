@@ -243,8 +243,13 @@ export default function ProjecaoPage() {
         </span>
         <div>
           <h1 className="text-2xl font-bold">Projeção Eleitoral</h1>
-          <p className="text-sm text-muted-foreground">
-            Quociente Eleitoral + D'Hondt aplicado ao resultado histórico TSE.
+          <p
+            className="text-sm text-muted-foreground"
+            title="Método: Quociente Eleitoral + D'Hondt (maiores médias)."
+          >
+            Simule quantas cadeiras cada partido elegeria (vereador/deputado) com
+            base no resultado da última eleição — modo &ldquo;e se&rdquo; pra
+            editar votos.
           </p>
         </div>
       </header>
@@ -337,7 +342,8 @@ export default function ProjecaoPage() {
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <Calculator className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground mt-3">
-            Escolha cidade + cargo proporcional pra calcular o quociente eleitoral e ver quem elege na próxima eleição (D'Hondt).
+            Escolha cidade + cargo proporcional pra ver como as cadeiras seriam
+            distribuídas com base no resultado da última eleição.
           </p>
         </div>
       )}
@@ -410,7 +416,7 @@ export default function ProjecaoPage() {
             <StatCard label="Votos válidos" value={totalValidos} tone="muted" />
             <StatCard label="Cadeiras" value={seats} tone="muted" />
             <StatCard label="Quociente eleitoral (QE)" value={qe} tone="primary" />
-            <StatCard label="Partidos com barreira" value={dhondt.filter((d) => d.passedBarrier).length} tone="emerald" />
+            <StatCard label="Partidos com barreira" value={dhondt.filter((d) => d.passedBarrier).length} tone="emerald" title="Partidos que atingiram o Quociente Eleitoral e podem eleger (Código Eleitoral, art. 109)." />
           </div>
 
           {/* Tabela D'Hondt — partidos */}
@@ -461,7 +467,12 @@ export default function ProjecaoPage() {
           {/* Alocacao individual: candidatos eleitos por partido */}
           <section className="rounded-xl border bg-card mb-6">
             <div className="px-4 py-3 border-b border-border">
-              <h2 className="font-bold">Candidatos eleitos (puxadores + sobras)</h2>
+              <h2
+                className="font-bold"
+                title="Puxadores = candidatos muito votados que ajudam a eleger colegas do partido. Sobras = cadeiras extras distribuídas pelas maiores médias depois do quociente."
+              >
+                Candidatos eleitos (puxadores + sobras)
+              </h2>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Dentro do partido, eleitos sao os com mais votos individuais. Lei 14.211/2021:
                 candidato precisa atingir <strong>10% do QE</strong> ({numberFmt.format(Math.ceil(qe * 0.1))} votos) pra ser elegivel.
@@ -524,7 +535,7 @@ export default function ProjecaoPage() {
             <div>
               <p className="font-semibold">Simulação técnica baseada em dados históricos</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Esta projeção aplica as regras vigentes (Quociente Eleitoral + D'Hondt + cláusula de barreira + lei das sobras 14.211/2021) sobre o resultado real da última eleição na cidade selecionada. <strong>Não prevê o futuro</strong> — serve pra entender como o sistema distribui cadeiras dado um cenário de votos. Use o modo "editar votos" pra explorar cenários hipotéticos.
+                Esta projeção aplica as regras vigentes (Quociente Eleitoral + D'Hondt + lei das sobras 14.211/2021) sobre o resultado real da última eleição na cidade selecionada. O partido só elege se atingir o Quociente Eleitoral (Código Eleitoral, art. 109). <strong>Não prevê o futuro</strong> — serve pra entender como o sistema distribui cadeiras dado um cenário de votos. Use o modo "editar votos" pra explorar cenários hipotéticos.
               </p>
             </div>
           </div>
@@ -544,10 +555,10 @@ export default function ProjecaoPage() {
 
 // ----------------------------------------------------------- StatCard
 
-function StatCard({ label, value, tone }: { label: string; value: number; tone: "primary" | "emerald" | "muted" }) {
+function StatCard({ label, value, tone, title }: { label: string; value: number; tone: "primary" | "emerald" | "muted"; title?: string }) {
   const color = tone === "primary" ? "text-primary" : tone === "emerald" ? "text-emerald-400" : "text-foreground";
   return (
-    <div className="rounded-lg border bg-card/60 px-4 py-3">
+    <div className="rounded-lg border bg-card/60 px-4 py-3" title={title}>
       <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={`text-2xl font-bold mt-0.5 tabular-nums ${color}`}>
         <AnimatedNumber value={value} />

@@ -102,7 +102,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/candidato",
     label: "Candidatos",
     icon: Users,
-    description: "Busque por UF, cargo, partido, nome. Veja votos por município.",
+    description: "Busque por UF, cargo, partido, nome (candidaturas de 2002 a 2024). Votos por município de 2014 a 2024.",
   },
   {
     href: "/dashboard/analises/ranking",
@@ -126,7 +126,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/municipios",
     label: "Municípios",
     icon: MapPin,
-    description: "Top candidatos por município — 5.571 cidades do Brasil.",
+    description: "Top candidatos por cidade — busque qualquer município do Brasil.",
   },
   {
     href: "/dashboard/analises/eleicoes",
@@ -169,7 +169,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/projecao",
     label: "Projeção eleitoral",
     icon: Calculator,
-    description: "Quociente eleitoral + D'Hondt: quem elegeria com base no histórico. Modo 'e se' com edição de votos por partido.",
+    description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base no resultado da última eleição. Modo 'e se' com edição de votos por partido.",
   },
   {
     href: "/dashboard/analises/adversarios",
@@ -254,7 +254,7 @@ export default function AnalisesHubPage() {
           </p>
           <h1 className="text-3xl font-bold mt-1">Análises (TSE)</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
-            Brasil inteiro — eleições de 2002 a 2024 (municipais e gerais).
+            Brasil inteiro — candidaturas de 2002 a 2024; resultados detalhados por cidade de 2014 a 2024.
           </p>
         </div>
 
@@ -306,9 +306,8 @@ export default function AnalisesHubPage() {
           <ScanSearch className="mx-auto h-12 w-12 text-muted-foreground" />
           <p className="text-lg font-semibold mt-3">Nenhum dado TSE ainda</p>
           <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-            Clique em <span className="font-medium">Sincronizar TSE</span> pra
-            baixar o dataset oficial de candidatos & votação por município.
-            Demora ~10min.
+            Os dados do TSE ainda não foram carregados. Fale com o administrador
+            da conta.
           </p>
         </div>
       )}

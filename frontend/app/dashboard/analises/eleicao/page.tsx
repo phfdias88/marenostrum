@@ -172,7 +172,11 @@ export default function EleicaoAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise de Eleição</h1>
           <p className="text-sm text-muted-foreground">
-            Resultado por cidade e cargo — 2024 (municipal) e 2022 (federal/estadual).
+            Resultado por cidade e cargo — eleições de 2014 a 2024.
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Filtro ativo: {year} · {officeOptions.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Todas as UFs"}
+            {selectedMuni ? ` · ${selectedMuni.name}/${selectedMuni.state}` : " · escolha um município"}
           </p>
         </div>
       </header>
@@ -430,7 +434,7 @@ function ResultsPanel({
                   { key: "numero", label: "Número" },
                   { key: "partido", label: "Partido" },
                   { key: "votos", label: "Votos" },
-                  { key: "pct", label: "% válidos" },
+                  { key: "pct", label: "% nominal" },
                   { key: "situacao", label: "Situação" },
                 ],
                 rows,
@@ -455,7 +459,10 @@ function ResultsPanel({
 
       {/* Stats: total de votos válidos (nominais) */}
       <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="rounded-lg border bg-card/60 px-4 py-3">
+        <div
+          className="rounded-lg border bg-card/60 px-4 py-3"
+          title="Soma dos votos nominais (não inclui brancos, nulos ou legenda)."
+        >
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             Votos nominais
           </p>
@@ -479,7 +486,12 @@ function ResultsPanel({
           <span className="w-8">#</span>
           <span className="flex-1">Classificação</span>
           <span className="w-20 text-right">Votos</span>
-          <span className="w-14 text-right">%</span>
+          <span
+            className="w-14 text-right"
+            title="Percentual sobre o total de votos nominais (não inclui brancos, nulos ou legenda)."
+          >
+            % nominal
+          </span>
         </div>
         {results.results.map((r, i) => {
           const pct = (r.votes / total) * 100;

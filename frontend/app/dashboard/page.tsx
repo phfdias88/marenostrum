@@ -134,7 +134,7 @@ export default function DashboardPage() {
               Olá, {me.full_name.split(" ")[0]} 👋
             </h1>
             <p className="text-muted-foreground">
-              Visão geral da sua campanha em tempo real.
+              Visão geral da sua campanha.
             </p>
           </>
         ) : (
@@ -252,8 +252,8 @@ export default function DashboardPage() {
             href="/dashboard/contacts"
           />
           <QuickAction
-            title="Importar CSV"
-            description="Suba uma planilha com centenas de contatos de uma vez."
+            title="Contatos"
+            description="Abra a lista de contatos — lá você importa uma planilha (CSV) ou cadastra um a um."
             icon={Upload}
             href="/dashboard/contacts"
           />
@@ -311,6 +311,7 @@ export default function DashboardPage() {
               }
               label="Taxa de resolução"
               tone="brand"
+              title="Demandas resolvidas dividido pelo total de demandas."
             />
           </div>
         </div>
@@ -488,10 +489,12 @@ function StatBlock({
   value,
   label,
   tone,
+  title,
 }: {
   value: string;
   label: string;
   tone: "brand" | "amber" | "emerald";
+  title?: string;
 }) {
   const color = {
     brand: "text-primary",
@@ -499,7 +502,7 @@ function StatBlock({
     emerald: "text-emerald-400",
   }[tone];
   return (
-    <div>
+    <div title={title}>
       <p className={cn("text-3xl font-semibold tracking-tight", color)}>
         {value}
       </p>

@@ -120,7 +120,9 @@ export default function EleicoesAnalysisPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold truncate">{e.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {e.year} · {e.round}º turno · cod TSE {e.tse_code} ·{" "}
+                        {e.year}
+                        {e.round > 1 ? ` · ${e.round}º turno` : ""} ·{" "}
+                        <span title="Código TSE da eleição">cód. TSE {e.tse_code}</span> ·{" "}
                         {e.type_name}
                       </p>
                     </div>
@@ -182,7 +184,8 @@ function ElectionDrill({
         <div>
           <h2 className="text-2xl font-bold">{election.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {election.year} · {election.round}º turno · {election.type_name}
+            {election.year}
+            {election.round > 1 ? ` · ${election.round}º turno` : ""} · {election.type_name}
           </p>
         </div>
       </div>
@@ -213,7 +216,7 @@ function ElectionDrill({
             <Stat
               label="Total de votos"
               value={stats.total_votes}
-              hint="soma de todos os candidatos"
+              hint="soma dos votos nominais (não inclui brancos, nulos ou legenda)"
             />
           </>
         )}
@@ -221,7 +224,7 @@ function ElectionDrill({
 
       {/* Lista candidatos (preview) */}
       <h3 className="text-sm uppercase tracking-wider text-muted-foreground mb-2">
-        Candidatos dessa eleição (primeiros 20)
+        Candidatos dessa eleição (amostra de 20)
       </h3>
       <div className="rounded-lg border bg-card divide-y divide-border">
         {topLoading ? (

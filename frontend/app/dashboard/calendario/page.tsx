@@ -214,10 +214,13 @@ export default function CalendarioPage() {
         })}
       </ol>
 
-      <p className="text-[11px] text-muted-foreground mt-6 text-center">
-        Fontes: Lei 9.504/97 + Resoluções TSE 23.610/2019, 23.671/2021,
-        23.675/2021. Itens marcados como "Estimada" aguardam publicação da
-        Resolução TSE 2026.
+      <p
+        className="text-[11px] text-muted-foreground mt-6 text-center"
+        title="Fontes: Lei 9.504/97 + Resoluções TSE 23.610/2019, 23.671/2021, 23.675/2021."
+      >
+        Datas baseadas na legislação eleitoral e em resoluções do TSE. Itens
+        marcados como &quot;Estimada&quot; aguardam publicação da Resolução TSE
+        2026.
       </p>
     </div>
   );
