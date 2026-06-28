@@ -131,7 +131,8 @@ class ElectionStatsResponse(BaseModel):
     """GET /elections/{id}/stats — sumario de uma eleicao."""
     election: ElectionRead
     candidates_count: int
-    municipalities_count: int
+    # null até o background popular (count distinct município é caro) — UI mostra "—"
+    municipalities_count: int | None = None
     total_votes: int
 
 

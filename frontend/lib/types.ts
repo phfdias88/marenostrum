@@ -611,7 +611,8 @@ export type TsePartyPerformanceResponse = {
 export type TseElectionStats = {
   election: TseElection;
   candidates_count: number;
-  municipalities_count: number;
+  // null até o background popular (count distinct município é caro) — UI: "—"
+  municipalities_count: number | null;
   total_votes: number;
 };
 

@@ -269,7 +269,7 @@ function Stat({
   hint,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   hint?: string;
 }) {
   return (
@@ -278,7 +278,7 @@ function Stat({
         {label}
       </p>
       <p className="text-3xl font-bold mt-1 text-primary">
-        {numberFmt.format(value)}
+        {value == null ? "—" : numberFmt.format(value)}
       </p>
       {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
     </div>

@@ -1760,10 +1760,11 @@ def election_stats(
         raise NotFoundError("Eleicao nao encontrada")
 
     # Sumário pré-computado nas colunas (migration 047) — instantâneo. Se ainda
-    # não populado (script não rodou), computa AQUI 1x e PERSISTE (self-healing):
-    # total_votes via Candidate.total_votes (já agregado), em vez de varrer
-    # vote_results (5GB+) que dava timeout. count(distinct município) só roda
-    # nesse primeiro cálculo e fica gravado.
+    # não populado, computa AQUI só os campos BARATOS (candidatos + votos via
+    # Candidate.total_votes já agregado). O nº de municípios (count distinct
+    # sobre vote_results) é CARO (~72s em eleições grandes, estoura o
+    # statement_timeout) → fica a cargo do script de background
+    # (populate_election_stats.py), e até lá vem como null ("—" na UI).
     if election.stats_candidates is None:
         election.stats_candidates = int(
             db.execute(
@@ -1775,14 +1776,6 @@ def election_stats(
                 select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(
                     Candidate.election_id == election_id
                 )
-            ).scalar_one()
-        )
-        election.stats_municipalities = int(
-            db.execute(
-                select(func.count(func.distinct(VoteResult.municipality_id)))
-                .select_from(VoteResult)
-                .join(Candidate, Candidate.id == VoteResult.candidate_id)
-                .where(Candidate.election_id == election_id)
             ).scalar_one()
         )
         db.commit()

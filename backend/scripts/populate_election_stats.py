@@ -18,23 +18,32 @@ def main() -> None:
             select(Election.id).where(Election.stats_candidates.is_(None))
         ).scalars())
     print(f"eleições a popular: {len(eids)}", flush=True)
+    fails = 0
     for i, eid in enumerate(eids, 1):
-        with SessionLocal() as db:
-            c = int(db.execute(select(func.count(Candidate.id)).where(Candidate.election_id == eid)).scalar_one())
-            v = int(db.execute(select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(Candidate.election_id == eid)).scalar_one())
-            m = int(db.execute(
-                select(func.count(func.distinct(VoteResult.municipality_id)))
-                .select_from(VoteResult).join(Candidate, Candidate.id == VoteResult.candidate_id)
-                .where(Candidate.election_id == eid)
-            ).scalar_one())
-            db.execute(text(
-                "UPDATE tse_elections SET stats_candidates=:c, stats_total_votes=:v, "
-                "stats_municipalities=:m WHERE id=:id"
-            ), {"c": c, "v": v, "m": m, "id": eid})
-            db.commit()
+        try:
+            with SessionLocal() as db:
+                # Job de background: o count(distinct município) leva ~72s em
+                # eleições municipais grandes e estoura o statement_timeout
+                # padrão — desliga só nesta sessão.
+                db.execute(text("SET statement_timeout = 0"))
+                c = int(db.execute(select(func.count(Candidate.id)).where(Candidate.election_id == eid)).scalar_one())
+                v = int(db.execute(select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(Candidate.election_id == eid)).scalar_one())
+                m = int(db.execute(
+                    select(func.count(func.distinct(VoteResult.municipality_id)))
+                    .select_from(VoteResult).join(Candidate, Candidate.id == VoteResult.candidate_id)
+                    .where(Candidate.election_id == eid)
+                ).scalar_one())
+                db.execute(text(
+                    "UPDATE tse_elections SET stats_candidates=:c, stats_total_votes=:v, "
+                    "stats_municipalities=:m WHERE id=:id"
+                ), {"c": c, "v": v, "m": m, "id": eid})
+                db.commit()
+        except Exception as e:  # noqa: BLE001
+            fails += 1
+            print(f"  FAIL {eid}: {type(e).__name__} {str(e)[:80]}", flush=True)
         if i % 20 == 0 or i == len(eids):
-            print(f"  {i}/{len(eids)}", flush=True)
-    print("ESTATS DONE", flush=True)
+            print(f"  {i}/{len(eids)} (falhas={fails})", flush=True)
+    print(f"ESTATS DONE (falhas={fails})", flush=True)
 
 
 if __name__ == "__main__":
