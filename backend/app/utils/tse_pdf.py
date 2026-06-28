@@ -844,12 +844,14 @@ def _evolution_flow(points, st) -> Table | None:
             BarFlowable(int(votes or 0), mx, bar_w),
             Paragraph(_fmt_int(votes), st["table_td_value"]),
         ])
-    tbl = Table(rows, colWidths=[1.3 * cm, 4.0 * cm, bar_w + 0.2 * cm, 2.5 * cm])
+    tbl = Table(rows, colWidths=[1.7 * cm, 3.6 * cm, bar_w + 0.2 * cm, 2.5 * cm])
     tbl.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, CREAM]),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (0, -1), 2),  # ano: padding mínimo p/ "2002" não quebrar
+        ("RIGHTPADDING", (0, 0), (0, -1), 2),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
