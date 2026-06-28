@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # secret per-tenant — vazamento do global = todos os tenants caem.
     WEBHOOK_GLOBAL_SECRET: str | None = None
 
+    # Google Calendar (read-only) — opcional. Vazio = integração desligada.
+    # Crie 1 credencial OAuth no Google Cloud Console (uma vez, na conta do app).
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+    # URI de callback REGISTRADA no Google (precisa bater exatamente).
+    GOOGLE_REDIRECT_URI: str | None = None
+
     # Geocoding (Nominatim/OpenStreetMap)
     # User-Agent obrigatorio pela politica de uso do Nominatim.
     # Use o email do projeto para contato em caso de uso abusivo.
