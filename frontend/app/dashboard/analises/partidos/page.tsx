@@ -20,6 +20,7 @@ import type {
   TsePartyPerformanceResponse,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
+import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 
@@ -197,7 +198,7 @@ function PartyPerformance({
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Total eleitos</p>
               <p className="text-2xl font-bold text-primary">{numberFmt.format(data.total_elected)}</p>
             </div>
-            <div className="rounded-lg border bg-card/60 px-4 py-2" title="Votos dados diretamente aos candidatos (não inclui voto de legenda).">
+            <div className="rounded-lg border bg-card/60 px-4 py-2" title={VOTOS_NOMINAIS_HINT}>
               <p className="text-xs uppercase tracking-wider text-muted-foreground">Votos nominais</p>
               <p className="text-2xl font-bold">{numberFmt.format(data.total_votes)}</p>
             </div>

@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import type { TsePartyPerformanceResponse } from "@/lib/types";
+import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -175,7 +176,7 @@ export default function PainelPage() {
           <SectionTitle
             icon={Vote}
             title="Votos nominais por partido — prefeito (2024)"
-            hint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
+            hint={VOTOS_NOMINAIS_HINT}
           />
           <PartyVotesChart data={perf} />
         </div>

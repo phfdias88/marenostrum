@@ -19,6 +19,7 @@ import type {
   TseTopCandidatesResponse,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
+import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -252,7 +253,7 @@ export default function PartyDetailPage() {
           <Stat
             label="Votos nominais"
             value={perfLoading ? null : mine?.total_votes ?? 0}
-            titleHint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
+            titleHint={VOTOS_NOMINAIS_HINT}
           />
           <Stat
             label="Candidatos"

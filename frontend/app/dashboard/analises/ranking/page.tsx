@@ -17,7 +17,7 @@ import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
-import { YEAR_OPTIONS } from "@/lib/elections";
+import { YEAR_OPTIONS, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -217,7 +217,7 @@ export default function RankingPage() {
       )}
       <p className="text-xs text-muted-foreground text-center pt-4">
         Fonte: TSE ·{" "}
-        <span title="Votos dados diretamente aos candidatos (não inclui voto de legenda).">
+        <span title={VOTOS_NOMINAIS_HINT}>
           votos nominais
         </span>{" "}
         somados

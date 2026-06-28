@@ -17,6 +17,7 @@ import type {
   TseMunicipalityTimeline,
   TseMunicipalityZones,
 } from "@/lib/types";
+import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -219,7 +220,7 @@ export default function MunicipioDetailPage() {
             value={loading ? null : totalVotes}
             accent="text-primary"
             hint={["11", "1", "3"].includes(office) ? "votação de 1º turno" : undefined}
-            titleHint="Votos dados diretamente aos candidatos (não inclui voto de legenda)."
+            titleHint={VOTOS_NOMINAIS_HINT}
           />
           <Stat label="Candidatos com votos" value={loading ? null : data?.total_results ?? 0} />
         </div>

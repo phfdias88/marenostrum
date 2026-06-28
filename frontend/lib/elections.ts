@@ -33,7 +33,17 @@ export const OFFICES_BY_YEAR: Record<string, OfficeOption[]> = {
   "2018": FEDERAL_OFFICES,
   "2016": MUNICIPAL_OFFICES,
   "2014": FEDERAL_OFFICES,
+  "2010": FEDERAL_OFFICES,
+  "2006": FEDERAL_OFFICES,
+  "2002": FEDERAL_OFFICES,
 };
+
+/**
+ * Texto-padrão (tooltip) explicando "votos nominais" pro cliente leigo.
+ * Fonte única — usado em ranking, partido, partidos, município e painel.
+ */
+export const VOTOS_NOMINAIS_HINT =
+  "Votos dados diretamente aos candidatos (não inclui voto de legenda).";
 
 /** Anos elegíveis pra seletor genérico (mais recente primeiro). */
 export const YEAR_OPTIONS: OfficeOption[] = [

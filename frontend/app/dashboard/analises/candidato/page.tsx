@@ -56,6 +56,17 @@ export default function CandidatoAnalysisPage() {
   const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
   const debouncedSearch = useDebounce(search, 300);
 
+  // Cargos municipais (11,12,13) só existem em anos municipais; os demais (1-10),
+  // em anos gerais. Ao trocar o ano, se o cargo selecionado não couber no novo
+  // pleito, volta pra "Todos" — senão a lista viria vazia (ex.: 2002 + Prefeito).
+  function handleYearChange(newYear: string) {
+    setYear(newYear);
+    if (!newYear || !office) return;
+    const muniYear = ["2024", "2020", "2016", "2012", "2008", "2004"].includes(newYear);
+    const muniOffice = ["11", "12", "13"].includes(office);
+    if (muniYear !== muniOffice) setOffice("");
+  }
+
   // Busca municipios pra filtro
   useEffect(() => {
     if (selectedMuni) return;
@@ -202,7 +213,7 @@ export default function CandidatoAnalysisPage() {
         <Select
           label="Ano"
           value={year}
-          onChange={setYear}
+          onChange={handleYearChange}
           options={[
             { value: "", label: "Todos" },
             { value: "2024", label: "2024" },
