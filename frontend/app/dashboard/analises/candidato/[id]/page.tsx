@@ -1525,7 +1525,7 @@ function TrajectorySection({
         })}
       </ol>
       <p className="text-[11px] text-muted-foreground mt-1.5">
-        Mesma pessoa (nome civil) nas eleições de 2014 a 2024. Clique num ano para abrir.
+        Mesma pessoa (unificada por CPF) nas eleições disponíveis. Clique num ano para abrir.
       </p>
     </div>
   );
