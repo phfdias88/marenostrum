@@ -9,7 +9,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
-from sqlalchemy import case, func, select, text
+from sqlalchemy import and_, case, func, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.utils.agg_cache import agg_get, agg_set
@@ -1153,24 +1153,22 @@ def candidate_trajectory(
     if base is None:
         raise NotFoundError("Candidato não encontrado")
 
-    # Match por nome civil completo (NM_CANDIDATO) normalizado — estável entre
-    # eleições (nome de urna muda mais). f_unaccent + lower pra robustez.
-    # Index ix_tse_candidates_name_unaccent_trgm acelera o filtro.
-    #
-    # IMPORTANTE: restringe à MESMA UF. O TSE não traz CPF aqui, então só o
-    # nome civil pode fundir HOMÔNIMOS de estados diferentes (pessoas distintas)
-    # — daí a foto/dados de outro candidato apareciam. Político concorre quase
-    # sempre na mesma UF; o filtro por estado elimina o grosso desses enganos.
-    # (Precisão 100% exigiria importar o CPF — re-sync de candidatos.)
-    norm = func.lower(func.f_unaccent(base.name))
+    # Match da MESMA pessoa. Preferência: CPF (ID único entre eleições/cargos/
+    # UFs) — unifica quem muda de cargo/estado (Bolsonaro 2014 RJ → 2018 RS →
+    # 2022 MA; Dilma presidente + senadora). Fallback p/ candidaturas sem CPF
+    # importado: nome civil + MESMA UF (evita fundir homônimos de outras UFs).
+    if base.cpf:
+        match_where = Candidate.cpf == base.cpf
+    else:
+        match_where = and_(
+            func.lower(func.f_unaccent(Candidate.name)) == func.lower(func.f_unaccent(base.name)),
+            Candidate.state == base.state,
+        )
     stmt = (
         select(Candidate, Election, Party)
         .join(Election, Candidate.election_id == Election.id)
         .join(Party, Candidate.party_id == Party.id)
-        .where(
-            func.lower(func.f_unaccent(Candidate.name)) == norm,
-            Candidate.state == base.state,
-        )
+        .where(match_where)
         .order_by(Election.year.desc(), Candidate.office_code.asc())
     )
     rows = db.execute(stmt).all()
