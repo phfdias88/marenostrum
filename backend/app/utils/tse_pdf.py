@@ -37,6 +37,45 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+import os
+
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# -------------------------------------------------- tipografia (Lato embarcada)
+# Fonte profissional Lato (OFL) embarcada pra um visual mais editorial que o
+# Helvetica padrão. Se por algum motivo não carregar, cai pro Helvetica (não quebra).
+_FONT_DIR = os.path.join(os.path.dirname(__file__), "assets", "fonts")
+
+
+def _register_fonts() -> bool:
+    try:
+        for name, fn in {
+            "Lato": "Lato-Regular.ttf",
+            "Lato-Bold": "Lato-Bold.ttf",
+            "Lato-Light": "Lato-Light.ttf",
+            "Lato-Black": "Lato-Black.ttf",
+            "Lato-Italic": "Lato-Italic.ttf",
+            "Lato-BoldItalic": "Lato-BoldItalic.ttf",
+        }.items():
+            pdfmetrics.registerFont(TTFont(name, os.path.join(_FONT_DIR, fn)))
+        pdfmetrics.registerFontFamily(
+            "Lato", normal="Lato", bold="Lato-Bold",
+            italic="Lato-Italic", boldItalic="Lato-BoldItalic",
+        )
+        return True
+    except Exception:
+        return False
+
+
+_FONTS_OK = _register_fonts()
+if _FONTS_OK:
+    FONT, FONT_BOLD = "Lato", "Lato-Bold"
+    FONT_LIGHT, FONT_BLACK, FONT_ITALIC = "Lato-Light", "Lato-Black", "Lato-Italic"
+else:  # fallback seguro
+    _h = "Helv" "etica"  # concatenação evita o replace_all de fonte abaixo
+    FONT, FONT_BOLD = _h, _h + "-Bold"
+    FONT_LIGHT, FONT_BLACK, FONT_ITALIC = _h, _h + "-Bold", _h + "-Oblique"
 
 # -------------------------------------------------- paleta refinada
 # Menos amarelao agressivo; champanhe + charcoal predominam.
@@ -71,13 +110,13 @@ PIE_PALETTE = [
 
 def _fmt_int(n: int | None) -> str:
     if n is None:
-        return "—"
+        return "n/d"
     return f"{n:,}".replace(",", ".")
 
 
 def _fmt_brl(v: float | None) -> str:
     if v is None:
-        return "—"
+        return "n/d"
     s = f"{v:,.2f}"
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
@@ -88,111 +127,111 @@ def _styles() -> dict[str, ParagraphStyle]:
     s: dict[str, ParagraphStyle] = {}
     # === CAPA ===
     s["cover_kicker"] = ParagraphStyle(
-        "cover_kicker", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "cover_kicker", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=8, leading=11, textColor=CHAMPAGNE, alignment=1,
         spaceAfter=4,
     )
     s["cover_name"] = ParagraphStyle(
-        "cover_name", parent=base["Heading1"], fontName="Helvetica-Bold",
-        fontSize=32, leading=36, textColor=WHITE, alignment=1,
+        "cover_name", parent=base["Heading1"], fontName=FONT_BLACK,
+        fontSize=34, leading=38, textColor=WHITE, alignment=1,
         spaceAfter=2,
     )
     s["cover_legal"] = ParagraphStyle(
-        "cover_legal", parent=base["BodyText"], fontName="Helvetica-Oblique",
+        "cover_legal", parent=base["BodyText"], fontName=FONT_ITALIC,
         fontSize=10, leading=13, textColor=CHAMPAGNE_PALE, alignment=1,
     )
     s["cover_meta"] = ParagraphStyle(
-        "cover_meta", parent=base["BodyText"], fontName="Helvetica",
+        "cover_meta", parent=base["BodyText"], fontName=FONT,
         fontSize=10, leading=13, textColor=CREAM, alignment=1, spaceAfter=6,
     )
     s["cover_brand"] = ParagraphStyle(
-        "cover_brand", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "cover_brand", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=9, leading=12, textColor=CHAMPAGNE, alignment=1,
     )
     s["cover_brand_sub"] = ParagraphStyle(
-        "cover_brand_sub", parent=base["BodyText"], fontName="Helvetica",
+        "cover_brand_sub", parent=base["BodyText"], fontName=FONT,
         fontSize=6.5, leading=9, textColor=MUTED_LIGHT, alignment=1,
     )
     s["badge_cover"] = ParagraphStyle(
-        "badge_cover", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "badge_cover", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=11, leading=13, textColor=WHITE, alignment=1,
     )
     # === SUMARIO ===
     s["toc_title"] = ParagraphStyle(
-        "toc_title", parent=base["Heading1"], fontName="Helvetica-Bold",
+        "toc_title", parent=base["Heading1"], fontName=FONT_BOLD,
         fontSize=11, leading=14, textColor=GOLD_DARK, alignment=0,
         spaceAfter=4,
     )
     s["toc_h2"] = ParagraphStyle(
-        "toc_h2", parent=base["Heading2"], fontName="Helvetica-Bold",
+        "toc_h2", parent=base["Heading2"], fontName=FONT_BOLD,
         fontSize=24, leading=28, textColor=CHARCOAL, spaceAfter=18,
     )
     s["toc_item"] = ParagraphStyle(
-        "toc_item", parent=base["BodyText"], fontName="Helvetica",
+        "toc_item", parent=base["BodyText"], fontName=FONT,
         fontSize=12, leading=18, textColor=CHARCOAL,
     )
     s["toc_page"] = ParagraphStyle(
-        "toc_page", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "toc_page", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=12, leading=18, textColor=GOLD_DARK, alignment=2,
     )
     # === INTERNAS ===
     s["section"] = ParagraphStyle(
-        "section", parent=base["Heading2"], fontName="Helvetica-Bold",
+        "section", parent=base["Heading2"], fontName=FONT_BOLD,
         fontSize=9, leading=12, textColor=GOLD_DARK, spaceBefore=4,
         spaceAfter=3,
     )
     # Legenda curta (uma linha) logo abaixo do kicker da secao, explicando em
     # linguagem simples o que o cliente esta vendo ali.
     s["section_cap"] = ParagraphStyle(
-        "section_cap", parent=base["BodyText"], fontName="Helvetica-Oblique",
+        "section_cap", parent=base["BodyText"], fontName=FONT_ITALIC,
         fontSize=8.5, leading=11, textColor=MUTED, spaceBefore=0, spaceAfter=9,
     )
     s["h2"] = ParagraphStyle(
-        "h2", parent=base["Heading2"], fontName="Helvetica-Bold",
+        "h2", parent=base["Heading2"], fontName=FONT_BOLD,
         fontSize=18, leading=22, textColor=CHARCOAL, spaceAfter=2,
     )
     s["sub"] = ParagraphStyle(
-        "sub", parent=base["BodyText"], fontName="Helvetica",
+        "sub", parent=base["BodyText"], fontName=FONT,
         fontSize=10, leading=13, textColor=MUTED, spaceAfter=10,
     )
     s["body"] = ParagraphStyle(
-        "body", parent=base["BodyText"], fontName="Helvetica",
+        "body", parent=base["BodyText"], fontName=FONT,
         fontSize=10, leading=14, textColor=CHARCOAL,
     )
     s["small"] = ParagraphStyle(
-        "small", parent=base["BodyText"], fontName="Helvetica",
+        "small", parent=base["BodyText"], fontName=FONT,
         fontSize=8, leading=11, textColor=MUTED,
     )
     s["stat_label"] = ParagraphStyle(
-        "stat_label", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "stat_label", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=8, leading=10, textColor=GOLD_DARK, alignment=1,
     )
     s["stat_value"] = ParagraphStyle(
-        "stat_value", parent=base["BodyText"], fontName="Helvetica-Bold",
-        fontSize=22, leading=26, textColor=CHARCOAL, alignment=1,
+        "stat_value", parent=base["BodyText"], fontName=FONT_BLACK,
+        fontSize=23, leading=27, textColor=CHARCOAL, alignment=1,
     )
     s["stat_value_small"] = ParagraphStyle(
-        "stat_value_small", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "stat_value_small", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=14, leading=17, textColor=CHARCOAL, alignment=1,
     )
     s["table_th"] = ParagraphStyle(
-        "table_th", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "table_th", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=7.5, leading=10, textColor=CHAMPAGNE,
     )
     s["table_td"] = ParagraphStyle(
-        "table_td", parent=base["BodyText"], fontName="Helvetica",
+        "table_td", parent=base["BodyText"], fontName=FONT,
         fontSize=9, leading=12, textColor=CHARCOAL,
     )
     s["table_td_rank"] = ParagraphStyle(
-        "table_td_rank", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "table_td_rank", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=10, leading=12, textColor=GOLD_DARK, alignment=1,
     )
     s["table_td_value"] = ParagraphStyle(
-        "table_td_value", parent=base["BodyText"], fontName="Helvetica-Bold",
+        "table_td_value", parent=base["BodyText"], fontName=FONT_BOLD,
         fontSize=10, leading=12, textColor=CHARCOAL, alignment=2,
     )
     s["qr_caption"] = ParagraphStyle(
-        "qr_caption", parent=base["BodyText"], fontName="Helvetica",
+        "qr_caption", parent=base["BodyText"], fontName=FONT,
         fontSize=6.5, leading=8, textColor=MUTED_LIGHT, alignment=1,
     )
     return s
@@ -358,7 +397,7 @@ def _votes_pie(uf_votes: dict[str, int], width: float = 13 * cm, height: float =
     leg.x = 4.7 * cm
     leg.y = height - 1 * cm
     leg.deltay = 14
-    leg.fontName = "Helvetica"
+    leg.fontName = FONT
     leg.fontSize = 9
     leg.boxAnchor = "nw"
     leg.columnMaximum = 8
@@ -426,12 +465,12 @@ def _inner_page(canvas, doc):
     canvas.setFillColor(GOLD)
     canvas.rect(0, 18, w, 1, stroke=0, fill=1)
     canvas.setFillColor(GOLD)
-    canvas.setFont("Helvetica-Bold", 8)
+    canvas.setFont(FONT_BOLD, 8)
     canvas.drawString(2 * cm, 6, "MARENOSTRUM")
     canvas.setFillColor(CREAM)
-    canvas.setFont("Helvetica", 7)
+    canvas.setFont(FONT, 7)
     canvas.drawCentredString(w / 2, 6, f"Dossiê eleitoral · {doc.page:02d}")
-    canvas.setFont("Helvetica-Oblique", 7)
+    canvas.setFont(FONT_ITALIC, 7)
     canvas.drawRightString(w - 2 * cm, 6, "Confidencial")
     canvas.restoreState()
 
@@ -483,14 +522,14 @@ def _append_neighborhoods_section(flow, st, neighborhoods) -> None:
 
     def _pen(i):
         p = i.get("penetration_pct")
-        return f"{str(p).replace('.', ',')}%" if p is not None else "—"
+        return f"{str(p).replace('.', ',')}%" if p is not None else "n/d"
 
     def _mor(i):
         m = i.get("census_population")
-        return _fmt_int(m) if m else "—"
+        return _fmt_int(m) if m else "n/d"
 
     rows = [
-        [i.get("neighborhood") or "—", _fmt_int(i.get("votes")), _pen(i), _mor(i)]
+        [i.get("neighborhood") or "n/d", _fmt_int(i.get("votes")), _pen(i), _mor(i)]
         for i in items[:10]
     ]
     flow.append(_simple_table(
@@ -515,7 +554,7 @@ def _append_neighborhoods_section(flow, st, neighborhoods) -> None:
             flow.append(Spacer(1, 10))
             flow.append(Paragraph("Oportunidades de crescimento", st["h2"]))
             flow.extend(_bullets([
-                f'<b>{o["neighborhood"]}</b> — {_fmt_int(o["census_population"])} '
+                f'<b>{o["neighborhood"]}</b>: {_fmt_int(o["census_population"])} '
                 f'moradores e só {str(o["penetration_pct"]).replace(".", ",")}% dos '
                 f'eleitores: bairro populoso onde sua presença é a mais fraca.'
                 for o in ops
@@ -545,7 +584,7 @@ def _append_intelligence_sections(
         else:
             flow.append(Paragraph(
                 f'Faltaram <b>{_fmt_int(pv.get("gap"))}</b> votos para superar o 1º colocado '
-                f'(<b>{pv.get("winner_name") or "—"}</b>, {_fmt_int(pv.get("winner_votes"))} votos). '
+                f'(<b>{pv.get("winner_name") or "n/d"}</b>, {_fmt_int(pv.get("winner_votes"))} votos). '
                 f'Sua votação: {_fmt_int(pv.get("candidate_votes"))}.',
                 st["body"],
             ))
@@ -610,7 +649,7 @@ def _append_intelligence_sections(
         _section(flow, st, "PERFIL DO TERRITÓRIO",
                  "Quem é o eleitorado da sua base: renda, idade e escolaridade dos seus municípios.")
         flow.append(Paragraph(
-            f'De onde vem o voto — perfil do eleitorado ponderado pela votação, '
+            f'De onde vem o voto: perfil do eleitorado ponderado pela votação, '
             f'frente à média de {pf.get("state","")}.',
             st["sub"],
         ))
@@ -653,7 +692,7 @@ def _append_intelligence_sections(
         score = ai.get("score_viabilidade")
         if score is not None:
             flow.append(Paragraph(
-                f'<b>Viabilidade {score}/100</b> — {ai.get("score_justificativa","")}',
+                f'<b>Viabilidade {score}/100</b>: {ai.get("score_justificativa","")}',
                 st["h2"],
             ))
         flow.append(Paragraph(ai.get("diagnostico", ""), st["body"]))
@@ -670,7 +709,7 @@ def _append_intelligence_sections(
                 flow.extend(_bullets(items, st))
         flow.append(Spacer(1, 6))
         flow.append(Paragraph(
-            "<i>Gerado pela Maré IA a partir dos dados reais do TSE. Apoio à decisão — "
+            "<i>Gerado pela Maré IA a partir dos dados reais do TSE. Apoio à decisão; "
             "valide com sua equipe.</i>",
             st["small"],
         ))
