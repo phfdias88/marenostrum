@@ -204,6 +204,12 @@ const INDICATORS: { key: CensusIndicator; label: string }[] = DICTIONARIES
 
 export type Malha = "setor" | "distrito" | "bairro";
 
+// Versão dos dados do censo. A resposta tem Cache-Control de 7 dias (perf), então
+// o NAVEGADOR cacheia. Ao adicionar/atualizar indicadores (renda, PIB, IDHM,
+// IDEB, saneamento, CadÚnico...), BUMP isto pra furar o cache do browser e os
+// novos campos aparecerem na hora, sem esperar 7 dias.
+const CENSUS_V = "2026-06-28";
+
 export default function CensoPage() {
   const [ufGeo, setUfGeo] = useState<FC | null>(null);
   const [setores, setSetores] = useState<FC | null>(null);
@@ -285,7 +291,7 @@ export default function CensoPage() {
   // UFs com censo carregado (deriva dos municípios disponíveis).
   useEffect(() => {
     if (allowed !== true) return;
-    api<{ cd_mun: string }[]>("/v1/census/municipalities")
+    api<{ cd_mun: string }[]>(`/v1/census/municipalities?v=${CENSUS_V}`)
       .then((ms) => {
         const ufs = [...new Set(ms.map((m) => String(m.cd_mun).slice(0, 2)))].sort();
         if (ufs.length) setUfsDisponiveis(ufs);
@@ -299,7 +305,7 @@ export default function CensoPage() {
     setLoading(true);
     setUfGeo(null);
     setCmpA(null); setCmpB(null); setCmpQA(""); setCmpQB("");
-    api<FC>(`/v1/census/uf-overview?uf=${uf}`)
+    api<FC>(`/v1/census/uf-overview?uf=${uf}&v=${CENSUS_V}`)
       .then(setUfGeo)
       .catch(() => setUfGeo(null))
       .finally(() => setLoading(false));
@@ -321,7 +327,7 @@ export default function CensoPage() {
     setAiInsight(null);
     setAiError(null);
     setLoading(true);
-    api<FC>(`/v1/census/setores?cd_mun=${props.cd_mun}`)
+    api<FC>(`/v1/census/setores?cd_mun=${props.cd_mun}&v=${CENSUS_V}`)
       .then(setSetores)
       .catch(() => setSetores(null))
       .finally(() => setLoading(false));
