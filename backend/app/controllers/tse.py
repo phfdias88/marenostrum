@@ -461,7 +461,19 @@ def list_candidates(
         # quantas candidaturas a pessoa tem. Sem CPF no TSE, homônimos da MESMA
         # UF ainda podem fundir (raro) — o detalhe/trajetória mostra tudo.
         el_a = aliased(Election)
-        filtered = stmt.subquery()
+        # A janela (dedupe por pessoa) precisa varrer as linhas filtradas. Num VPS
+        # de 1 vCPU, varrer dezenas de milhares (ex: "silva" = 86k, "todos os
+        # prefeitos" = 120k) leva 15-70s. Limitamos o que entra na janela:
+        #  - SEM busca (navegação): pega os MAIS VOTADOS (índice composto
+        #    office_code+total_votes faz disso um index scan rápido) → cabeça exata.
+        #  - COM busca: pega os primeiros N (busca específica casa < N → exato;
+        #    sobrenome comum casa muito → resultado aproximado, mas instantâneo).
+        GROUP_CAP = 7000
+        if search:
+            base = stmt.limit(GROUP_CAP)
+        else:
+            base = stmt.order_by(Candidate.total_votes.desc().nulls_last()).limit(GROUP_CAP)
+        filtered = base.subquery()
         cand = aliased(Candidate, filtered)
         # Chave da PESSOA. Preferência: CPF (ID único entre eleições/cargos/UFs
         # — unifica Bolsonaro, Dilma presidente+senadora, etc.). Fallback p/ quem
