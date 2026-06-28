@@ -1759,29 +1759,25 @@ def election_stats(
     if election is None:
         raise NotFoundError("Eleicao nao encontrada")
 
-    # Cache em memória: o sumário é estático por eleição (dado histórico).
-    from app.utils.agg_cache import agg_get, agg_set
-
-    ck = f"election_stats:{election_id}"
-    cached = agg_get(ck)
-    if cached is None:
-        candidates_count = int(
+    # Sumário pré-computado nas colunas (migration 047) — instantâneo. Se ainda
+    # não populado (script não rodou), computa AQUI 1x e PERSISTE (self-healing):
+    # total_votes via Candidate.total_votes (já agregado), em vez de varrer
+    # vote_results (5GB+) que dava timeout. count(distinct município) só roda
+    # nesse primeiro cálculo e fica gravado.
+    if election.stats_candidates is None:
+        election.stats_candidates = int(
             db.execute(
                 select(func.count(Candidate.id)).where(Candidate.election_id == election_id)
             ).scalar_one()
         )
-        # total_votes vem do Candidate.total_votes JÁ PRÉ-COMPUTADO (soma na
-        # tabela de candidatos, ~centenas de milhares de linhas) — NÃO varre
-        # vote_results (5GB+), que dava timeout em eleições municipais grandes.
-        total_votes = int(
+        election.stats_total_votes = int(
             db.execute(
                 select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(
                     Candidate.election_id == election_id
                 )
             ).scalar_one()
         )
-        # Distinct municípios: JOIN direto (melhor que IN-subquery pro planner).
-        munis_count = int(
+        election.stats_municipalities = int(
             db.execute(
                 select(func.count(func.distinct(VoteResult.municipality_id)))
                 .select_from(VoteResult)
@@ -1789,14 +1785,13 @@ def election_stats(
                 .where(Candidate.election_id == election_id)
             ).scalar_one()
         )
-        cached = {"c": candidates_count, "v": total_votes, "m": munis_count}
-        agg_set(ck, cached)
+        db.commit()
 
     return ElectionStatsResponse(
         election=ElectionRead.model_validate(election),
-        candidates_count=cached["c"],
-        municipalities_count=cached["m"],
-        total_votes=cached["v"],
+        candidates_count=election.stats_candidates,
+        municipalities_count=election.stats_municipalities,
+        total_votes=election.stats_total_votes,
     )
 
 

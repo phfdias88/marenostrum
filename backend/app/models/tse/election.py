@@ -1,5 +1,5 @@
 """Eleição TSE (2024 turno 1, 2022 presidencial, etc)."""
-from sqlalchemy import Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -18,6 +18,12 @@ class Election(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     # ELEICAO ORDINARIA, SUPLEMENTAR, etc (NM_TIPO_ELEICAO)
     type_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    # Sumário pré-computado (migration 047) — pra /elections/{id}/stats não varrer
+    # vote_results (5GB+). Populado por scripts/populate_election_stats.py.
+    stats_candidates: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stats_total_votes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    stats_municipalities: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("tse_code", name="uq_tse_elections_tse_code"),
