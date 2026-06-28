@@ -98,6 +98,10 @@ export default function CandidatoAnalysisPage() {
       if (state) params.set("state", state);
       if (office) params.set("office_code", office);
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+      // Mesma unificação por pessoa que a lista exibida (ver fetch abaixo).
+      if (debouncedSearch.trim() || office || year || state) {
+        params.set("group_person", "true");
+      }
       const res = await api<Page<TseCandidate>>(
         `/v1/tse/candidates?${params.toString()}`,
       );
@@ -142,14 +146,17 @@ export default function CandidatoAnalysisPage() {
     if (year) params.set("year", year);
     if (state) params.set("state", state);
     if (office) params.set("office_code", office);
-    if (debouncedSearch.trim()) {
-      params.set("search", debouncedSearch.trim());
-      // Agrupa por pessoa na BUSCA: "jair bolsonaro" não repete 2018/2022.
-      // Só na busca (sem termo, evita rodar a janela na tabela inteira).
-      params.set("group_person", "true");
-    }
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (electedOnly) params.set("elected_only", "true");
     if (selectedMuni) params.set("municipality_id", selectedMuni.id);
+    // Unifica candidaturas da MESMA pessoa (Aarão 2016/2020/2024 = 1 linha, com
+    // badge "N candidaturas"). Pula só quando NENHUM filtro está ativo
+    // (cargo/ano/UF/busca/cidade vazios) — aí a janela rodaria na tabela inteira
+    // (~60s). Com qualquer filtro fica rápido (cargo ~3s, +UF/ano sub-segundo) e
+    // o nginx ainda cacheia a resposta.
+    if (debouncedSearch.trim() || office || year || state || selectedMuni) {
+      params.set("group_person", "true");
+    }
 
     setLoading(true);
     api<Page<TseCandidate>>(`/v1/tse/candidates?${params.toString()}`)
