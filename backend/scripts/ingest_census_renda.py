@@ -1,5 +1,9 @@
 """
-Ingestão da RENDA domiciliar por município (IBGE Censo 2022) via API SIDRA.
+Ingestão da RENDA domiciliar por município via API SIDRA.
+
+NOTA: a tabela SIDRA 3168 só tem período 2010 (Censo 2010) — é a renda média/
+mediana domiciliar mais recente publicada nesse formato municipal. O quadro
+econômico ATUAL no app vem do PIB per capita 2023 e do Bolsa Família (MDS).
 
 Tabela 3168, variáveis:
   847 = rendimento nominal MÉDIO   mensal dos domicílios particulares permanentes

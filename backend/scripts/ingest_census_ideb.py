@@ -31,11 +31,31 @@ URLS = {
 }
 
 
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+
+def _download(url: str) -> bytes:
+    """Baixa com UA de browser + retry (o INEP reseta conexões de UA não-browser)."""
+    import time
+    last = None
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": _UA, "Accept": "*/*", "Connection": "keep-alive",
+            })
+            with urllib.request.urlopen(req, timeout=300, context=_SSL_NOVERIFY) as r:
+                return r.read()
+        except Exception as e:  # noqa: BLE001
+            last = e
+            print(f"  tentativa {attempt+1} falhou: {e}; retry...")
+            time.sleep(5 * (attempt + 1))
+    raise last
+
+
 def fetch_ideb(url: str) -> dict[str, float]:
     """cd_mun(7) -> IDEB observado 2023, só rede Pública."""
-    req = urllib.request.Request(url, headers={"User-Agent": "marenostrum/1.0"})
-    with urllib.request.urlopen(req, timeout=240, context=_SSL_NOVERIFY) as r:
-        blob = r.read()
+    blob = _download(url)
     zf = zipfile.ZipFile(io.BytesIO(blob))
     name = next(n for n in zf.namelist() if n.lower().endswith(".xlsx"))
     wb = openpyxl.load_workbook(io.BytesIO(zf.read(name)), read_only=True, data_only=True)
