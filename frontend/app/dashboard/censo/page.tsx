@@ -12,6 +12,7 @@ import { ArrowLeft, Building2, Download, Layers, Loader2, MapPin, MapPinned, Sea
 import { api } from "@/lib/api";
 import { aggregateCensusData } from "@/lib/censusAggregate";
 import type { CensusIndicator } from "@/components/map/CensusMap";
+import { INDICATOR_FMT, indicatorShortLabel } from "@/lib/census-indicators";
 
 const CensusMap = dynamic(
   () => import("@/components/map/CensusMap").then((m) => m.CensusMap),
@@ -500,15 +501,18 @@ export default function CensoPage() {
           .slice(0, 8)
       : [];
 
-  // Top municípios do estado (visão estadual)
+  // Top municípios do estado (visão estadual) — ranqueia pelo MESMO indicador
+  // mostrado no mapa (renda, IDEB, esgoto…), não fixo em população, pra a lista
+  // acompanhar o que o usuário escolheu. Tira os sem dado (val 0/nulo).
   const topMunicipios = (ufGeo?.features ?? [])
     .map((f) => ({
       nome: String(f.properties.nm_mun ?? ""),
       cd: String(f.properties.cd_mun ?? ""),
-      pop: Number(f.properties.populacao ?? 0),
+      val: Number(f.properties[mapIndicator] ?? 0),
       props: f.properties,
     }))
-    .sort((a, b) => b.pop - a.pop)
+    .filter((m) => m.val > 0)
+    .sort((a, b) => b.val - a.val)
     .slice(0, 10);
 
   // Agregação por bairro (se houver) ou distrito: pop, domicílios, área, setores.
@@ -1040,35 +1044,41 @@ export default function CensoPage() {
           {view === "estado" ? (
             <div>
               <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" /> Top 10 municípios · população
+                <Users className="w-3.5 h-3.5" /> Top 10 municípios · {indicatorShortLabel(mapIndicator)}
               </p>
-              <ul className="space-y-2">
-                {topMunicipios.map((m, i) => {
-                  const max = topMunicipios[0]?.pop || 1;
-                  return (
-                    <li key={m.cd}>
-                      <button
-                        onClick={() => openMunicipio(m.props)}
-                        className="w-full text-left group"
-                      >
-                        <div className="flex items-center justify-between gap-2 text-sm">
-                          <span className="truncate group-hover:text-primary transition-colors">
-                            <span className="text-primary font-bold text-xs mr-1.5">{i + 1}º</span>
-                            {m.nome}
-                          </span>
-                          <span className="font-mono text-xs shrink-0 tabular-nums">{numberFmt.format(m.pop)}</span>
-                        </div>
-                        <div className="mt-1.5 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 shadow-[0_0_10px_rgba(232,200,121,0.4)] transition-[width] duration-500"
-                            style={{ width: `${(m.pop / max) * 100}%` }}
-                          />
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {topMunicipios.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">
+                  Sem dados deste indicador para os municípios desta UF.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {topMunicipios.map((m, i) => {
+                    const max = topMunicipios[0]?.val || 1;
+                    return (
+                      <li key={m.cd}>
+                        <button
+                          onClick={() => openMunicipio(m.props)}
+                          className="w-full text-left group"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-sm">
+                            <span className="truncate group-hover:text-primary transition-colors">
+                              <span className="text-primary font-bold text-xs mr-1.5">{i + 1}º</span>
+                              {m.nome}
+                            </span>
+                            <span className="font-mono text-xs shrink-0 tabular-nums">{INDICATOR_FMT[mapIndicator](m.val)}</span>
+                          </div>
+                          <div className="mt-1.5 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 shadow-[0_0_10px_rgba(232,200,121,0.4)] transition-[width] duration-500"
+                              style={{ width: `${(m.val / max) * 100}%` }}
+                            />
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
               <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
                 Clique num município (aqui ou no mapa) para abrir os setores.
               </p>
