@@ -22,7 +22,14 @@ export type CensusIndicator =
   | "pct_pretos_pardos"
   | "renda_media"
   | "pct_bolsa_familia"
-  | "pct_cadunico";
+  | "pct_cadunico"
+  | "pib_per_capita"
+  | "idhm"
+  | "ideb_anos_iniciais"
+  | "ideb_anos_finais"
+  | "pct_agua_rede"
+  | "pct_esgoto_adequado"
+  | "pct_lixo_coletado";
 
 type FC = {
   type: "FeatureCollection";
@@ -49,6 +56,13 @@ const FMT: Record<CensusIndicator, (v: number) => string> = {
   renda_media: (v) => `R$ ${numFmt.format(Math.round(v))}`,
   pct_bolsa_familia: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_cadunico: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pib_per_capita: (v) => `R$ ${numFmt.format(Math.round(v))}`,
+  idhm: (v) => v.toFixed(3).replace(".", ","),
+  ideb_anos_iniciais: (v) => v.toFixed(1).replace(".", ","),
+  ideb_anos_finais: (v) => v.toFixed(1).replace(".", ","),
+  pct_agua_rede: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_esgoto_adequado: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_lixo_coletado: (v) => `${v.toFixed(1).replace(".", ",")}%`,
 };
 const LABEL: Record<CensusIndicator, string> = {
   populacao: "População",
@@ -60,6 +74,13 @@ const LABEL: Record<CensusIndicator, string> = {
   renda_media: "Renda média domiciliar (R$)",
   pct_bolsa_familia: "Bolsa Família (% domicílios)",
   pct_cadunico: "CadÚnico (% domicílios)",
+  pib_per_capita: "PIB per capita (R$)",
+  idhm: "IDHM (2010)",
+  ideb_anos_iniciais: "IDEB anos iniciais (2023)",
+  ideb_anos_finais: "IDEB anos finais (2023)",
+  pct_agua_rede: "Água por rede (% domic.)",
+  pct_esgoto_adequado: "Esgoto adequado (% domic.)",
+  pct_lixo_coletado: "Lixo coletado (% domic.)",
 };
 
 function classIndex(v: number | null, breaks: number[]): number {

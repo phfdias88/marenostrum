@@ -55,6 +55,11 @@ def census_uf_overview(
         text(
             "SELECT g.cd_mun, g.nm_mun, g.populacao, g.domicilios, g.geometry, "
             "       g.renda_media_domiciliar, g.renda_mediana_domiciliar, "
+            "       g.pib_total, g.pib_per_capita, g.idhm, g.idhm_educacao, "
+            "       g.idhm_longevidade, g.idhm_renda, "
+            "       g.ideb_anos_iniciais, g.ideb_anos_finais, "
+            "       g.dom_agua_rede, g.dom_agua_total, g.dom_esgoto_adequado, "
+            "       g.dom_esgoto_total, g.dom_lixo_coletado, g.dom_lixo_total, "
             "       md.cadunico_familias, md.pbf_familias, md.anomes AS mds_anomes, "
             "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana "
             "FROM census_geo g "
@@ -120,6 +125,38 @@ def census_uf_overview(
                 if r["domicilios"] and r["cadunico_familias"] is not None else None
             ),
             "mds_anomes": r["mds_anomes"],
+            # PIB (IBGE 2023)
+            "pib_per_capita": (
+                float(r["pib_per_capita"]) if r["pib_per_capita"] is not None else None
+            ),
+            "pib_total": (
+                float(r["pib_total"]) if r["pib_total"] is not None else None
+            ),
+            # IDHM (Atlas/PNUD, Censo 2010)
+            "idhm": float(r["idhm"]) if r["idhm"] is not None else None,
+            "idhm_educacao": float(r["idhm_educacao"]) if r["idhm_educacao"] is not None else None,
+            "idhm_longevidade": float(r["idhm_longevidade"]) if r["idhm_longevidade"] is not None else None,
+            "idhm_renda": float(r["idhm_renda"]) if r["idhm_renda"] is not None else None,
+            # IDEB (INEP 2023, rede pública)
+            "ideb_anos_iniciais": (
+                float(r["ideb_anos_iniciais"]) if r["ideb_anos_iniciais"] is not None else None
+            ),
+            "ideb_anos_finais": (
+                float(r["ideb_anos_finais"]) if r["ideb_anos_finais"] is not None else None
+            ),
+            # Saneamento (Censo 2022) — % de domicílios
+            "pct_agua_rede": (
+                round(100 * r["dom_agua_rede"] / r["dom_agua_total"], 1)
+                if r["dom_agua_total"] else None
+            ),
+            "pct_esgoto_adequado": (
+                round(100 * r["dom_esgoto_adequado"] / r["dom_esgoto_total"], 1)
+                if r["dom_esgoto_total"] else None
+            ),
+            "pct_lixo_coletado": (
+                round(100 * r["dom_lixo_coletado"] / r["dom_lixo_total"], 1)
+                if r["dom_lixo_total"] else None
+            ),
         },
     } for r in rows]
     return ORJSONResponse(

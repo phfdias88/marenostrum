@@ -112,13 +112,19 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
   },
   {
     key: "renda",
-    label: "Renda",
+    label: "Renda & economia",
     vars: [
       {
         key: "renda_media",
         label: "Renda média",
         disabled: true,
         note: "Renda é por MUNICÍPIO (IBGE não publica por setor). Veja na visão estadual: o mapa colore cada município pela renda média domiciliar.",
+      },
+      {
+        key: "pib_per_capita",
+        label: "PIB per capita",
+        disabled: true,
+        note: "PIB municipal (IBGE 2023) por habitante. Disponível na visão estadual.",
       },
     ],
   },
@@ -137,6 +143,54 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
         label: "CadÚnico",
         disabled: true,
         note: "Inscritos no CadÚnico (MDS) por município. Disponível na visão estadual.",
+      },
+    ],
+  },
+  {
+    key: "desenvolvimento",
+    label: "Desenvolvimento",
+    vars: [
+      {
+        key: "idhm",
+        label: "IDHM",
+        disabled: true,
+        note: "IDHM (Atlas Brasil/PNUD, Censo 2010 — última versão municipal). Por município, na visão estadual.",
+      },
+      {
+        key: "ideb_anos_iniciais",
+        label: "IDEB (iniciais)",
+        disabled: true,
+        note: "IDEB anos iniciais (INEP 2023, rede pública). Por município, na visão estadual.",
+      },
+      {
+        key: "ideb_anos_finais",
+        label: "IDEB (finais)",
+        disabled: true,
+        note: "IDEB anos finais (INEP 2023, rede pública). Por município, na visão estadual.",
+      },
+    ],
+  },
+  {
+    key: "saneamento",
+    label: "Saneamento",
+    vars: [
+      {
+        key: "pct_esgoto_adequado",
+        label: "Esgoto adequado",
+        disabled: true,
+        note: "% de domicílios com esgoto adequado (Censo 2022). Por município, na visão estadual.",
+      },
+      {
+        key: "pct_agua_rede",
+        label: "Água por rede",
+        disabled: true,
+        note: "% de domicílios com água da rede geral (Censo 2022). Por município, na visão estadual.",
+      },
+      {
+        key: "pct_lixo_coletado",
+        label: "Lixo coletado",
+        disabled: true,
+        note: "% de domicílios com lixo coletado (Censo 2022). Por município, na visão estadual.",
       },
     ],
   },
@@ -254,9 +308,9 @@ export default function CensoPage() {
   function openMunicipio(props: Record<string, number | string | null>) {
     setMuniProps(props);
     setView("municipio");
-    // renda/Bolsa Família/CadÚnico só existem por município; ao entrar no setor
-    // volta pra população.
-    if (["renda_media", "pct_bolsa_familia", "pct_cadunico"].includes(indicator)) {
+    // indicadores só-município (renda, PIB, social, IDHM, IDEB, saneamento):
+    // ao entrar no setor volta pra população.
+    if (muniOnly.includes(indicator)) {
       setIndicator("populacao"); setSelectedDict("dominios");
     }
     setSel(null);
@@ -396,12 +450,20 @@ export default function CensoPage() {
   const stateIndicators = [
     ...INDICATORS.filter((i) => i.key !== "densidade_hab_km2"),
     { key: "renda_media" as CensusIndicator, label: "Renda média" },
+    { key: "pib_per_capita" as CensusIndicator, label: "PIB per capita" },
     { key: "pct_bolsa_familia" as CensusIndicator, label: "Bolsa Família" },
     { key: "pct_cadunico" as CensusIndicator, label: "CadÚnico" },
+    { key: "idhm" as CensusIndicator, label: "IDHM" },
+    { key: "ideb_anos_iniciais" as CensusIndicator, label: "IDEB" },
+    { key: "pct_esgoto_adequado" as CensusIndicator, label: "Esgoto" },
   ];
   // Indicadores que só existem por MUNICÍPIO (não por setor) — ao entrar no
   // município (drill pra setor) caem pra população.
-  const muniOnly = ["renda_media", "pct_bolsa_familia", "pct_cadunico"];
+  const muniOnly = [
+    "renda_media", "pib_per_capita", "pct_bolsa_familia", "pct_cadunico",
+    "idhm", "ideb_anos_iniciais", "ideb_anos_finais",
+    "pct_esgoto_adequado", "pct_agua_rede", "pct_lixo_coletado",
+  ];
   const mapIndicator: CensusIndicator =
     view === "estado" && indicator === "densidade_hab_km2" ? "populacao"
       : view === "municipio" && muniOnly.includes(indicator) ? "populacao"
@@ -592,7 +654,9 @@ export default function CensoPage() {
     const cols = ["cd_mun", "nm_mun", "populacao", "domicilios", "setores",
       "media_moradores", "taxa_alfabetizacao", "pct_pretos_pardos", "pct_urbana",
       "renda_media", "renda_mediana", "pct_bolsa_familia", "pct_cadunico",
-      "cadunico_familias", "pbf_familias"];
+      "cadunico_familias", "pbf_familias", "pib_per_capita", "idhm",
+      "ideb_anos_iniciais", "ideb_anos_finais", "pct_esgoto_adequado",
+      "pct_agua_rede", "pct_lixo_coletado"];
     const lines = [cols.join(";")];
     for (const f of [...ufGeo.features].sort((a, b) =>
       String(a.properties.nm_mun).localeCompare(String(b.properties.nm_mun)))) {
@@ -1232,6 +1296,13 @@ export default function CensoPage() {
               ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
               ["Bolsa Família (% domicílios)", fa.pct_bolsa_familia as number | null, fb.pct_bolsa_familia as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["CadÚnico (% domicílios)", fa.pct_cadunico as number | null, fb.pct_cadunico as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["PIB per capita (R$)", fa.pib_per_capita as number | null, fb.pib_per_capita as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+              ["IDHM (2010)", fa.idhm as number | null, fb.idhm as number | null, (v) => v.toFixed(3).replace(".", ",")],
+              ["IDEB anos iniciais (2023)", fa.ideb_anos_iniciais as number | null, fb.ideb_anos_iniciais as number | null, (v) => v.toFixed(1).replace(".", ",")],
+              ["IDEB anos finais (2023)", fa.ideb_anos_finais as number | null, fb.ideb_anos_finais as number | null, (v) => v.toFixed(1).replace(".", ",")],
+              ["Esgoto adequado (% domic.)", fa.pct_esgoto_adequado as number | null, fb.pct_esgoto_adequado as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Água por rede (% domic.)", fa.pct_agua_rede as number | null, fb.pct_agua_rede as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Lixo coletado (% domic.)", fa.pct_lixo_coletado as number | null, fb.pct_lixo_coletado as number | null, (v) => `${String(v).replace(".", ",")}%`],
             ];
             return (
               <div className="mt-4 overflow-x-auto mn-fade-in">
