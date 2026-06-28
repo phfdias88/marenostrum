@@ -895,11 +895,18 @@ def candidate_ai_territory(
     candidate_id: UUID,
     adversary_id: UUID,
     ctx: CurrentTenant,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> AiTerritoryReport:
     from app.utils.campaign_territory import generate_territory
     from app.utils.ai_report import AiReportError
 
+    # CRÍTICO multi-tenant: esta resposta cruza os CONTATOS PRIVADOS do tenant.
+    # Está sob /tse/ (que o nginx cacheia por URL, sem distinguir tenant) — então
+    # PRECISA de no-store senão o nginx serviria o território de um tenant pra
+    # outro que analise o mesmo candidato×adversário. O cache real é o backend
+    # (ai_territory, escopado por tenant).
+    response.headers["Cache-Control"] = "no-store"
     try:
         report = generate_territory(db, ctx.tenant_id, candidate_id, adversary_id)
     except AiReportError as e:
