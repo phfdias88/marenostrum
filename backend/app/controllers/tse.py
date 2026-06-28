@@ -458,7 +458,17 @@ def list_candidates(
         # quantas candidaturas a pessoa tem. Sem CPF no TSE, homônimos da MESMA
         # UF ainda podem fundir (raro) — o detalhe/trajetória mostra tudo.
         el_a = aliased(Election)
-        filtered = stmt.subquery()
+        # A janela (ROW_NUMBER/COUNT por pessoa) computa f_unaccent por linha. Sobre
+        # um termo comum como "silva" (~77k candidaturas) isso levava ~35s. Limitamos
+        # a janela aos MAIS VOTADOS (a lista final é ordenada por votos desc, então a
+        # cabeça é exata); só candidaturas de baixíssima votação — que ninguém
+        # pagina — ficam de fora. Em filtros estreitos (ex: Prefeito+RJ) é no-op.
+        GROUP_CAP = 6000
+        filtered = (
+            stmt.order_by(Candidate.total_votes.desc().nulls_last())
+            .limit(GROUP_CAP)
+            .subquery()
+        )
         cand = aliased(Candidate, filtered)
         # Chave da PESSOA. Preferência: CPF (ID único entre eleições/cargos/UFs
         # — unifica Bolsonaro, Dilma presidente+senadora, etc.). Fallback p/ quem
