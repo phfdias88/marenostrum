@@ -384,32 +384,35 @@ def list_candidates(
         # Sem (2) ILIKE sozinha = falsos positivos "celular" pra busca "lula".
         raw = search.strip().lower()
         import re as _re
-        esc = _re.escape(raw)
+        import unicodedata as _ud
+        # Tira acento em PYTHON pra casar com as colunas materializadas
+        # name_unaccent/urn_unaccent (= lower(f_unaccent(...))). Antes a busca
+        # fazia f_unaccent(name) ILIKE ... e o recheck do índice GIN recomputava
+        # unaccent por linha: ~16s pra "silva" (86k matches). Agora bate a coluna.
+        raw_u = "".join(c for c in _ud.normalize("NFKD", raw) if not _ud.combining(c))
+        esc = _re.escape(raw_u)
         pattern = f"\\m{esc}"
-        ilike_pat = f"%{raw}%"
+        ilike_pat = f"%{raw_u}%"
         stmt = stmt.where(
-            # Filtro trigram (usa indice)
+            # Filtro trigram (usa o índice GIN da coluna materializada)
             (
-                func.f_unaccent(Candidate.name).ilike(func.f_unaccent(ilike_pat))
-                | func.f_unaccent(Candidate.urn_name).ilike(func.f_unaccent(ilike_pat))
+                Candidate.name_unaccent.ilike(ilike_pat)
+                | Candidate.urn_unaccent.ilike(ilike_pat)
             )
-            # Filtro word-boundary (preciso)
+            # Filtro word-boundary (preciso) — roda só no subset já filtrado
             & (
-                func.f_unaccent(Candidate.name).op("~*")(func.f_unaccent(pattern))
-                | func.f_unaccent(Candidate.urn_name).op("~*")(func.f_unaccent(pattern))
+                Candidate.name_unaccent.op("~*")(pattern)
+                | Candidate.urn_unaccent.op("~*")(pattern)
             )
         )
         # RELEVÂNCIA: nome de urna exato > prefixo > palavra na urna > só no
         # nome civil. Desempata por cargo (presidente>...>vereador) e eleito,
-        # pra que o candidato "famoso" daquele sobrenome apareça no topo —
-        # senão a ordenação alfabética enterrava (ex: MARCELO CRIVELLA atrás
-        # de ADRIANA CRIVELLA).
-        _urn_n = func.lower(func.f_unaccent(Candidate.urn_name))
-        _raw_n = func.f_unaccent(raw)
+        # pra que o candidato "famoso" daquele sobrenome apareça no topo.
+        _urn_n = Candidate.urn_unaccent
         _relevance = case(
-            (_urn_n == _raw_n, 0),
-            (_urn_n.like(func.concat(_raw_n, "%")), 1),
-            (func.f_unaccent(Candidate.urn_name).op("~*")(func.f_unaccent(pattern)), 2),
+            (_urn_n == raw_u, 0),
+            (_urn_n.like(raw_u + "%"), 1),
+            (Candidate.urn_unaccent.op("~*")(pattern), 2),
             else_=3,
         )
         _office_rank = case(
@@ -458,24 +461,17 @@ def list_candidates(
         # quantas candidaturas a pessoa tem. Sem CPF no TSE, homônimos da MESMA
         # UF ainda podem fundir (raro) — o detalhe/trajetória mostra tudo.
         el_a = aliased(Election)
-        # A janela (ROW_NUMBER/COUNT por pessoa) computa f_unaccent por linha. Sobre
-        # um termo comum como "silva" (~77k candidaturas) isso levava ~35s. Limitamos
-        # a janela aos MAIS VOTADOS (a lista final é ordenada por votos desc, então a
-        # cabeça é exata); só candidaturas de baixíssima votação — que ninguém
-        # pagina — ficam de fora. Em filtros estreitos (ex: Prefeito+RJ) é no-op.
-        GROUP_CAP = 6000
-        filtered = (
-            stmt.order_by(Candidate.total_votes.desc().nulls_last())
-            .limit(GROUP_CAP)
-            .subquery()
-        )
+        filtered = stmt.subquery()
         cand = aliased(Candidate, filtered)
         # Chave da PESSOA. Preferência: CPF (ID único entre eleições/cargos/UFs
         # — unifica Bolsonaro, Dilma presidente+senadora, etc.). Fallback p/ quem
         # ainda não tem CPF importado: nome civil + UF, com presidente (cargo 1)
         # num bucket "BR" (o TSE traz UF inconsistente p/ cargo nacional).
         state_key = case((cand.office_code == 1, "BR"), else_=cand.state)
-        name_key = func.concat(func.lower(func.f_unaccent(cand.name)), "|", state_key)
+        # name_unaccent já é lower(f_unaccent(name)) materializado — sem recomputar.
+        name_key = func.concat(
+            func.coalesce(cand.name_unaccent, func.lower(cand.name)), "|", state_key,
+        )
         person_key = func.coalesce(func.nullif(cand.cpf, ""), name_key)
         part = (person_key,)
         ranked = (

@@ -26,6 +26,12 @@ class Candidate(Base, TimestampMixin):
     # Nome de urna (NM_URNA_CANDIDATO): "Lula", "Adriana K"
     urn_name: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
 
+    # Nome/urna SEM acento e minúsculo, MATERIALIZADO (migration 048 + trigger).
+    # A busca usa estes campos (índice GIN trgm) em vez de f_unaccent(name) em query
+    # — recomputar unaccent 86k vezes no recheck do índice levava ~16s pra "silva".
+    name_unaccent: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    urn_unaccent: Mapped[str | None] = mapped_column(String(180), nullable=True)
+
     party_id: Mapped[UUID] = mapped_column(
         ForeignKey("tse_parties.id", ondelete="RESTRICT"),
         nullable=False,
