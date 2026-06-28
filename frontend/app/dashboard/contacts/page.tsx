@@ -133,7 +133,7 @@ export default function ContactsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Contatos</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            CRM da campanha — eleitores, lideranças, apoiadores e doadores.
+            CRM da campanha: eleitores, lideranças, apoiadores e doadores.
           </p>
         </div>
         <div className="flex items-center gap-2">

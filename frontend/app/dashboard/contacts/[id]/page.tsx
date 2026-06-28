@@ -167,7 +167,7 @@ export default function ContactDetailPage() {
                     value={
                       [contact.cep, contact.address, contact.neighborhood]
                         .filter(Boolean)
-                        .join(" — ") || "—"
+                        .join(" · ") || "—"
                     }
                   />
                 )}
@@ -229,7 +229,7 @@ export default function ContactDetailPage() {
           {!loadingTimeline && interactions.length === 0 ? (
             <div className="text-center py-12 border border-dashed rounded-lg">
               <p className="text-sm text-muted-foreground">
-                Sem mensagens ainda — aparecem aqui quando o contato interage
+                Sem mensagens ainda. Aparecem aqui quando o contato interage
                 pelo WhatsApp.
               </p>
             </div>

@@ -172,7 +172,7 @@ export default function EleicaoAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise de Eleição</h1>
           <p className="text-sm text-muted-foreground">
-            Resultado por cidade e cargo — eleições de 2014 a 2024.
+            Resultado por cidade e cargo · eleições de 2014 a 2024.
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Filtro ativo: {year} · {officeOptions.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Todas as UFs"}

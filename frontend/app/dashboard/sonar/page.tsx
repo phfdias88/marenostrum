@@ -14,7 +14,7 @@ export default function SonarPage() {
     return (
       <div className="h-[calc(100vh-3.5rem)] w-full grid place-items-center bg-muted/20 px-6">
         <p className="max-w-md text-center text-sm text-muted-foreground">
-          Integração de atendimentos ainda não configurada — fale com o suporte.
+          Integração de atendimentos ainda não configurada. Fale com o suporte.
         </p>
       </div>
     );

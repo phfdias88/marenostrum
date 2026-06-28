@@ -211,7 +211,7 @@ export default function CandidatoAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise de Candidato</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Busque qualquer candidato registrado no TSE — candidaturas de 2002 a 2024.
+          Busque qualquer candidato registrado no TSE: candidaturas de 2002 a 2024.
         </p>
       </header>
 
@@ -417,7 +417,7 @@ export default function CandidatoAnalysisPage() {
                   {c.candidacy_count != null && c.candidacy_count > 1 && (
                     <span
                       className="inline-block mt-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-medium"
-                      title={`Concorreu em ${c.candidacy_count} eleições — clique para ver a trajetória`}
+                      title={`Concorreu em ${c.candidacy_count} eleições; clique para ver a trajetória`}
                     >
                       {c.candidacy_count} candidaturas
                     </span>

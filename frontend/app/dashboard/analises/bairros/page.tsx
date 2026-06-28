@@ -78,7 +78,7 @@ export default function BairrosPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise por Bairro</h1>
           <p className="text-sm text-muted-foreground">
-            Votos de um candidato distribuídos por bairro da cidade — eleição
+            Votos de um candidato distribuídos por bairro da cidade · eleição
             municipal de 2024 (TSE).
           </p>
         </div>
@@ -448,7 +448,7 @@ function NeighborhoodResult({
               A análise <strong>por bairro</strong> existe apenas para a eleição
               <strong> municipal de 2024</strong> (Prefeito/Vereador). Para os
               cargos de 2022 (Presidente, Governador, etc.) o TSE só publica
-              votação até o nível de <strong>município</strong> — use o botão
+              votação até o nível de <strong>município</strong>. Use o botão
               “Ver no mapa” na Análise de Candidato.
             </p>
           ) : (

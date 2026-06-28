@@ -253,7 +253,7 @@ export default function DashboardPage() {
           />
           <QuickAction
             title="Contatos"
-            description="Abra a lista de contatos — lá você importa uma planilha (CSV) ou cadastra um a um."
+            description="Abra a lista de contatos. Lá você importa uma planilha (CSV) ou cadastra um a um."
             icon={Upload}
             href="/dashboard/contacts"
           />

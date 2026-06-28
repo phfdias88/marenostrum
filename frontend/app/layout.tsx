@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 import "./globals.css";
 
 const _SITE_NAME = "MareNostrum";
-const _TITLE = "MareNostrum — Inteligência política e eleitoral";
+const _TITLE = "MareNostrum · Inteligência política e eleitoral";
 const _DESC =
   "Gestão de campanhas, CRM eleitoral e inteligência de dados eleitorais.";
 
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
         url: "/logo-wordmark.png",
         width: 1200,
         height: 208,
-        alt: "MareNostrum — Inteligência de Dados & Consultoria",
+        alt: "MareNostrum · Inteligência de Dados & Consultoria",
       },
     ],
   },

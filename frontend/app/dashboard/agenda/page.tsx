@@ -248,7 +248,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <p className="mt-3 font-semibold">Agenda vazia</p>
       <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
         Cadastre compromissos com local e horário pra organizar visitas,
-        reuniões e eventos — com link direto pro mapa.
+        reuniões e eventos, com link direto pro mapa.
       </p>
       <button
         onClick={onAdd}

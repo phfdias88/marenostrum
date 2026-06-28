@@ -126,13 +126,13 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/municipios",
     label: "Municípios",
     icon: MapPin,
-    description: "Top candidatos por cidade — busque qualquer município do Brasil.",
+    description: "Top candidatos por cidade · busque qualquer município do Brasil.",
   },
   {
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
-    description: "Eleições de 2002 a 2024 — municipais e gerais (presidente, governador, deputados).",
+    description: "Eleições de 2002 a 2024 (municipais e gerais): presidente, governador, deputados.",
   },
   {
     href: "/dashboard/analises/comparar",
@@ -163,7 +163,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/zona",
     label: "Zona eleitoral",
     icon: Compass,
-    description: "Top candidatos por zona numa cidade — votos e % por zona.",
+    description: "Top candidatos por zona numa cidade · votos e % por zona.",
   },
   {
     href: "/dashboard/analises/projecao",
@@ -217,7 +217,7 @@ export default function AnalisesHubPage() {
         { method: "POST" },
       );
       toast.success(
-        `Sincronização iniciada (job ${res.id.slice(0, 8)}…) — leva ~10min.`,
+        `Sincronização iniciada (job ${res.id.slice(0, 8)}…). Leva ~10min.`,
       );
       // refresh stats periodicamente
       const refresh = async () => {
@@ -254,7 +254,7 @@ export default function AnalisesHubPage() {
           </p>
           <h1 className="text-3xl font-bold mt-1">Análises (TSE)</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
-            Brasil inteiro — candidaturas de 2002 a 2024; resultados detalhados por cidade de 2014 a 2024.
+            Brasil inteiro: candidaturas de 2002 a 2024; resultados detalhados por cidade de 2014 a 2024.
           </p>
         </div>
 

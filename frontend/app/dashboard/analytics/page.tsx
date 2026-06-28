@@ -175,7 +175,7 @@ export default function PainelPage() {
         <div className="lg:col-span-2">
           <SectionTitle
             icon={Vote}
-            title="Votos nominais por partido — prefeito (2024)"
+            title="Votos nominais por partido · prefeito (2024)"
             hint={VOTOS_NOMINAIS_HINT}
           />
           <PartyVotesChart data={perf} />

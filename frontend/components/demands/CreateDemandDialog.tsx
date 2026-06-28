@@ -146,7 +146,7 @@ export function CreateDemandDialog({
                 {contacts.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.full_name}
-                    {c.phone ? ` — ${c.phone}` : ""}
+                    {c.phone ? ` · ${c.phone}` : ""}
                   </option>
                 ))}
               </select>

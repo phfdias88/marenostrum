@@ -77,7 +77,7 @@ export default function MunicipiosAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise por Município</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Top candidatos por cidade — busque qualquer município do Brasil.
+          Top candidatos por cidade · busque qualquer município do Brasil.
         </p>
       </header>
 

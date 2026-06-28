@@ -319,7 +319,7 @@ export function AddressFields({
         {noRealBairros && !value.neighborhood.trim() && (
           <p className="mt-1 text-xs text-muted-foreground flex items-center gap-1">
             <MapPin className="w-3 h-3" />
-            Este município não tem bairros na base do IBGE — digite o nome e
+            Este município não tem bairros na base do IBGE. Digite o nome e
             marque a localização no mapa.
           </p>
         )}
@@ -343,7 +343,7 @@ export function AddressFields({
         {needsCoord && (
           <p className="mt-1 text-xs text-amber-500 flex items-center gap-1">
             <MapPin className="w-3 h-3" />
-            Bairro fora da base — marque a localização no mapa abaixo
+            Bairro fora da base: marque a localização no mapa abaixo
             (obrigatório).
           </p>
         )}
@@ -360,7 +360,7 @@ export function AddressFields({
               </span>
             ) : (
               <span className="text-amber-500 font-normal">
-                — clique pra marcar
+                clique pra marcar
               </span>
             )}
           </Label>

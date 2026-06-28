@@ -114,7 +114,7 @@ export default function CompararPartidosPage() {
       <header className="mb-5">
         <h1 className="text-2xl font-bold">Comparar partidos</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Até {MAX} partidos lado a lado — eleitos, votos e candidatos por cargo.
+          Até {MAX} partidos lado a lado: eleitos, votos e candidatos por cargo.
         </p>
       </header>
 

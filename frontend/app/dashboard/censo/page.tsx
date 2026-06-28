@@ -725,11 +725,11 @@ export default function CensoPage() {
             <p className="text-[11px] uppercase tracking-wider text-primary mb-0.5">
               Inteligência Censitária e Socioeconômica · IBGE, INEP, PNUD e MDS
             </p>
-            <h1 className="text-2xl font-bold leading-tight">Dados do Censo — {UF_NOMES[uf] ?? uf}</h1>
+            <h1 className="text-2xl font-bold leading-tight">Dados do Censo · {UF_NOMES[uf] ?? uf}</h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
               {view === "estado" ? (
                 <>Clique num município para abrir os setores censitários (a menor unidade do IBGE).
-                Cobertura 100% via distrito — nem todo município tem bairro, mas todos têm distrito.</>
+                Cobertura 100% via distrito: nem todo município tem bairro, mas todos têm distrito.</>
               ) : (
                 <>Setores censitários com drill-down por distrito e bairro. Clique num setor para os dados.</>
               )}
@@ -1025,7 +1025,7 @@ export default function CensoPage() {
               </p>
               {view === "municipio" && Number(muniProps?.setores ?? 0) > 5000 && (
                 <p className="text-[11px] opacity-70">
-                  Cidade grande — pode levar alguns segundos no primeiro carregamento.
+                  Cidade grande: pode levar alguns segundos no primeiro carregamento.
                 </p>
               )}
             </div>
@@ -1192,7 +1192,7 @@ export default function CensoPage() {
 
               {Number(sel.populacao ?? 0) === 0 && (
                 <p className="mt-2 text-[11px] text-muted-foreground bg-muted/40 rounded-md px-2 py-1.5">
-                  Setor sem população residente — costuma ser área não residencial
+                  Setor sem população residente: costuma ser área não residencial
                   (parque, indústria, área militar, porto etc.).
                 </p>
               )}
@@ -1317,7 +1317,7 @@ export default function CensoPage() {
               ["Setores censitários", Number(fa.setores ?? 0), Number(fb.setores ?? 0), (v) => numberFmt.format(v)],
               ["Moradores/domicílio", fa.media_moradores as number | null, fb.media_moradores as number | null, (v) => String(v).replace(".", ",")],
               ["Alfabetização 15+ (%)", fa.taxa_alfabetizacao as number | null, fb.taxa_alfabetizacao as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça — pretos e pardos (%)", fa.pct_pretos_pardos as number | null, fb.pct_pretos_pardos as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Cor ou raça · pretos e pardos (%)", fa.pct_pretos_pardos as number | null, fb.pct_pretos_pardos as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
               ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
@@ -1355,7 +1355,7 @@ export default function CensoPage() {
                     })}
                   </tbody>
                 </table>
-                <p className="text-[11px] text-muted-foreground mt-2">Em dourado: o maior valor de cada linha. Fontes — População e perfil: Censo IBGE 2022 · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) · IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.</p>
+                <p className="text-[11px] text-muted-foreground mt-2">Em dourado: o maior valor de cada linha. Fontes · População e perfil: Censo IBGE 2022 · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) · IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.</p>
               </div>
             );
           })()}
@@ -1413,7 +1413,7 @@ export default function CensoPage() {
                 )}
               </div>
               <p className="md:col-span-2 text-[11px] text-muted-foreground border-t border-border pt-2">
-                Gerado pela Maré IA a partir de dados do IBGE, INEP, PNUD e MDS. Use como apoio à decisão — valide no território.
+                Gerado pela Maré IA a partir de dados do IBGE, INEP, PNUD e MDS. Use como apoio à decisão e valide no território.
               </p>
             </div>
           )}

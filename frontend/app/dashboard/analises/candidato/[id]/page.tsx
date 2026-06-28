@@ -594,7 +594,7 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
       </div>
       <p className="text-[11px] text-muted-foreground mt-1.5">
         Gerado pela <span className="font-semibold text-foreground">Maré IA</span> a partir dos
-        dados reais do TSE. Use como apoio à decisão — valide com sua equipe.
+        dados reais do TSE. Use como apoio à decisão. Valide com sua equipe.
       </p>
     </div>
   );
@@ -822,7 +822,7 @@ function BairroComparison({
       ]);
       if (!ra.items.length || !rb.items.length) {
         setMsg(
-          "A comparação por bairro só funciona quando os DOIS são de eleições municipais de 2024 (vereador/prefeito) — é o único recorte com voto por bairro.",
+          "A comparação por bairro só funciona quando os DOIS são de eleições municipais de 2024 (vereador/prefeito). É o único recorte com voto por bairro.",
         );
         return;
       }
@@ -879,7 +879,7 @@ function BairroComparison({
         <>
           <p className="text-[11px] text-muted-foreground mb-2">
             Compara a votação dos dois, bairro a bairro. Só vale para a eleição municipal de 2024
-            (vereador/prefeito) — é o único pleito com voto por bairro.
+            (vereador/prefeito). É o único pleito com voto por bairro.
           </p>
           <button
             onClick={load}
@@ -1001,7 +1001,7 @@ function TerritorySection({
         <>
           <p className="text-[11px] text-muted-foreground mb-2">
             Cruza os <strong>contatos cadastrados pela sua campanha</strong> com o
-            eleitorado e os votos do adversário, por município e bairro — e aponta
+            eleitorado e os votos do adversário, por município e bairro, e aponta
             onde você já tem base e onde falta cadastrar. (Análise privada da sua
             campanha.)
           </p>
@@ -1359,7 +1359,7 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
           </p>
           <p
             className="text-[11px] text-muted-foreground inline-flex items-center justify-center gap-1 cursor-help"
-            title="Soma do eleitorado dos municípios onde você teve pelo menos 1 voto — é o seu ALCANCE territorial, NÃO os votos conquistados."
+            title="Soma do eleitorado dos municípios onde você teve pelo menos 1 voto. É o seu ALCANCE territorial, NÃO os votos conquistados."
           >
             Eleitorado nos seus municípios <Info className="w-3 h-3" />
           </p>
@@ -1425,7 +1425,7 @@ function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunity
         {data.strongholds.length > 0 && (
           <div className="rounded-lg border bg-card overflow-hidden">
             <p className="px-3 py-2 text-xs font-semibold bg-primary/10 text-primary border-b border-border">
-              ★ Seus redutos (maior penetração — consolidar)
+              ★ Seus redutos (maior penetração · consolidar)
             </p>
             <ul className="divide-y divide-border">
               {data.strongholds.map((s) => (
@@ -1528,7 +1528,7 @@ function TrajectorySection({
         })}
       </ol>
       <p className="text-[11px] text-muted-foreground mt-1.5">
-        Todas as candidaturas da mesma pessoa — clique num ano para abrir.
+        Todas as candidaturas da mesma pessoa. Clique num ano para abrir.
       </p>
     </div>
   );

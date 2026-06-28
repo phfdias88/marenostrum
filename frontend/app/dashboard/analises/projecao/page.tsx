@@ -248,7 +248,7 @@ export default function ProjecaoPage() {
             title="Método: Quociente Eleitoral + D'Hondt (maiores médias)."
           >
             Simule quantas cadeiras cada partido elegeria (vereador/deputado) com
-            base no resultado da última eleição — modo &ldquo;e se&rdquo; pra
+            base no resultado da última eleição. Modo &ldquo;e se&rdquo; pra
             editar votos.
           </p>
         </div>
@@ -535,7 +535,7 @@ export default function ProjecaoPage() {
             <div>
               <p className="font-semibold">Simulação técnica baseada em dados históricos</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Esta projeção aplica as regras vigentes (Quociente Eleitoral + D'Hondt + lei das sobras 14.211/2021) sobre o resultado real da última eleição na cidade selecionada. O partido só elege se atingir o Quociente Eleitoral (Código Eleitoral, art. 109). <strong>Não prevê o futuro</strong> — serve pra entender como o sistema distribui cadeiras dado um cenário de votos. Use o modo "editar votos" pra explorar cenários hipotéticos.
+                Esta projeção aplica as regras vigentes (Quociente Eleitoral + D'Hondt + lei das sobras 14.211/2021) sobre o resultado real da última eleição na cidade selecionada. O partido só elege se atingir o Quociente Eleitoral (Código Eleitoral, art. 109). <strong>Não prevê o futuro</strong>: serve pra entender como o sistema distribui cadeiras dado um cenário de votos. Use o modo "editar votos" pra explorar cenários hipotéticos.
               </p>
             </div>
           </div>

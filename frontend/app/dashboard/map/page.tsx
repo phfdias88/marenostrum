@@ -208,7 +208,7 @@ export default function MapPage() {
           metricLabel="demandas"
           loading={loading}
           accent="from-sky-300 via-sky-400 to-sky-600"
-          emptyHint="Nenhuma demanda cadastrada ainda — registre demandas nos contatos pra vê-las aqui."
+          emptyHint="Nenhuma demanda cadastrada ainda. Registre demandas nos contatos pra vê-las aqui."
         />
       </aside>
     </div>

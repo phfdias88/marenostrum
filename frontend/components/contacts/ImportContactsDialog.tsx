@@ -98,8 +98,8 @@ export function ImportContactsDialog({ onImported, children }: Props) {
         <DialogHeader>
           <DialogTitle>Importar contatos via CSV</DialogTitle>
           <DialogDescription>
-            Envie um arquivo .csv com seus contatos. Geocodificação acontecerá
-            depois — esta importação é apenas de cadastro.
+            Envie um arquivo .csv com seus contatos. A geocodificação acontece
+            depois: esta importação é apenas de cadastro.
           </DialogDescription>
         </DialogHeader>
 
@@ -141,7 +141,7 @@ export function ImportContactsDialog({ onImported, children }: Props) {
             />
             {file && (
               <p className="mt-1 text-xs text-muted-foreground">
-                {file.name} — {(file.size / 1024).toFixed(1)} KB
+                {file.name} · {(file.size / 1024).toFixed(1)} KB
               </p>
             )}
           </label>

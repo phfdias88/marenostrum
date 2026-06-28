@@ -276,7 +276,7 @@ function BairroView({
               O recorte por bairro usa os dados de votação por seção, que hoje
               só estão disponíveis para as <strong>eleições municipais de
               2024</strong> (prefeito e vereador). Este candidato concorreu em{" "}
-              <strong>{year}</strong>, então não há votação por bairro — apenas
+              <strong>{year}</strong>, então não há votação por bairro, apenas
               por município.
             </p>
           ) : (

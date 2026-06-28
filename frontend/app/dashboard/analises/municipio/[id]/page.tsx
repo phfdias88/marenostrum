@@ -259,7 +259,7 @@ export default function MunicipioDetailPage() {
         {/* Top candidatos */}
         <div className="mt-6">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" /> Mais votados aqui — {data?.office_name ?? "cargo"}
+            <Users className="w-3.5 h-3.5" /> Mais votados aqui · {data?.office_name ?? "cargo"}
           </p>
           {loading ? (
             <CandidateListSkeleton rows={6} />

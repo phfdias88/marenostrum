@@ -65,7 +65,7 @@ export default function ZonaAnalysisPage() {
             Zona eleitoral
           </h1>
           <p className="text-sm text-muted-foreground">
-            Candidatos mais votados em cada zona de uma cidade — eleição municipal
+            Candidatos mais votados em cada zona de uma cidade · eleição municipal
             de 2024.
           </p>
         </div>

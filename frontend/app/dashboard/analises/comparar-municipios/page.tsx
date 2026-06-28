@@ -100,7 +100,7 @@ export default function CompararMunicipiosPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Comparar municípios</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Eleição municipal de 2024 (Prefeito/Vereador) — até {MAX} cidades lado a
+          Eleição municipal de 2024 (Prefeito/Vereador). Até {MAX} cidades lado a
           lado: prefeito eleito, votos e participação.
         </p>
       </header>

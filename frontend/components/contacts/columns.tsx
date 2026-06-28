@@ -65,7 +65,7 @@ export function makeContactColumns({
           row.original.neighborhood,
           row.original.city,
         ].filter(Boolean);
-        return parts.length ? parts.join(" — ") : "—";
+        return parts.length ? parts.join(" · ") : "—";
       },
     },
     {

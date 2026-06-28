@@ -75,7 +75,7 @@ export default function TemplatesPage() {
               {v}
             </code>
           ))}{" "}
-          — são preenchidas com os dados do contato no envio.
+          : são preenchidas com os dados do contato no envio.
         </p>
       </header>
 

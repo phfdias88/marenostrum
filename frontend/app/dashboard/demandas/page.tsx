@@ -115,7 +115,7 @@ export default function DemandasPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Demandas</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Pedidos da população — acompanhamento do gabinete.
+            Pedidos da população: acompanhamento do gabinete.
           </p>
         </div>
         <CreateDemandDialog onSaved={refresh}>
@@ -168,7 +168,7 @@ export default function DemandasPage() {
             <AlertDialogTitle>Excluir demanda?</AlertDialogTitle>
             <AlertDialogDescription>
               <strong className="text-foreground">{deleting?.title}</strong> será
-              removida permanentemente — esta ação não pode ser desfeita. Se quiser
+              removida permanentemente. Esta ação não pode ser desfeita. Se quiser
               manter o histórico, em vez de excluir mude o status para{" "}
               <em>Cancelada</em>.
             </AlertDialogDescription>

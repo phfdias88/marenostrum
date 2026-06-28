@@ -178,7 +178,7 @@ function AuditCard({ superadmin = false }: { superadmin?: boolean }) {
         </span>
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        Quem cadastrou, editou ou excluiu o quê — pra rastrear qualquer alteração
+        Quem cadastrou, editou ou excluiu o quê, pra rastrear qualquer alteração
         na campanha.
       </p>
 
@@ -212,7 +212,7 @@ function AuditCard({ superadmin = false }: { superadmin?: boolean }) {
             </button>
             <button
               onClick={() => setScope("all")}
-              title="Mare Nostrum — auditoria de todas as campanhas"
+              title="Mare Nostrum · auditoria de todas as campanhas"
               className={`px-2.5 py-1.5 border-l border-border inline-flex items-center gap-1 ${scope === "all" ? "bg-primary/10 text-primary font-semibold" : "bg-background hover:bg-accent/40"}`}
             >
               <ShieldCheck className="w-3.5 h-3.5" /> Todas
@@ -391,7 +391,7 @@ function TeamCard({ isOwner, meId }: { isOwner: boolean; meId: string }) {
             <p className="text-xs text-muted-foreground">
               {isOwner
                 ? "Crie contas pra coordenadores, equipe e lideranças."
-                : "Crie logins de liderança — acesso só ao formulário de cadastro."}
+                : "Crie logins de liderança: acesso só ao formulário de cadastro."}
             </p>
           </div>
         </div>
@@ -538,12 +538,12 @@ function InviteForm({
           >
             <option value="manager">Coordenador (acesso amplo)</option>
             <option value="staff">Equipe (padrão)</option>
-            <option value="volunteer">Liderança — só o formulário de cadastro</option>
+            <option value="volunteer">Liderança · só o formulário de cadastro</option>
           </select>
         ) : (
           // Coordenador/Equipe só criam liderança — papel fixo, sem escolha.
           <p className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border text-sm text-muted-foreground">
-            Liderança — acesso só ao formulário de cadastro
+            Liderança · acesso só ao formulário de cadastro
           </p>
         )}
       </div>
@@ -604,7 +604,7 @@ function TempPasswordCard({
             <span>
               Login: <strong>{user.email}</strong>. Recomende usar 1Password,
               Bitwarden ou similar. Após fechar este aviso, não tem como
-              recuperar — só gerar nova.
+              recuperar, só gerar nova.
             </span>
           </div>
 
@@ -848,7 +848,7 @@ function UserRow({
                 key={area}
                 onClick={() => toggleArea(area, on, label)}
                 disabled={busy}
-                title={on ? `${label} liberado — clique para bloquear` : `Liberar ${label}`}
+                title={on ? `${label} liberado · clique para bloquear` : `Liberar ${label}`}
                 className={
                   "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] transition-colors disabled:opacity-50 " +
                   (on

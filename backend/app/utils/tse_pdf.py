@@ -139,7 +139,13 @@ def _styles() -> dict[str, ParagraphStyle]:
     s["section"] = ParagraphStyle(
         "section", parent=base["Heading2"], fontName="Helvetica-Bold",
         fontSize=9, leading=12, textColor=GOLD_DARK, spaceBefore=4,
-        spaceAfter=8,
+        spaceAfter=3,
+    )
+    # Legenda curta (uma linha) logo abaixo do kicker da secao, explicando em
+    # linguagem simples o que o cliente esta vendo ali.
+    s["section_cap"] = ParagraphStyle(
+        "section_cap", parent=base["BodyText"], fontName="Helvetica-Oblique",
+        fontSize=8.5, leading=11, textColor=MUTED, spaceBefore=0, spaceAfter=9,
     )
     s["h2"] = ParagraphStyle(
         "h2", parent=base["Heading2"], fontName="Helvetica-Bold",
@@ -203,6 +209,14 @@ def _result_color(status: str | None) -> colors.Color:
     if "NAO ELEITO" in up or "NÃO ELEITO" in up or "REJEIT" in up:
         return RED
     return MUTED
+
+
+def _section(flow: list, st: dict, title: str, caption: str | None = None) -> None:
+    """Kicker dourado da secao + (opcional) uma linha em PT-BR simples explicando
+    o que o cliente esta vendo ali. Centraliza o padrao das secoes do dossie."""
+    flow.append(Paragraph(title, st["section"]))
+    if caption:
+        flow.append(Paragraph(caption, st["section_cap"]))
 
 
 # -------------------------------------------------- bar flowable
@@ -457,7 +471,8 @@ def _append_neighborhoods_section(flow, st, neighborhoods) -> None:
         return
     muni = (nb.get("municipality") or {}).get("name") or ""
     flow.append(PageBreak())
-    flow.append(Paragraph("TERRITORIO: BAIRROS x CENSO (IBGE 2022)", st["section"]))
+    _section(flow, st, "TERRITÓRIO: BAIRROS x CENSO (IBGE 2022)",
+             "Cruza os votos por bairro com o perfil do Censo (renda, escolaridade) pra revelar oportunidades.")
     flow.append(Paragraph(
         f"Votação por bairro em <b>{muni}</b>, cruzada com a população residente "
         f"do Censo 2022. Penetração = votos ÷ eleitores aptos dos locais do bairro.",
@@ -518,7 +533,8 @@ def _append_intelligence_sections(
     if pv and pv.get("scope") and pv.get("scope") != "proporcional":
         flow.append(PageBreak())
         started = True
-        flow.append(Paragraph("CAMINHO DA VITORIA", st["section"]))
+        _section(flow, st, "CAMINHO DA VITÓRIA",
+                 "Quantos votos faltam pra vencer e em quais cidades buscá-los.")
         if pv.get("is_winner"):
             margin = pv.get("margin")
             txt = "Candidato eleito na disputa."
@@ -553,7 +569,8 @@ def _append_intelligence_sections(
     if opps or strong:
         flow.append(Spacer(1, 16) if started else PageBreak())
         started = True
-        flow.append(Paragraph("RADAR DE OPORTUNIDADES", st["section"]))
+        _section(flow, st, "RADAR DE OPORTUNIDADES",
+                 "Onde crescer e onde já é forte: cidades com muitos eleitores e poucos votos seus, e seus redutos.")
         flow.append(Paragraph(
             f'Eleitorado alcançado: {_fmt_int(op.get("total_electorate_reached"))} · '
             f'Penetração média: {op.get("avg_penetration_pct", 0):.1f}%',
@@ -589,7 +606,8 @@ def _append_intelligence_sections(
     if pf and pf.get("municipalities_covered", 0) > 0:
         flow.append(Spacer(1, 16) if started else PageBreak())
         started = True
-        flow.append(Paragraph("PERFIL DO TERRITORIO", st["section"]))
+        _section(flow, st, "PERFIL DO TERRITÓRIO",
+                 "Quem é o eleitorado da sua base: renda, idade e escolaridade dos seus municípios.")
         flow.append(Paragraph(
             f'De onde vem o voto — perfil do eleitorado ponderado pela votação, '
             f'frente à média de {pf.get("state","")}.',
@@ -629,7 +647,8 @@ def _append_intelligence_sections(
     if ai and ai.get("diagnostico"):
         flow.append(Spacer(1, 16) if started else PageBreak())
         started = True
-        flow.append(Paragraph("MARE IA · ESPECIALISTA EM VANTAGEM ELEITORAL", st["section"]))
+        _section(flow, st, "MARÉ IA · ESPECIALISTA EM VANTAGEM ELEITORAL",
+                 "Leitura estratégica gerada por inteligência artificial a partir dos dados deste dossiê.")
         score = ai.get("score_viabilidade")
         if score is not None:
             flow.append(Paragraph(
@@ -906,7 +925,8 @@ def build_candidate_dossier(
 
     # ============ PAG 3 — VISAO GERAL ============
     flow.append(Spacer(1, 0.2 * cm))
-    flow.append(Paragraph("VISAO GERAL", st["section"]))
+    _section(flow, st, "VISÃO GERAL",
+             "O resumo da votação: total de votos do candidato e em quantas cidades ele teve voto.")
     flow.append(Paragraph(
         f"{urn_name}",
         st["h2"],
@@ -923,7 +943,7 @@ def build_candidate_dossier(
         ],
         [
             Paragraph("VOTOS NOMINAIS", st["stat_label"]),
-            Paragraph("MUNICIPIOS COM VOTOS", st["stat_label"]),
+            Paragraph("MUNICÍPIOS COM VOTOS", st["stat_label"]),
         ],
     ]
     stats = Table(stat_cells, colWidths=[8.1 * cm, 8.1 * cm])
@@ -946,7 +966,8 @@ def build_candidate_dossier(
         uf_votes[uf] += v
     if len(uf_votes) >= 2:
         flow.append(Spacer(1, 18))
-        flow.append(Paragraph("DISTRIBUICAO POR UF", st["section"]))
+        _section(flow, st, "DISTRIBUIÇÃO POR UF",
+                 "Como os votos do candidato se espalharam entre os estados.")
         flow.append(_votes_pie(dict(uf_votes)))
 
     # Perfil rico
@@ -955,7 +976,8 @@ def build_candidate_dossier(
     )
     if has_profile:
         flow.append(Spacer(1, 16))
-        flow.append(Paragraph("PERFIL PATRIMONIAL E FINANCEIRO", st["section"]))
+        _section(flow, st, "PERFIL PATRIMONIAL E FINANCEIRO",
+                 "Patrimônio declarado ao TSE e o dinheiro que entrou e saiu na campanha.")
         prof_cells = [
             [
                 Paragraph(_fmt_brl(assets_total), st["stat_value_small"]),
@@ -963,7 +985,7 @@ def build_candidate_dossier(
                 Paragraph(_fmt_brl(expense_total), st["stat_value_small"]),
             ],
             [
-                Paragraph("PATRIMONIO DECLARADO", st["stat_label"]),
+                Paragraph("PATRIMÔNIO DECLARADO", st["stat_label"]),
                 Paragraph("RECEITAS DE CAMPANHA", st["stat_label"]),
                 Paragraph("DESPESAS DE CAMPANHA", st["stat_label"]),
             ],
@@ -995,7 +1017,8 @@ def build_candidate_dossier(
                     items.append(str(v))
         if items:
             flow.append(Spacer(1, 14))
-            flow.append(Paragraph("PRESENCA DIGITAL", st["section"]))
+            _section(flow, st, "PRESENÇA DIGITAL",
+                     "Redes sociais informadas no registro da candidatura.")
             flow.append(Paragraph(
                 ' &nbsp;·&nbsp; '.join(items), st["body"],
             ))
@@ -1004,7 +1027,7 @@ def build_candidate_dossier(
     if muni_rows:
         flow.append(PageBreak())
         flow.append(Spacer(1, 0.2 * cm))
-        flow.append(Paragraph("VOTOS POR MUNICIPIO", st["section"]))
+        _section(flow, st, "VOTOS POR MUNICÍPIO")
         flow.append(Paragraph("Top 50 cidades por votos", st["h2"]))
         flow.append(Spacer(1, 6))
 
@@ -1059,7 +1082,8 @@ def build_candidate_dossier(
     if zone_rows:
         flow.append(PageBreak())
         flow.append(Spacer(1, 0.2 * cm))
-        flow.append(Paragraph("VOTOS POR ZONA ELEITORAL", st["section"]))
+        _section(flow, st, "VOTOS POR ZONA ELEITORAL",
+                 "Zona eleitoral é a divisão administrativa do TSE dentro da cidade; mostra onde os votos se concentraram.")
         flow.append(Paragraph("Top 30 zonas por votos", st["h2"]))
         flow.append(Spacer(1, 6))
 

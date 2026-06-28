@@ -658,7 +658,7 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
 
       {notComparable && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
-          Atenção: candidatos de cargos/eleições diferentes — os votos não são
+          Atenção: candidatos de cargos/eleições diferentes. Os votos não são
           diretamente comparáveis.
         </div>
       )}
@@ -777,7 +777,7 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
         <div>
           <p
             className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-2"
-            title="Quantos votos cada R$1 de campanha rendeu — quanto maior, mais barato o voto."
+            title="Quantos votos cada R$1 de campanha rendeu; quanto maior, mais barato o voto."
           >
             Eficiência eleitoral (votos por R$ gasto em campanha)
           </p>

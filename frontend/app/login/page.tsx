@@ -75,13 +75,13 @@ function LoginForm() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-wordmark.png"
-              alt="MareNostrum — Inteligência de dados & consultoria"
+              alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain hidden dark:block"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-wordmark-light.png"
-              alt="MareNostrum — Inteligência de dados & consultoria"
+              alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain dark:hidden"
             />
           </div>

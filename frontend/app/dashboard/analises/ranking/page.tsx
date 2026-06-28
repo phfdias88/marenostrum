@@ -81,7 +81,7 @@ export default function RankingPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Ranking nacional</h1>
           <p className="text-sm text-muted-foreground">
-            Os mais votados — {OFFICES_BY_YEAR[year].find((o) => o.value === office)?.label ?? "todos os cargos"} · {state || "Brasil (todas)"} · {year}
+            Os mais votados · {OFFICES_BY_YEAR[year].find((o) => o.value === office)?.label ?? "todos os cargos"} · {state || "Brasil (todas)"} · {year}
           </p>
         </div>
         <button
