@@ -37,3 +37,7 @@ pyshp==2.3.1
 # Serializacao JSON em Rust — 5-10x mais rapido que json.dumps pra payloads
 # grandes (GeoJSON do censo, rankings TSE). Usado como default_response_class.
 orjson==3.10.12
+
+# Leitura de planilhas .xlsx do governo (INEP/IDEB e outras fontes que só
+# publicam Excel) nos scripts de ingestão socioeconômica.
+openpyxl==3.1.5
