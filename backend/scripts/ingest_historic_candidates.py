@@ -42,8 +42,12 @@ UF_NUM = {uf: i + 1 for i, uf in enumerate([
 ])}
 
 
-def _syn_sq(year: int, uf: str, raw_sq: int) -> int:
-    return year * 10**13 + UF_NUM.get(uf, 30) * 10**11 + (raw_sq % 10**11)
+def _syn_sq(year: int, uf: str, raw_sq: int, office_code: int) -> int:
+    # Presidente (cargo 1) é NACIONAL: aparece 1 linha por UF no munzona com o
+    # MESMO sq → dedup SEM UF (slot uf=0), senão viram 27 candidatos. Demais
+    # cargos são por UF (sq repete entre UFs) → inclui UF.
+    uf_slot = 0 if office_code == 1 else UF_NUM.get(uf, 30)
+    return year * 10**13 + uf_slot * 10**11 + (raw_sq % 10**11)
 
 
 def ingest_year(db, year: int) -> None:
@@ -91,7 +95,8 @@ def ingest_year(db, year: int) -> None:
             })
         raw_sq = _i(row.get("SQ_CANDIDATO"))
         uf = _s(row.get("SG_UF"), 2).upper()
-        sq = _syn_sq(_i(row.get("ANO_ELEICAO")) or year, uf, raw_sq) if raw_sq else 0
+        office = _i(row.get("CD_CARGO"))
+        sq = _syn_sq(_i(row.get("ANO_ELEICAO")) or year, uf, raw_sq, office) if raw_sq else 0
         turno = _i(row.get("NR_TURNO")) or 1
         if sq and turno == 1:
             votes_by_sq[sq] = votes_by_sq.get(sq, 0) + _i(row.get("QT_VOTOS_NOMINAIS"))
