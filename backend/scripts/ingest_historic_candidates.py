@@ -30,6 +30,21 @@ from app.utils.tse_sync import TSE_BASE_URL, _i, _s, download_zip, iter_csv_rows
 YEARS = [int(y) for y in os.environ.get("HIST_YEARS", "2002,2006,2010").split(",")]
 CHUNK = 5000
 
+# SQ_CANDIDATO antigo (≤2012) só é único por (ano, UF) — NÃO globalmente, então
+# colide com o índice único ix_tse_candidates_sq. Geramos um SQ SINTÉTICO único
+# = ano*1e13 + cod_uf*1e11 + sq_bruto. (sq antigo é pequeno; cabe em BigInteger.
+# Fica muito acima dos SQ modernos ~2.5e11, sem colisão.) O sq não é usado em
+# nada downstream pros anos antigos (trajetória casa por cpf/nome).
+UF_NUM = {uf: i + 1 for i, uf in enumerate([
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+    "SP", "SE", "TO", "ZZ", "BR",
+])}
+
+
+def _syn_sq(year: int, uf: str, raw_sq: int) -> int:
+    return year * 10**13 + UF_NUM.get(uf, 30) * 10**11 + (raw_sq % 10**11)
+
 
 def ingest_year(db, year: int) -> None:
     url = f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_{year}.zip"
@@ -74,7 +89,9 @@ def ingest_year(db, year: int) -> None:
                 "id": pid, "number": pn, "abbreviation": _s(row.get("SG_PARTIDO"), 20),
                 "name": _s(row.get("NM_PARTIDO"), 180), "created_at": now, "updated_at": now,
             })
-        sq = _i(row.get("SQ_CANDIDATO"))
+        raw_sq = _i(row.get("SQ_CANDIDATO"))
+        uf = _s(row.get("SG_UF"), 2).upper()
+        sq = _syn_sq(_i(row.get("ANO_ELEICAO")) or year, uf, raw_sq) if raw_sq else 0
         turno = _i(row.get("NR_TURNO")) or 1
         if sq and turno == 1:
             votes_by_sq[sq] = votes_by_sq.get(sq, 0) + _i(row.get("QT_VOTOS_NOMINAIS"))
