@@ -2538,7 +2538,8 @@ def candidate_dossier_pdf(
         urn_name=candidate.urn_name,
         number=candidate.number,
         office_name=candidate.office_name or "",
-        state=candidate.state,
+        # Presidente é nacional: o TSE traz uma UF qualquer (ex.: RO) — mostramos "Brasil".
+        state="Brasil" if candidate.office_code == 1 else candidate.state,
         year=election.year if election else 0,
         result_status=candidate.result_status,
         party_abbr=party.abbreviation if party else "",

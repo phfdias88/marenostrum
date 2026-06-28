@@ -430,8 +430,9 @@ def _inner_page(canvas, doc):
     canvas.drawString(2 * cm, 6, "MARENOSTRUM")
     canvas.setFillColor(CREAM)
     canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(w / 2, 6, f"Dossie eleitoral · {doc.page:02d}")
-    canvas.drawRightString(w - 2 * cm, 6, "Dados publicos TSE")
+    canvas.drawCentredString(w / 2, 6, f"Dossiê eleitoral · {doc.page:02d}")
+    canvas.setFont("Helvetica-Oblique", 7)
+    canvas.drawRightString(w - 2 * cm, 6, "Confidencial")
     canvas.restoreState()
 
 
@@ -539,11 +540,11 @@ def _append_intelligence_sections(
             margin = pv.get("margin")
             txt = "Candidato eleito na disputa."
             if margin:
-                txt += f" Margem de {_fmt_int(margin)} votos sobre o 2o colocado."
+                txt += f" Margem de {_fmt_int(margin)} votos sobre o 2º colocado."
             flow.append(Paragraph(txt, st["body"]))
         else:
             flow.append(Paragraph(
-                f'Faltaram <b>{_fmt_int(pv.get("gap"))}</b> votos para superar o 1o colocado '
+                f'Faltaram <b>{_fmt_int(pv.get("gap"))}</b> votos para superar o 1º colocado '
                 f'(<b>{pv.get("winner_name") or "—"}</b>, {_fmt_int(pv.get("winner_votes"))} votos). '
                 f'Sua votação: {_fmt_int(pv.get("candidate_votes"))}.',
                 st["body"],
@@ -724,7 +725,7 @@ def build_candidate_dossier(
 
     # ============ PAG 1 — CAPA ============
     flow.append(Spacer(1, 1.4 * cm))
-    flow.append(Paragraph("D O S S I E   E L E I T O R A L", st["cover_kicker"]))
+    flow.append(Paragraph("D O S S I Ê   E L E I T O R A L", st["cover_kicker"]))
     flow.append(Spacer(1, 0.7 * cm))
 
     # Foto centralizada
@@ -821,14 +822,14 @@ def build_candidate_dossier(
         bottom_left.append(MiniBrazilMap(coords, width=5.0 * cm, height=4.4 * cm))
         bottom_left.append(Spacer(1, 4))
         bottom_left.append(Paragraph(
-            f'<font color="#A39785">{_fmt_int(len(coords))} municipios votados</font>',
+            f'<font color="#A39785">{_fmt_int(len(coords))} municípios com votos</font>',
             st["qr_caption"],
         ))
     if qr_img:
         bottom_right.append(qr_img)
         bottom_right.append(Spacer(1, 4))
         bottom_right.append(Paragraph(
-            '<font color="#A39785">Versao online completa</font>',
+            '<font color="#A39785">Versão online completa</font>',
             st["qr_caption"],
         ))
 
@@ -838,7 +839,7 @@ def build_candidate_dossier(
             Spacer(1, 0.5 * cm),
             Paragraph("M A R E N O S T R U M", st["cover_brand"]),
             Spacer(1, 2),
-            Paragraph("INTELIGENCIA POLITICA E ELEITORAL", st["cover_brand_sub"]),
+            Paragraph("INTELIGÊNCIA POLÍTICA E ELEITORAL", st["cover_brand_sub"]),
         ]
         cells_row = [
             bottom_left if bottom_left else [Spacer(1, 1)],
@@ -872,13 +873,13 @@ def build_candidate_dossier(
     zone_rows = list(zone_results)
 
     flow.append(Spacer(1, 1.5 * cm))
-    flow.append(Paragraph("CONTEUDO", st["toc_title"]))
-    flow.append(Paragraph("Sumario", st["toc_h2"]))
+    flow.append(Paragraph("CONTEÚDO", st["toc_title"]))
+    flow.append(Paragraph("Sumário", st["toc_h2"]))
 
-    toc_entries = [("Visao geral", "03"), ("Perfil patrimonial e financeiro", "03")]
+    toc_entries = [("Visão geral", "03"), ("Perfil patrimonial e financeiro", "03")]
     page_cursor = 4
     if muni_rows:
-        toc_entries.append(("Votos por municipio · top 50", f"{page_cursor:02d}"))
+        toc_entries.append(("Votos por município · top 50", f"{page_cursor:02d}"))
         page_cursor += 1
         if len(muni_rows) > 25:
             page_cursor += 1  # provavelmente 2 paginas
@@ -888,14 +889,14 @@ def build_candidate_dossier(
 
     # Seções de inteligência (v3) — páginas aproximadas
     if path_to_victory and path_to_victory.get("scope") not in (None, "proporcional"):
-        toc_entries.append(("Caminho da vitoria", f"{page_cursor:02d}"))
+        toc_entries.append(("Caminho da vitória", f"{page_cursor:02d}"))
         page_cursor += 1
     if opportunities and (opportunities.get("opportunities") or opportunities.get("strongholds")):
         toc_entries.append(("Radar de oportunidades", f"{page_cursor:02d}"))
     if electorate_profile and electorate_profile.get("municipalities_covered", 0) > 0:
-        toc_entries.append(("Perfil do territorio", f"{page_cursor:02d}"))
+        toc_entries.append(("Perfil do território", f"{page_cursor:02d}"))
     if ai_report and ai_report.get("diagnostico"):
-        toc_entries.append(("Mare IA · analise estrategica", f"{page_cursor:02d}"))
+        toc_entries.append(("Maré IA · análise estratégica", f"{page_cursor:02d}"))
 
     toc_cells = []
     for title, pageno in toc_entries:
@@ -1094,7 +1095,7 @@ def build_candidate_dossier(
             ])
         tbl = Table(
             data,
-            colWidths=[0.8 * cm, 5.5 * cm, 0.9 * cm, bar_w + 0.2 * cm, 2.4 * cm],
+            colWidths=[1.15 * cm, 5.45 * cm, 1.2 * cm, bar_w + 0.2 * cm, 2.4 * cm],
             repeatRows=1,
         )
         tbl.setStyle(TableStyle([
@@ -1106,18 +1107,23 @@ def build_candidate_dossier(
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, CREAM]),
             ("LEFTPADDING", (0, 1), (-1, -1), 8),
             ("RIGHTPADDING", (0, 1), (-1, -1), 8),
+            # Colunas estreitas (rank e UF): padding mínimo pra "10"/"SP" não quebrarem.
+            ("LEFTPADDING", (0, 0), (0, -1), 2),
+            ("RIGHTPADDING", (0, 0), (0, -1), 2),
+            ("LEFTPADDING", (2, 0), (2, -1), 2),
+            ("RIGHTPADDING", (2, 0), (2, -1), 2),
             ("TOPPADDING", (0, 1), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LINEBELOW", (0, 0), (-1, 0), 1, GOLD),
             ("ALIGN", (0, 1), (0, -1), "CENTER"),
-            ("ALIGN", (2, 1), (2, -1), "CENTER"),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
         ]))
         flow.append(tbl)
         if len(muni_rows) > 50:
             flow.append(Spacer(1, 6))
             flow.append(Paragraph(
-                f"<i>+ {_fmt_int(len(muni_rows) - 50)} outros municipios com votos.</i>",
+                f"<i>+ {_fmt_int(len(muni_rows) - 50)} outros municípios com votos.</i>",
                 st["small"],
             ))
 
