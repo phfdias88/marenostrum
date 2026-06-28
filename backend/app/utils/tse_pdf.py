@@ -45,7 +45,11 @@ from reportlab.pdfbase.ttfonts import TTFont
 # -------------------------------------------------- tipografia (Lato embarcada)
 # Fonte profissional Lato (OFL) embarcada pra um visual mais editorial que o
 # Helvetica padrão. Se por algum motivo não carregar, cai pro Helvetica (não quebra).
-_FONT_DIR = os.path.join(os.path.dirname(__file__), "assets", "fonts")
+_FONT_CANDS = [
+    os.path.join(os.path.dirname(__file__), "..", "assets", "fonts"),  # app/assets/fonts
+    os.path.join(os.path.dirname(__file__), "assets", "fonts"),        # utils/assets/fonts
+]
+_FONT_DIR = next((d for d in _FONT_CANDS if os.path.isdir(d)), _FONT_CANDS[0])
 
 
 def _register_fonts() -> bool:
