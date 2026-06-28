@@ -725,7 +725,9 @@ def build_candidate_dossier(
 
     # ============ PAG 1 — CAPA ============
     flow.append(Spacer(1, 1.4 * cm))
-    flow.append(Paragraph("D O S S I Ê   E L E I T O R A L", st["cover_kicker"]))
+    flow.append(Paragraph(
+        "D O S S I Ê&nbsp;&nbsp;&nbsp;&nbsp;E L E I T O R A L", st["cover_kicker"],
+    ))
     flow.append(Spacer(1, 0.7 * cm))
 
     # Foto centralizada
