@@ -2533,6 +2533,26 @@ def candidate_dossier_pdf(
             candidate_id, ctx, municipality_id=_top_muni, db=db,
         ))
 
+    # Evolução: todas as candidaturas da pessoa (1 ponto por ano, a mais votada).
+    traj_points: list = []
+    try:
+        if candidate.cpf:
+            _tm = Candidate.cpf == candidate.cpf
+        else:
+            _tm = and_(Candidate.name == candidate.name, Candidate.state == candidate.state)
+        _by_year: dict = {}
+        for _yr, _vt, _of in db.execute(
+            select(Election.year, Candidate.total_votes, Candidate.office_name)
+            .join(Election, Election.id == Candidate.election_id)
+            .where(_tm)
+        ).all():
+            y, v = int(_yr), int(_vt or 0)
+            if y not in _by_year or v > _by_year[y][0]:
+                _by_year[y] = (v, _of or "")
+        traj_points = [(y, _by_year[y][0], _by_year[y][1]) for y in sorted(_by_year)]
+    except Exception:
+        traj_points = []
+
     pdf_bytes = build_candidate_dossier(
         candidate_name=candidate.name,
         urn_name=candidate.urn_name,
@@ -2562,6 +2582,7 @@ def candidate_dossier_pdf(
         opportunities=opportunities,
         electorate_profile=electorate_profile,
         neighborhoods=neighborhoods,
+        trajectory_points=traj_points,
     )
 
     # Persiste no cache (atomico via .tmp + rename)

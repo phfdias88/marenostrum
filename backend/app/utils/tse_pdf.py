@@ -38,6 +38,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 import os
+import re
 
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -676,8 +677,14 @@ def _append_intelligence_sections(
             if rows:
                 flow.append(Spacer(1, 6))
                 flow.append(Paragraph(title, st["h2"]))
+                # Barras do % do candidato por categoria (visual) + tabela com o
+                # comparativo vs média da UF (detalhe).
+                _bars = _profile_bars(cand, order, st)
+                if _bars is not None:
+                    flow.append(_bars)
+                    flow.append(Spacer(1, 4))
                 flow.append(_simple_table(
-                    ["CATEGORIA", "SEU TERRITORIO", "VS MEDIA UF"],
+                    ["CATEGORIA", "SEU TERRITÓRIO", "VS MÉDIA UF"],
                     rows, st, [7.0 * cm, 4.5 * cm, 4.5 * cm],
                 ))
         hi = pf.get("highlights") or []
@@ -719,6 +726,164 @@ def _append_intelligence_sections(
         ))
 
 
+# -------------------------------------------------- redes sociais (selos coloridos)
+_SOCIAL_MAP = [
+    ("instagram", "IG", "#C13584", "Instagram"),
+    ("facebook", "f", "#1877F2", "Facebook"),
+    ("fb.com", "f", "#1877F2", "Facebook"),
+    ("x.com", "X", "#111111", "X / Twitter"),
+    ("twitter", "X", "#111111", "X / Twitter"),
+    ("youtube", "YT", "#FF0000", "YouTube"),
+    ("youtu.be", "YT", "#FF0000", "YouTube"),
+    ("tiktok", "TT", "#111111", "TikTok"),
+    ("kwai", "KW", "#FF7A00", "Kwai"),
+    ("t.me", "TG", "#229ED9", "Telegram"),
+    ("telegram", "TG", "#229ED9", "Telegram"),
+    ("wa.me", "WA", "#25D366", "WhatsApp"),
+    ("whatsapp", "WA", "#25D366", "WhatsApp"),
+    ("linkedin", "in", "#0A66C2", "LinkedIn"),
+]
+
+
+def _social_meta(url: str) -> tuple[str, str, str, str]:
+    """(sigla, cor hex, plataforma, handle) a partir da URL."""
+    u = (url or "").strip()
+    low = u.lower()
+    abbrev, color, plat = "@", "#8C6E2A", "Site"
+    for needle, ab, co, name in _SOCIAL_MAP:
+        if needle in low:
+            abbrev, color, plat = ab, co, name
+            break
+    rest = re.sub(r"^https?://", "", u).rstrip("/")
+    parts = [p for p in rest.split("/") if p]
+    if plat == "Site":
+        handle = parts[0].replace("www.", "") if parts else u
+    else:
+        handle = ("@" + parts[-1]) if len(parts) > 1 else (parts[0] if parts else u)
+    return abbrev, color, plat, handle
+
+
+class SocialBadge(Flowable):
+    """Selo arredondado na cor da marca, com a sigla da rede."""
+
+    def __init__(self, abbrev: str, color: str, size: float = 0.52 * cm):
+        super().__init__()
+        self.abbrev = abbrev
+        self.color = colors.HexColor(color)
+        self.size = size
+
+    def wrap(self, *_):
+        return (self.size, self.size)
+
+    def draw(self):
+        c = self.canv
+        s = self.size
+        c.setFillColor(self.color)
+        c.roundRect(0, 0, s, s, s * 0.28, stroke=0, fill=1)
+        c.setFillColor(colors.white)
+        c.setFont(FONT_BOLD, s * 0.44)
+        c.drawCentredString(s / 2, s / 2 - s * 0.16, self.abbrev)
+
+
+def _social_flowable(links, st) -> Table | None:
+    """Grade 2 colunas: selo colorido + plataforma + handle (em vez de URLs cruas)."""
+    if isinstance(links, dict):
+        urls = [v for v in links.values() if v]
+    elif isinstance(links, list):
+        urls = [str(v) for v in links if v]
+    else:
+        urls = []
+    urls = urls[:12]
+    if not urls:
+        return None
+    cells = []
+    for u in urls:
+        ab, co, plat, handle = _social_meta(u)
+        if len(handle) > 34:
+            handle = handle[:33] + "…"
+        inner = Table(
+            [[SocialBadge(ab, co),
+              Paragraph(f'<b>{plat}</b>  <font color="#6E6358">{handle}</font>', st["small"])]],
+            colWidths=[0.72 * cm, 6.6 * cm],
+        )
+        inner.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        cells.append(inner)
+    rows = [cells[i:i + 2] for i in range(0, len(cells), 2)]
+    if rows and len(rows[-1]) == 1:
+        rows[-1].append(Spacer(1, 1))
+    grid = Table(rows, colWidths=[7.6 * cm, 7.6 * cm])
+    grid.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+    return grid
+
+
+# -------------------------------------------------- evolução do candidato (barras por ano)
+def _evolution_flow(points, st) -> Table | None:
+    """Barras horizontais: votos por eleição (ano · cargo · barra · votos).
+    points: [(year, votes, office)] — qualquer ordem; ordena por ano asc."""
+    pts = sorted([p for p in points if p and p[1]], key=lambda p: p[0])
+    if len(pts) < 2:
+        return None
+    mx = max(int(v or 0) for _, v, _ in pts) or 1
+    bar_w = 6.8 * cm
+    rows = []
+    for year, votes, office in pts:
+        rows.append([
+            Paragraph(f'<b>{year}</b>', st["table_td_rank"]),
+            Paragraph(office or "", st["small"]),
+            BarFlowable(int(votes or 0), mx, bar_w),
+            Paragraph(_fmt_int(votes), st["table_td_value"]),
+        ])
+    tbl = Table(rows, colWidths=[1.3 * cm, 4.0 * cm, bar_w + 0.2 * cm, 2.5 * cm])
+    tbl.setStyle(TableStyle([
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [WHITE, CREAM]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return tbl
+
+
+# -------------------------------------------------- barras de perfil (faixa/escolaridade)
+def _profile_bars(cand: dict, order: list, st) -> Table | None:
+    """Barras horizontais do % do candidato por categoria (faixa etária, etc.)."""
+    rows = []
+    vals = [float(cand.get(k, 0) or 0) for k in order]
+    mx = max(vals) or 1
+    for k in order:
+        v = float(cand.get(k, 0) or 0)
+        if v <= 0:
+            continue
+        rows.append([
+            Paragraph(k, st["table_td"]),
+            BarFlowable(int(v * 10), int(mx * 10), 7.5 * cm, color=GOLD),
+            Paragraph(f'{v:.1f}%'.replace(".", ","), st["table_td_value"]),
+        ])
+    if not rows:
+        return None
+    tbl = Table(rows, colWidths=[4.5 * cm, 7.7 * cm, 2.0 * cm])
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return tbl
+
+
 def build_candidate_dossier(
     *,
     candidate_name: str,
@@ -750,6 +915,7 @@ def build_candidate_dossier(
     opportunities: dict | None = None,
     electorate_profile: dict | None = None,
     neighborhoods: dict | None = None,
+    trajectory_points=None,  # [(year, votes, office)] — gráfico de evolução
 ) -> bytes:
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -1049,6 +1215,14 @@ def build_candidate_dossier(
     flow.append(Spacer(1, 10))
     flow.append(Paragraph(_resumo, st["body"]))
 
+    # Evolução nas eleições (barras por ano) — só se a pessoa tem 2+ candidaturas.
+    _evo = _evolution_flow(trajectory_points or [], st)
+    if _evo is not None:
+        flow.append(Spacer(1, 16))
+        _section(flow, st, "EVOLUÇÃO NAS ELEIÇÕES",
+                 "Quantos votos o candidato teve em cada eleição que disputou.")
+        flow.append(_evo)
+
     # Pizza UF (se muni_rows tem mais de 1 UF)
     uf_votes: Counter = Counter()
     for _, uf, v in muni_rows:
@@ -1095,22 +1269,12 @@ def build_candidate_dossier(
         flow.append(prof)
 
     if social_links:
-        items: list[str] = []
-        if isinstance(social_links, dict):
-            for k, v in social_links.items():
-                if v:
-                    items.append(f'<b><font color="#8C6E2A">{k.upper()}</font></b> {v}')
-        elif isinstance(social_links, list):
-            for v in social_links:
-                if v:
-                    items.append(str(v))
-        if items:
+        _soc = _social_flowable(social_links, st)
+        if _soc is not None:
             flow.append(Spacer(1, 14))
             _section(flow, st, "PRESENÇA DIGITAL",
                      "Redes sociais informadas no registro da candidatura.")
-            flow.append(Paragraph(
-                ' &nbsp;·&nbsp; '.join(items), st["body"],
-            ))
+            flow.append(_soc)
 
     # ============ TOP MUNICIPIOS ============
     if muni_rows:
