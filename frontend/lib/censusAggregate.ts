@@ -43,6 +43,9 @@ export const WEIGHTED_AVG_COLS: Record<string, { weight: string; decimals: numbe
   taxa_alfabetizacao: { weight: "pop_15mais", decimals: 1 },
   // % cor ou raça (pretos e pardos) — peso: população do setor
   pct_pretos_pardos: { weight: "populacao", decimals: 1 },
+  // % de mulheres e % 60+ (Censo 2022) — peso: população do setor
+  pct_feminino: { weight: "populacao", decimals: 1 },
+  pct_60mais: { weight: "populacao", decimals: 1 },
   // FUTURO (Censo 2022 ainda não publicou renda por setor): renda média
   // nominal do responsável (V06004) — peso: responsáveis pelos domicílios.
   renda_media: { weight: "responsaveis", decimals: 2 },

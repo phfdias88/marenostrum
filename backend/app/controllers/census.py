@@ -148,6 +148,19 @@ def census_uf_overview(
                 "40_49": r["idade_40_49"], "50_59": r["idade_50_59"],
                 "60_69": r["idade_60_69"], "70_mais": r["idade_70_mais"],
             },
+            "pct_feminino": (
+                round(100 * r["sexo_feminino"]
+                      / ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)), 1)
+                if ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)) > 0
+                and r["sexo_feminino"] is not None else None
+            ),
+            "pct_60mais": (
+                round(100 * ((r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0))
+                      / r["populacao"], 1)
+                if (r["populacao"] or 0) > 0
+                and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
+                else None
+            ),
             # Renda dos responsáveis (Censo 2022) — variável pedida pelo PO;
             # fallback pra renda domiciliar 2010 se o município ainda não tiver
             # o dado 2022 (ex: antes de rodar a ingestão nova).
@@ -264,7 +277,8 @@ def census_setores(
             "SELECT cd_setor, nm_mun, cd_dist, nm_dist, nm_subdist, nm_bairro, "
             "       situacao, area_km2, populacao, domicilios, geometry, "
             "       alfabetizados_15mais, pop_15mais, "
-            "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena "
+            "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena, "
+            "       sexo_masculino, sexo_feminino, idade_60_69, idade_70_mais "
             "FROM census_geo WHERE cd_mun = :m AND level='setor' ORDER BY cd_setor "
             "LIMIT 30000"  # cap defensivo: maior município do BR (SP) tem ~27k setores
         ),
@@ -314,6 +328,20 @@ def census_setores(
                 "raca_amarela": r["raca_amarela"],
                 "raca_parda": r["raca_parda"],
                 "raca_indigena": r["raca_indigena"],
+                # Sexo + idade (Censo 2022) como indicadores de mapa.
+                "pct_feminino": (
+                    round(100 * r["sexo_feminino"]
+                          / ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)), 1)
+                    if ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)) > 0
+                    and r["sexo_feminino"] is not None else None
+                ),
+                "pct_60mais": (
+                    round(100 * ((r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0))
+                          / r["populacao"], 1)
+                    if (r["populacao"] or 0) > 0
+                    and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
+                    else None
+                ),
             },
         })
     # ORJSONResponse direto: FastAPI NÃO roda o jsonable_encoder (caro pra

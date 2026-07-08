@@ -112,6 +112,14 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
     vars: [{ key: "pct_pretos_pardos", label: "Pretos e pardos" }],
   },
   {
+    key: "sexo_idade",
+    label: "Sexo & idade",
+    vars: [
+      { key: "pct_feminino", label: "Mulheres" },
+      { key: "pct_60mais", label: "60 anos ou mais" },
+    ],
+  },
+  {
     key: "renda",
     label: "Renda & economia",
     vars: [
@@ -591,6 +599,8 @@ export default function CensoPage() {
         media_moradores: g.averages.media_moradores ?? null,
         taxa_alfabetizacao: g.averages.taxa_alfabetizacao ?? null,
         pct_pretos_pardos: g.averages.pct_pretos_pardos ?? null,
+        pct_feminino: g.averages.pct_feminino ?? null,
+        pct_60mais: g.averages.pct_60mais ?? null,
       });
     }
     return {

@@ -13,6 +13,8 @@ export type CensusIndicator =
   | "media_moradores"
   | "taxa_alfabetizacao"
   | "pct_pretos_pardos"
+  | "pct_feminino"
+  | "pct_60mais"
   | "renda_media"
   | "pct_bolsa_familia"
   | "pct_cadunico"
@@ -34,6 +36,8 @@ export const INDICATOR_FMT: Record<CensusIndicator, (v: number) => string> = {
   media_moradores: (v) => `${v.toFixed(2).replace(".", ",")} /domic.`,
   taxa_alfabetizacao: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_pretos_pardos: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_feminino: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_60mais: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   renda_media: (v) => `R$ ${numFmt.format(Math.round(v))}`,
   pct_bolsa_familia: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_cadunico: (v) => `${v.toFixed(1).replace(".", ",")}%`,
@@ -54,6 +58,8 @@ export const INDICATOR_LABEL: Record<CensusIndicator, string> = {
   media_moradores: "Moradores / domicílio",
   taxa_alfabetizacao: "Alfabetização 15+ (%)",
   pct_pretos_pardos: "Cor ou raça — pretos e pardos (%)",
+  pct_feminino: "Mulheres (% da população)",
+  pct_60mais: "60 anos ou mais (% da população)",
   renda_media: "Renda dos responsáveis em domicílios particulares permanentes ocupados",
   pct_bolsa_familia: "Bolsa Família (% domicílios)",
   pct_cadunico: "CadÚnico (% domicílios)",
