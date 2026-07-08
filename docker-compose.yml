@@ -5,6 +5,16 @@
 # Total alocado em "limits": ~3.4GB RAM (deixa folga ao SO/SSH/cron).
 # =============================================================================
 
+# Rotacao de logs (anchor reusado por todos os servicos). Sem isto, o driver
+# json-file default cresce SEM LIMITE e enche o disco da VPS — que ja divide
+# o mesmo SSD entre pg_data, tse_photos, cache de borda e os dumps. Teto:
+# 3 arquivos de 10MB por container (~30MB cada, ~120MB no total).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ---------------------------------------------------------------------------
@@ -15,6 +25,7 @@ services:
     image: postgres:16-alpine
     container_name: mn_db
     restart: unless-stopped
+    logging: *default-logging
     # Mesma fonte de credenciais que a api le — evita drift de password
     # entre o que o Postgres GRAVA no volume e o que a API tenta usar.
     env_file:
@@ -55,6 +66,17 @@ services:
       dockerfile: Dockerfile
     container_name: mn_api
     restart: unless-stopped
+    logging: *default-logging
+    # Liveness: /api/health nao toca o DB (so diz que o uvicorn subiu). O
+    # start_period folgado cobre o `alembic upgrade head` do entrypoint, que
+    # roda ANTES do uvicorn — sem ele, o container seria marcado unhealthy
+    # durante a migration. Usa python (a imagem slim nao tem curl/wget).
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:8000/api/health\", timeout=3).status==200 else 1)'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     env_file:
       - ./backend/.env
     depends_on:
@@ -93,12 +115,22 @@ services:
         NEXT_PUBLIC_SONAR_URL: ${NEXT_PUBLIC_SONAR_URL:-https://example.com/sonar}
     container_name: mn_web
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       # Limita heap do V8 para nao explodir RAM
       NODE_OPTIONS: "--max-old-space-size=512"
+    # Healthcheck via node (a imagem so tem node). statusCode < 500 = servidor
+    # de pe (o "/" pode redirecionar p/ login com 3xx — ainda saudavel).
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:3000/\", r => process.exit(r.statusCode < 500 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -117,6 +149,7 @@ services:
     image: nginx:1.27-alpine
     container_name: mn_nginx
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -128,9 +161,16 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
       # Cache de borda (censo/TSE) persistente — sobrevive a recreates/deploys.
       - nginx_cache:/var/cache/nginx
+    # Espera a API ficar HEALTHY (nao so "iniciada") antes de subir — senao o
+    # nginx aceita trafego e proxeia pra uma API ainda rodando migrations,
+    # devolvendo 502 no meio do deploy. web so precisa ter iniciado (Next
+    # sobe rapido e nao bloqueia); manter web como service_started evita que
+    # um healthcheck de web instavel derrube o nginx inteiro.
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     deploy:
       resources:
         limits:

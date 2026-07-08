@@ -287,6 +287,27 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     @app.get(
+        "/api/ready",
+        tags=["system"],
+        summary="Readiness (testa o DB)",
+        description=(
+            "Retorna 200 se a app subiu E o Postgres responde (SELECT 1); "
+            "503 caso contrario. Use em monitoramento/orquestracao — distingue "
+            "'processo vivo' (/api/health) de 'pronto pra servir' (DB alcancavel)."
+        ),
+    )
+    def ready():
+        from sqlalchemy import text
+        from fastapi.responses import JSONResponse
+        from app.core.database import SessionLocal
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+            return {"status": "ready"}
+        except Exception:
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+    @app.get(
         "/api/info",
         tags=["system"],
         summary="Meta-informacao da API",

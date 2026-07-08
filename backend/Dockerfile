@@ -22,6 +22,13 @@ COPY ./app ./app
 COPY ./alembic ./alembic
 COPY alembic.ini .
 COPY entrypoint.sh .
+# Scripts de ingestao/backfill e runners one-off vao pra imagem tambem.
+# Antes ficavam de fora (so ./app era copiado), obrigando um `docker compose cp`
+# manual pra /tmp em cada ingest — fragil sob pressao (ex: apuracao). Agora
+# rodam direto: `docker compose exec api python scripts/<x>.py` ou
+# `python backfill_runoff.py` com PYTHONPATH=/app (raiz do WORKDIR).
+COPY ./scripts ./scripts
+COPY backfill_runoff.py .
 RUN chmod +x entrypoint.sh
 
 EXPOSE 8000

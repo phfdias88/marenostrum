@@ -9,12 +9,17 @@ import enum
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Date, Enum as SAEnum
+from sqlalchemy import JSON, Date, Enum as SAEnum
 from sqlalchemy import Float, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
+
+# JSONB em Postgres (produção, com índice GIN via migration), JSON genérico no
+# SQLite dos testes. Sem o variant, create_all() no SQLite quebra e derruba a
+# suíte inteira. Mesma ideia do Uuid cross-DB já usado no projeto.
+_JSONB = JSON().with_variant(JSONB, "postgresql")
 
 
 class ContactType(str, enum.Enum):
@@ -61,7 +66,7 @@ class Contact(Base, TenantMixin, TimestampMixin):
     # JSONB array de strings. Indice GIN com jsonb_path_ops em migration 020.
     # Default em DB e' '[]'::jsonb — Python sempre ve' lista nunca None.
     tags: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
+        _JSONB, nullable=False, default=list, server_default="[]"
     )
 
     # Classificacao

@@ -6,7 +6,8 @@
 #
 # Sem dependência de SMTP: quando há problema, grava um ALERT.flag (fácil de
 # ver por SSH ou por um health-check) e loga. Quando volta ao normal, apaga o
-# flag. Se um dia houver webhook/e-mail, é só plugar no bloco marcado.
+# flag. Se ALERT_WEBHOOK estiver setado (ver .backup.env), também dispara uma
+# notificação externa real — não fica só no flag local.
 #
 # Gatilhos:
 #   - disco em / >= THRESH_PCT (default 85%)
@@ -19,6 +20,11 @@ MAX_DUMP_H=26
 DUMP_DIR=/home/deploy/backups
 FLAG=/home/deploy/ALERT.flag
 LOG=/home/deploy/backups/watch.log
+
+# Config opcional compartilhada com backup_db.sh (ALERT_WEBHOOK, etc.)
+ENV_FILE=/home/deploy/marenostrum/.backup.env
+if [ -f "$ENV_FILE" ]; then set -a; . "$ENV_FILE"; set +a; fi
+ALERT_WEBHOOK="${ALERT_WEBHOOK:-}"
 
 ts=$(date -Is)
 alerts=""
@@ -43,8 +49,11 @@ fi
 if [ -n "$alerts" ]; then
   echo "${ts} ALERTA: ${alerts}" | tee -a "$LOG"
   echo "${ts} ${alerts}" > "$FLAG"
-  # --- PLUGUE AQUI notificação externa quando tiver (webhook/e-mail): ---
-  # curl -fsS -m 10 -X POST "$ALERT_WEBHOOK" -d "text=MareNostrum: ${alerts}" >/dev/null 2>&1 || true
+  # Notificação externa real (best-effort; só se ALERT_WEBHOOK setado).
+  if [ -n "$ALERT_WEBHOOK" ]; then
+    curl -fsS -m 10 -H 'Content-Type: application/json' \
+      -d "{\"text\": \"[MareNostrum vigia] ${alerts}\"}" "$ALERT_WEBHOOK" >/dev/null 2>&1 || true
+  fi
 else
   echo "${ts} ok: disco ${used}%, último dump recente" >> "$LOG"
   rm -f "$FLAG"

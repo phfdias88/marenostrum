@@ -8,8 +8,7 @@ Diferenca de Favorito (TSE):
 """
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -18,8 +17,11 @@ from app.models.base import Base, TenantMixin, TimestampMixin
 class MonitoredCandidate(Base, TenantMixin, TimestampMixin):
     __tablename__ = "monitored_candidates"
 
+    # Uuid (sqlalchemy) é cross-DB: UUID nativo no Postgres (produção, igual à
+    # migration) e CHAR(32) no SQLite dos testes. O antigo postgresql.UUID
+    # quebrava o create_all() da suíte. Mesmo padrão do resto dos models.
     candidate_id: Mapped[UUID] = mapped_column(
-        PgUUID(as_uuid=True), nullable=False
+        Uuid(as_uuid=True), nullable=False
     )
     # NULL = usa o nome real do TSE; preencher para apelido customizado
     label: Mapped[str | None] = mapped_column(String(80), nullable=True)

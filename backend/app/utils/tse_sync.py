@@ -414,6 +414,21 @@ def _process_candidato_munzona(
     else:
         candidates_by_sq = {}
 
+    # IDEMPOTENCIA (anti vote-doubling): apaga os VoteResult dos candidatos
+    # DESTE ano antes de re-agregar. _flush_vote_results usa upsert-ADD
+    # (votes = votes + excluded.votes), entao re-sincronizar o mesmo dataset
+    # (clicar sync de novo, ou o TSE corrigir o arquivo) SOMAVA sobre os votos
+    # ja gravados, dobrando/triplicando os totais em silencio. Mesmo padrao
+    # idempotente do zona_votos/votacao_secao. No 1o import e' no-op (nao ha
+    # VoteResult ainda); no re-import limpa antes de regravar.
+    _cand_ids_year = select(Candidate.id).where(
+        Candidate.election_id.in_(
+            select(Election.id).where(Election.year == job.year)
+        )
+    )
+    db.execute(delete(VoteResult).where(VoteResult.candidate_id.in_(_cand_ids_year)))
+    db.commit()
+
     # Vote results agregado em memória: (candidate_id, municipality_id) → votes
     vote_acc: dict[tuple[UUID, UUID], int] = {}
 
@@ -620,8 +635,9 @@ def _flush_vote_results(
     Por que upsert-add: pra datasets grandes (2022) o vote_acc e' flushado
     PARCIALMENTE varias vezes durante o parse. A mesma (candidate, municipio)
     pode aparecer em flushes diferentes (zonas processadas em momentos
-    distintos) — o upsert-add soma corretamente. Pre-condicao: TRUNCATE
-    tse_vote_results antes de re-importar (senao soma sobre dado antigo).
+    distintos) — o upsert-add soma corretamente. A pre-condicao de re-import
+    limpo (senao soma sobre dado antigo) e' garantida por _process_candidato_munzona,
+    que apaga os VoteResult do ano ANTES do parse (delete-por-ano idempotente).
     """
     if not vote_acc:
         return

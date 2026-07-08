@@ -32,20 +32,45 @@ if grep -q "CHANGE_ME" backend/.env; then
     exit 1
 fi
 
-echo "==> [3/5] Build das imagens (sem cache em mudancas de dep)..."
+echo "==> [3/6] Build das imagens (sem cache em mudancas de dep)..."
 docker compose build --pull
 
-echo "==> [4/5] Subindo stack..."
+echo "==> [4/6] Dump de seguranca PRE-MIGRACAO (best-effort)..."
+# O entrypoint da API roda 'alembic upgrade head' no boot. Uma migration com
+# bug pode corromper/crashar sem rollback. Tiramos um dump ANTES de subir a
+# nova imagem — se o db ja estiver de pe (redeploy). No 1o deploy (sem db/dados)
+# simplesmente pula. Nao aborta o deploy se falhar.
+BACKUP_DIR=/home/deploy/backups
+mkdir -p "$BACKUP_DIR" 2>/dev/null || true
+pre="$BACKUP_DIR/pre-migrate_$(date +%F_%H%M%S).dump"
+if docker compose exec -T db pg_dump -U marenostrum -d marenostrum -Fc > "${pre}.part" 2>/dev/null \
+   && [ "$(head -c 5 "${pre}.part" 2>/dev/null)" = "PGDMP" ]; then
+    mv "${pre}.part" "$pre"
+    echo "    dump pre-migracao: $pre ($(( $(stat -c %s "$pre")/1024/1024 ))MB)"
+    # mantem os 3 pre-migrate mais recentes
+    ls -1t "$BACKUP_DIR"/pre-migrate_*.dump 2>/dev/null | tail -n +4 | xargs -r rm -f || true
+else
+    rm -f "${pre}.part" 2>/dev/null || true
+    echo "    (sem dump — db ainda nao esta de pe; provavelmente 1o deploy)"
+fi
+
+echo "==> [5/6] Subindo stack..."
 docker compose up -d --remove-orphans
 
 echo "==> Limpando imagens dangling e build cache (reclaim de disco)..."
 docker image prune -f || true
 docker builder prune -f || true
 
-echo "==> [5/5] Aguardando health da API..."
+echo "==> [6/6] Aguardando health da API..."
 for i in {1..30}; do
     if curl -fsS http://localhost/api/health >/dev/null 2>&1; then
         echo "OK: API respondendo em http://localhost/api/health"
+        # Purga o cache de borda APOS o deploy subir saudavel — senao respostas
+        # antigas de /tse e /census ficam servidas por ate 7 dias e o deploy
+        # "some" (gotcha conhecido). Rodar so no sucesso evita limpar cache de
+        # um deploy que nem subiu.
+        docker compose exec -T nginx sh -c 'rm -rf /var/cache/nginx/census/* /var/cache/nginx/tse/*' 2>/dev/null || true
+        echo "OK: cache de borda (census/tse) limpo — deploy visivel na hora"
         echo ""
         echo "Acesse externamente:"
         echo "  Docs:   http://72.60.248.41/api/docs"
