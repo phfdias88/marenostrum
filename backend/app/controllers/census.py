@@ -352,6 +352,72 @@ def census_setores(
     )
 
 
+@router.get(
+    "/malha",
+    summary="Contornos de bairro/distrito de um município (setores dissolvidos)",
+    description=(
+        "Dissolve os setores censitários por bairro (nm_bairro) ou distrito "
+        "(nm_dist) e retorna os CONTORNOS como GeoJSON — para sobrepor no WebGIS "
+        "acima da malha de setores. O dissolve roda no servidor (shapely/GEOS) e "
+        "é cacheado; o browser não paga o custo."
+    ),
+)
+def census_malha(
+    ctx: CurrentTenant,
+    cd_mun: str = Query(..., description="Código IBGE do município (7 dígitos)"),
+    level: str = Query("bairro", pattern="^(bairro|distrito)$"),
+    db: Session = Depends(get_db),
+) -> Response:
+    # Import lazy: se por algum motivo o shapely não estiver instalado, só este
+    # endpoint falha (com 503), não o controller inteiro.
+    try:
+        from shapely.geometry import mapping, shape
+        from shapely.ops import unary_union
+    except ImportError:  # pragma: no cover
+        raise HTTPException(status_code=503, detail="Geometria indisponível (shapely).")
+
+    name_col = "nm_bairro" if level == "bairro" else "nm_dist"
+    rows = db.execute(
+        text(
+            f"SELECT {name_col} AS nome, geometry, populacao "
+            "FROM census_geo WHERE cd_mun = :m AND level='setor' "
+            "AND geometry IS NOT NULL ORDER BY nome"
+        ),
+        {"m": cd_mun},
+    ).mappings().all()
+
+    # Agrupa os setores por bairro/distrito e faz a UNIÃO das geometrias.
+    groups: dict[str, list] = {}
+    pop: dict[str, int] = {}
+    for r in rows:
+        nome = (r["nome"] or "—").strip() or "—"
+        try:
+            geom = shape(r["geometry"])
+            if not geom.is_valid:
+                geom = geom.buffer(0)  # conserta anéis inválidos (sliver, etc.)
+            groups.setdefault(nome, []).append(geom)
+            pop[nome] = pop.get(nome, 0) + int(r["populacao"] or 0)
+        except Exception:
+            continue
+
+    features = []
+    for nome, geoms in groups.items():
+        try:
+            merged = unary_union(geoms)
+        except Exception:
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": _round_geom(mapping(merged)),
+            "properties": {"nome": nome, "level": level, "populacao": pop.get(nome)},
+        })
+
+    return ORJSONResponse(
+        content={"type": "FeatureCollection", "features": features},
+        headers={"Cache-Control": _CACHE},
+    )
+
+
 # ------------------------------------------------------------- busca global
 
 # Abreviações que o IBGE usa nos nomes de bairro — mesma tabela da busca do

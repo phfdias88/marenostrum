@@ -34,6 +34,10 @@ brotli-asgi==1.4.0
 # IBGE shapefile reader (POC dados censitários) — pure-Python, sem GDAL.
 pyshp==2.3.1
 
+# Geometria (dissolve dos setores em contornos de bairro/distrito no WebGIS).
+# O wheel já traz o GEOS embutido — sem dependência de sistema (GDAL/PostGIS).
+shapely==2.0.6
+
 # Serializacao JSON em Rust — 5-10x mais rapido que json.dumps pra payloads
 # grandes (GeoJSON do censo, rankings TSE). Usado como default_response_class.
 orjson==3.10.12

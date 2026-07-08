@@ -234,6 +234,41 @@ export default function CensoPage() {
   const [setores, setSetores] = useState<FC | null>(null);
   const [view, setView] = useState<"estado" | "municipio">("estado");
   const [muniProps, setMuniProps] = useState<Record<string, number | string | null> | null>(null);
+  // Overlay de contornos (setores dissolvidos por bairro/distrito no backend).
+  const [showContours, setShowContours] = useState(false);
+  const [contourBairro, setContourBairro] = useState<FC | null>(null);
+  const [contourDistrito, setContourDistrito] = useState<FC | null>(null);
+  const [contoursLoading, setContoursLoading] = useState(false);
+  // Busca os contornos dissolvidos (backend/shapely) quando o overlay liga,
+  // por município. Cacheável pelo nginx; o browser não paga o dissolve.
+  useEffect(() => {
+    if (!showContours || view !== "municipio" || !muniProps?.cd_mun) return;
+    const cd = String(muniProps.cd_mun);
+    let cancelled = false;
+    setContoursLoading(true);
+    Promise.all([
+      api<FC>(`/v1/census/malha?cd_mun=${cd}&level=bairro&v=${CENSUS_V}`),
+      api<FC>(`/v1/census/malha?cd_mun=${cd}&level=distrito&v=${CENSUS_V}`),
+    ])
+      .then(([b, d]) => {
+        if (!cancelled) {
+          setContourBairro(b);
+          setContourDistrito(d);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setContourBairro(null);
+          setContourDistrito(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContoursLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showContours, view, muniProps?.cd_mun]);
   const [indicator, setIndicator] = useState<CensusIndicator>("populacao");
   // Malha (nível geográfico) da visão de município: setor (cru), distrito ou
   // bairro (cada setor colorido pelo agregado da área-pai). Dicionário ativo
@@ -1036,6 +1071,32 @@ export default function CensoPage() {
       {/* Mapa + painel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-3">
         <div className="lg:col-span-2 rounded-2xl overflow-hidden border border-border/60 ring-1 ring-white/5 shadow-2xl shadow-black/40 relative h-[52vh] sm:h-[58vh] lg:h-[62vh]">
+          {view === "municipio" && !loading && shownData && (
+            <div className="absolute top-2 left-2 z-[500] rounded-lg bg-black/75 backdrop-blur-md border border-white/10 px-2.5 py-1.5 text-[11px] text-white shadow-lg">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showContours}
+                  onChange={(e) => setShowContours(e.target.checked)}
+                  className="accent-sky-400"
+                />
+                <span className="inline-flex items-center gap-1">
+                  Contornos de bairro/distrito
+                  {contoursLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                </span>
+              </label>
+              {showContours && (
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-white/70">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-3 h-0.5 bg-sky-400 inline-block" /> bairro
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-3 border-t-2 border-dashed border-amber-400 inline-block" /> distrito
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
           {loading || !shownData ? (
             <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground gap-2 px-6 text-center">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -1057,6 +1118,8 @@ export default function CensoPage() {
               onSelect={view === "estado" ? openMunicipio : onSetorClick}
               focusIds={view === "municipio" ? focusIds : null}
               dataVersion={view === "municipio" ? effMalha : "estado"}
+              bairroContours={view === "municipio" && showContours ? contourBairro : null}
+              distritoContours={view === "municipio" && showContours ? contourDistrito : null}
             />
           )}
         </div>

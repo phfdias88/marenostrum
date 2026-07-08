@@ -116,6 +116,8 @@ export function CensusMap({
   onSelect,
   focusIds,
   dataVersion,
+  bairroContours,
+  distritoContours,
 }: {
   data: FC;
   indicator: CensusIndicator;
@@ -124,6 +126,9 @@ export function CensusMap({
   // Muda quando a MALHA muda (setor/distrito/bairro) com os MESMOS setores —
   // força recriar o layer (senão a repintura in-place lê as props antigas).
   dataVersion?: string;
+  // Contornos (setores dissolvidos) sobrepostos nas panes mn-bairros/mn-distritos.
+  bairroContours?: FC | null;
+  distritoContours?: FC | null;
 }) {
   const breaks = useMemo(
     () => computeBreaks(data.features.map((f) => f.properties[indicator] as number)),
@@ -269,6 +274,36 @@ export function CensusMap({
             });
           }}
         />
+
+        {/* Contorno de BAIRROS (setores dissolvidos) — pane mn-bairros (zIndex
+            420), acima dos setores; sem preenchimento, borda destacada. */}
+        {bairroContours && bairroContours.features.length > 0 && (
+          <GeoJSON
+            key={`bairro-${bairroContours.features.length}-${String(bairroContours.features[0]?.properties?.nome ?? "")}`}
+            data={bairroContours as unknown as GeoJSON.GeoJsonObject}
+            pane="mn-bairros"
+            style={{ fillOpacity: 0, weight: 1.8, color: "#38bdf8", opacity: 0.9 }}
+            onEachFeature={(f, layer) => {
+              const nome = (f.properties as { nome?: string } | null)?.nome;
+              if (nome) layer.bindTooltip(String(nome), { sticky: true, className: "mn-tip" });
+            }}
+          />
+        )}
+
+        {/* Contorno de DISTRITOS — pane mn-distritos (zIndex 430), no topo;
+            borda mais grossa e tracejada pra distinguir dos bairros. */}
+        {distritoContours && distritoContours.features.length > 0 && (
+          <GeoJSON
+            key={`distrito-${distritoContours.features.length}-${String(distritoContours.features[0]?.properties?.nome ?? "")}`}
+            data={distritoContours as unknown as GeoJSON.GeoJsonObject}
+            pane="mn-distritos"
+            style={{ fillOpacity: 0, weight: 3, color: "#f59e0b", opacity: 0.95, dashArray: "6 3" }}
+            onEachFeature={(f, layer) => {
+              const nome = (f.properties as { nome?: string } | null)?.nome;
+              if (nome) layer.bindTooltip("Distrito: " + String(nome), { sticky: true, className: "mn-tip" });
+            }}
+          />
+        )}
       </MapContainer>
 
       {/* Legenda */}
