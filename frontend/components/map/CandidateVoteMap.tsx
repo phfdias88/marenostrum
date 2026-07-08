@@ -13,12 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet.heat";
-import {
-  CircleMarker,
-  MapContainer,
-  Tooltip,
-  useMap,
-} from "react-leaflet";
+import { MapContainer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { Flame, MapPin } from "lucide-react";
 
@@ -78,42 +73,7 @@ export default function CandidateVoteMap({
         >
           <ThemedTileLayer />
 
-          {mode === "bubbles" &&
-            withCoords.map((r) => {
-              const pct = r.votes / maxVotes;
-              const radius = Math.max(6, Math.sqrt(pct) * 30);
-              const fillColor =
-                pct > 0.7
-                  ? "#dc2626"
-                  : pct > 0.4
-                    ? "#f97316"
-                    : pct > 0.15
-                      ? "#f0ad4e"
-                      : "#5cb85c";
-              return (
-                <CircleMarker
-                  key={r.municipality.id}
-                  center={[
-                    r.municipality.latitude as number,
-                    r.municipality.longitude as number,
-                  ]}
-                  radius={radius}
-                  pathOptions={{
-                    color: fillColor,
-                    fillColor,
-                    fillOpacity: 0.55,
-                    weight: 1.5,
-                  }}
-                >
-                  <Tooltip direction="top" offset={[0, -4]} className="mn-tip" opacity={1}>
-                    <span>
-                      {r.municipality.name}/{r.municipality.state} ·{" "}
-                      <b>{numberFmt.format(r.votes)}</b>
-                    </span>
-                  </Tooltip>
-                </CircleMarker>
-              );
-            })}
+          {mode === "bubbles" && <BubblesLayer points={withCoords} maxVotes={maxVotes} />}
 
           {mode === "heat" && <HeatLayer points={withCoords} maxVotes={maxVotes} />}
 
@@ -225,13 +185,57 @@ function AutoFit({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) return;
+    // animate:false — os pontos chegam por prop (ja carregados), entao o efeito
+    // roda no mount durante a init do mapa; sem isso o enquadramento e engolido
+    // e o mapa fica na visao default do Brasil (gotcha do Leaflet ja documentado).
     if (points.length === 1) {
-      map.setView(points[0], 11);
+      map.setView(points[0], 11, { animate: false });
       return;
     }
     const bounds = L.latLngBounds(points);
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12, animate: false });
   }, [points, map]);
+  return null;
+}
+
+// Bolhas como UMA camada imperativa de L.circleMarker (canvas), em vez de N
+// componentes React <CircleMarker> + <Tooltip>. Para presidente (ate ~5570
+// municipios) isso corta o custo de mount drasticamente.
+function BubblesLayer({
+  points,
+  maxVotes,
+}: {
+  points: TseCandidateResults["results"];
+  maxVotes: number;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    const group = L.layerGroup().addTo(map);
+    for (const r of points) {
+      const lat = r.municipality.latitude;
+      const lng = r.municipality.longitude;
+      if (lat == null || lng == null) continue;
+      const pct = r.votes / maxVotes;
+      const radius = Math.max(6, Math.sqrt(pct) * 30);
+      const fillColor =
+        pct > 0.7 ? "#dc2626" : pct > 0.4 ? "#f97316" : pct > 0.15 ? "#f0ad4e" : "#5cb85c";
+      const m = L.circleMarker([lat, lng], {
+        radius,
+        color: fillColor,
+        fillColor,
+        fillOpacity: 0.55,
+        weight: 1.5,
+      });
+      m.bindTooltip(
+        `${r.municipality.name}/${r.municipality.state} · <b>${numberFmt.format(r.votes)}</b>`,
+        { direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1 },
+      );
+      m.addTo(group);
+    }
+    return () => {
+      group.remove();
+    };
+  }, [points, maxVotes, map]);
   return null;
 }
 
