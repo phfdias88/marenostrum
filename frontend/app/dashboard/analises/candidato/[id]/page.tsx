@@ -41,6 +41,7 @@ import type {
   TseOpportunityResponse,
   TsePathToVictory,
 } from "@/lib/types";
+import { classifyResult, OUTCOME_LABEL } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -97,7 +98,14 @@ export default function CandidateDetailPage() {
     // Trajetória eleitoral — mesma pessoa em outras eleições (2014–2024)
     api<TseCandidateTrajectory>(`/v1/tse/candidates/${id}/trajectory`)
       .then((d) => { if (!cancelled) setTrajectory(d); })
-      .catch(() => { if (!cancelled) setTrajectory(null); });
+      .catch((e) => {
+        // Não engolir em silêncio: o painel "Outras eleições" some quando isto
+        // falha, então logamos pra não parecer "bug fantasma" (foi o que
+        // mascarou o caso 'André das Clínicas'). A ausência de painel em si é
+        // esperada só quando a pessoa tem 1 candidatura (items <= 1).
+        console.error("Falha ao carregar a trajetória do candidato:", e);
+        if (!cancelled) setTrajectory(null);
+      });
 
     api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`)
       .then((d) => { if (!cancelled) setData(d); })
@@ -1475,7 +1483,15 @@ function TrajectorySection({
   trajectory: TseCandidateTrajectory;
   currentId: string;
 }) {
-  const elected = (s: string | null) => (s ?? "").toUpperCase().startsWith("ELEITO");
+  // Cor por categoria de resultado (usa classifyResult — trata 2º turno,
+  // suplente, eleito por QP/média, não só o binário eleito/não).
+  const outcomeClass: Record<string, string> = {
+    elected: "bg-emerald-500/20 text-emerald-600",
+    runoff: "bg-blue-500/20 text-blue-500",
+    alternate: "bg-amber-400/15 text-amber-500",
+    not_elected: "bg-muted text-muted-foreground",
+    unknown: "bg-muted text-muted-foreground",
+  };
   return (
     <div className="mt-5 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
@@ -1484,7 +1500,7 @@ function TrajectorySection({
       <ol className="relative rounded-lg border bg-card divide-y divide-border overflow-hidden">
         {trajectory.items.map((t) => {
           const isCurrent = t.candidate_id === currentId;
-          const won = elected(t.result_status);
+          const outcome = classifyResult(t.result_status);
           const inner = (
             <>
               <span className="text-base font-bold tabular-nums w-12 shrink-0 text-primary">
@@ -1505,17 +1521,9 @@ function TrajectorySection({
                 </p>
               </div>
               <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                  won
-                    ? "bg-emerald-500/20 text-emerald-600"
-                    : "bg-muted text-muted-foreground"
-                }`}
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${outcomeClass[outcome]}`}
               >
-                {t.result_status
-                  ? won
-                    ? "ELEITO"
-                    : "NÃO ELEITO"
-                  : "—"}
+                {t.result_status ? OUTCOME_LABEL[outcome] : "—"}
               </span>
             </>
           );

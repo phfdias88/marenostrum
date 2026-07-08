@@ -9,7 +9,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
-from sqlalchemy import and_, case, func, select, text
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.utils.agg_cache import agg_get, agg_set
@@ -1165,9 +1165,10 @@ def candidate_results(
     response_model=CandidateTrajectoryResponse,
     summary="Trajetória eleitoral da pessoa (mesma pessoa em várias eleições)",
     description=(
-        "Encontra todas as candidaturas da MESMA pessoa (match por nome civil "
-        "completo, case/acento-insensível) ao longo das eleições disponíveis "
-        "(2014–2024), ordenadas do mais recente pro mais antigo. Permite ver a "
+        "Encontra todas as candidaturas da MESMA pessoa por identidade única — "
+        "CPF quando disponível (unifica quem muda de cargo/UF), com ponte por "
+        "nome civil + UF para os anos antigos sem CPF importado — ao longo das "
+        "eleições disponíveis, do mais recente pro mais antigo. Permite ver a "
         "evolução de cargo, partido e votos de um político ao longo de 10 anos."
     ),
 )
@@ -1180,17 +1181,39 @@ def candidate_trajectory(
     if base is None:
         raise NotFoundError("Candidato não encontrado")
 
-    # Match da MESMA pessoa. Preferência: CPF (ID único entre eleições/cargos/
-    # UFs) — unifica quem muda de cargo/estado (Bolsonaro 2014 RJ → 2018 RS →
-    # 2022 MA; Dilma presidente + senadora). Fallback p/ candidaturas sem CPF
-    # importado: nome civil + MESMA UF (evita fundir homônimos de outras UFs).
+    # Match da MESMA pessoa — mesma identidade do `group_person` da busca
+    # (ver list_candidates): coalesce(cpf, nome_unaccent + bucket de UF).
+    #
+    # CORREÇÃO (bug "André das Clínicas"): o CPF só é importado p/ 2014-2024;
+    # candidaturas mais antigas da mesma pessoa ficam com CPF nulo. O match
+    # antigo era EXCLUSIVO (só CPF quando havia CPF), então descartava essas
+    # linhas de CPF nulo e a trajetória colapsava p/ 1 item — e o front esconde
+    # o painel quando items <= 1. Agora, quando `base` tem CPF, casamos por CPF
+    # OU (linhas de CPF nulo com o mesmo nome civil + mesmo bucket de UF), o que
+    # recupera os anos antigos sem fundir homônimos de outras UFs.
+    #
+    # Bucket de UF: presidente (cargo 1) cai em "BR" (o TSE traz UF inconsistente
+    # p/ cargo nacional) — idêntico ao state_key do group_person.
+    base_state_key = "BR" if base.office_code == 1 else base.state
+    state_key_expr = case((Candidate.office_code == 1, "BR"), else_=Candidate.state)
+    name_norm_expr = func.coalesce(
+        Candidate.name_unaccent, func.lower(func.f_unaccent(Candidate.name))
+    )
+    base_name_norm = base.name_unaccent or func.lower(func.f_unaccent(base.name))
+    name_match = and_(
+        name_norm_expr == base_name_norm,
+        state_key_expr == base_state_key,
+    )
     if base.cpf:
-        match_where = Candidate.cpf == base.cpf
-    else:
-        match_where = and_(
-            func.lower(func.f_unaccent(Candidate.name)) == func.lower(func.f_unaccent(base.name)),
-            Candidate.state == base.state,
+        match_where = or_(
+            Candidate.cpf == base.cpf,
+            and_(
+                or_(Candidate.cpf.is_(None), Candidate.cpf == ""),
+                name_match,
+            ),
         )
+    else:
+        match_where = name_match
     stmt = (
         select(Candidate, Election, Party)
         .join(Election, Candidate.election_id == Election.id)
@@ -2187,6 +2210,13 @@ def candidate_by_neighborhood(
                 func.nullif(func.trim(TseVotingPlace.neighborhood), ""),
                 "(Sem bairro)",
             ).label("neighborhood"),
+            # Município na chave: sem isso, bairros homônimos de cidades
+            # diferentes (todo "Centro" do estado) se fundiam num só quando o
+            # endpoint era chamado sem `municipality_id` — caso de deputado
+            # estadual/federal. Agora a chave é (município, bairro).
+            TseVotingPlace.municipality_id.label("municipality_id"),
+            Municipality.name.label("municipality_name"),
+            Municipality.state.label("municipality_state"),
             func.sum(TseSectionVote.votes).label("votes"),
             func.count(TseVotingPlace.id).label("places_count"),
             func.coalesce(func.sum(TseVotingPlace.electors_total), 0).label(
@@ -2217,11 +2247,20 @@ def candidate_by_neighborhood(
             ).label("avg_lng"),
         )
         .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
         .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
     )
     if municipality_id is not None:
         stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
-    stmt = stmt.group_by("neighborhood").order_by(func.sum(TseSectionVote.votes).desc())
+    # Chave composta (município, bairro) — desambigua homônimos. Quando há
+    # filtro de município, o municipality_id na chave é redundante (1 só) e o
+    # resultado é idêntico ao de antes; sem filtro, separa cidade a cidade.
+    stmt = stmt.group_by(
+        TseVotingPlace.municipality_id,
+        Municipality.name,
+        Municipality.state,
+        "neighborhood",
+    ).order_by(func.sum(TseSectionVote.votes).desc())
 
     rows = db.execute(stmt).all()
 
@@ -2261,6 +2300,9 @@ def candidate_by_neighborhood(
         pop = pop_dom[0] if pop_dom else None
         items.append(CandidateByNeighborhoodItem(
             neighborhood=r.neighborhood,
+            municipality_id=r.municipality_id,
+            municipality_name=r.municipality_name,
+            municipality_state=r.municipality_state,
             votes=int(r.votes),
             places_count=int(r.places_count),
             electors_total=int(r.electors_total),
@@ -2676,6 +2718,108 @@ def tse_voting_places_lookup(
         }
         for p in rows
     ]
+
+
+@router.get(
+    "/voting-places/map",
+    summary="Locais de votação de um município (camada de marcadores no mapa)",
+    description=(
+        "Lista TODOS os locais de votação reais (base TSE) de um município, com "
+        "coordenadas, para desenhar uma camada de marcadores no mapa. Diferente "
+        "de `/voting-places` (que é limitado a 20 e serve o autocomplete do "
+        "cadastro), este retorna o conjunto completo (cap de segurança 3000). "
+        "Descarta pontos sem coordenada ou fora da bounding-box do Brasil."
+    ),
+)
+def tse_voting_places_map(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    year: int = Query(2024, ge=1994, le=2030),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    stmt = (
+        select(TseVotingPlace)
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+            TseVotingPlace.latitude.is_not(None),
+            TseVotingPlace.longitude.is_not(None),
+            # bounding-box do Brasil: alguns locais do TSE vêm com coordenada
+            # zerada/trocada e cairiam no Atlântico — fora daqui não viram pino.
+            TseVotingPlace.latitude.between(-34.0, 6.0),
+            TseVotingPlace.longitude.between(-74.0, -34.0),
+        )
+        .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+        .limit(3000)
+    )
+    rows = db.execute(stmt).scalars().all()
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "neighborhood": p.neighborhood,
+            "address": p.address,
+            "lat": float(p.latitude),
+            "lng": float(p.longitude),
+            "electors": p.electors_total,
+            "geo_source": p.geo_source,  # tse | centroid | nominatim
+        }
+        for p in rows
+    ]
+
+
+@router.get(
+    "/voting-places/unmapped",
+    summary="Locais de votação NÃO mapeados de um município",
+    description=(
+        "Lista os locais que ficaram SEM coordenada válida do TSE — os `unmapped` "
+        "(sem coordenada nenhuma) e os `centroid` (parkados no centro do município, "
+        "imprecisos). É a lista que o pipeline de enriquecimento (ViaCEP→Nominatim) "
+        "tenta recuperar. Traz também um resumo da contagem por origem (`geo_source`)."
+    ),
+)
+def tse_voting_places_unmapped(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    year: int = Query(2024, ge=1994, le=2030),
+    db: Session = Depends(get_db),
+) -> dict:
+    # Resumo por origem da coordenada.
+    summary_rows = db.execute(
+        select(TseVotingPlace.geo_source, func.count())
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+        )
+        .group_by(TseVotingPlace.geo_source)
+    ).all()
+    summary = {(g or "null"): int(n) for g, n in summary_rows}
+
+    # Lista dos problemáticos (sem coord + no centroide impreciso).
+    rows = db.execute(
+        select(TseVotingPlace)
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+            TseVotingPlace.geo_source.in_(["unmapped", "centroid"]),
+        )
+        .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+        .limit(2000)
+    ).scalars().all()
+    return {
+        "summary": summary,
+        "items": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "neighborhood": p.neighborhood,
+                "address": p.address,
+                "geo_source": p.geo_source,
+                "electors": p.electors_total,
+            }
+            for p in rows
+        ],
+    }
 
 
 @router.get(

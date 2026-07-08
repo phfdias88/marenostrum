@@ -541,6 +541,10 @@ export type TseCandidateZoneVotes = {
 
 export type TseCandidateByNeighborhoodItem = {
   neighborhood: string;
+  // Município do bairro — desambigua homônimos (todo "Centro" do estado).
+  municipality_id?: string | null;
+  municipality_name?: string | null;
+  municipality_state?: string | null;
   votes: number;
   places_count: number;
   electors_total: number;

@@ -11,7 +11,17 @@
  * Usa /tse/candidates/{id}/by-neighborhood?municipality_id=X.
  * Requer votacao_secao_<UF> sincronizado (so MG por enquanto; demais em import).
  */
-import { ArrowLeft, Loader2, MapPin, Search, Vote, X } from "lucide-react";
+import {
+  ArrowLeft,
+  BarChart3,
+  ChevronRight,
+  List,
+  Loader2,
+  MapPin,
+  Search,
+  Vote,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
@@ -28,10 +38,20 @@ import type {
 import { TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import type { VotingPlacePoint } from "@/components/map/CandidateNeighborhoodMap";
+import type { VotesBarItem } from "@/components/tse/VotesBarChart";
+import { UnmappedLocations } from "@/components/tse/UnmappedLocations";
 
 const CandidateNeighborhoodMap = dynamic(
   () => import("@/components/map/CandidateNeighborhoodMap"),
   { ssr: false, loading: () => <MapBox>Carregando mapa…</MapBox> },
+);
+
+// Recharts é pesado — carrega só no cliente, sob demanda (não entra no bundle
+// inicial nem no SSR).
+const VotesBarChart = dynamic(
+  () => import("@/components/tse/VotesBarChart").then((m) => m.VotesBarChart),
+  { ssr: false, loading: () => <ChartSkeleton /> },
 );
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -356,6 +376,13 @@ function NeighborhoodResult({
   const [data, setData] = useState<TseCandidateByNeighborhoodResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Painel analítico retrátil + camada de locais de votação.
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelView, setPanelView] = useState<"chart" | "ranking">("chart");
+  const [showPlaces, setShowPlaces] = useState(false);
+  const [places, setPlaces] = useState<VotingPlacePoint[] | null>(null);
+  const [placesLoading, setPlacesLoading] = useState(false);
+
   useEffect(() => {
     setLoading(true);
     api<TseCandidateByNeighborhoodResponse>(
@@ -366,7 +393,26 @@ function NeighborhoodResult({
       .finally(() => setLoading(false));
   }, [candidate.id, muni.id]);
 
+  // Locais de votação do município — busca uma vez, na primeira vez que ligam.
+  useEffect(() => {
+    if (!showPlaces || places !== null) return;
+    setPlacesLoading(true);
+    api<VotingPlacePoint[]>(`/v1/tse/voting-places/map?municipality_id=${muni.id}`)
+      .then(setPlaces)
+      .catch(() => setPlaces([]))
+      .finally(() => setPlacesLoading(false));
+  }, [showPlaces, places, muni.id]);
+
   const maxVotes = data?.items[0]?.votes ?? 1;
+
+  // Dados do gráfico de barras (Cenário B — votos por bairro; o município vem no
+  // sublabel para desambiguar homônimos, agora que o backend o devolve).
+  const chartItems: VotesBarItem[] = (data?.items ?? []).map((n, i) => ({
+    key: `${n.municipality_id ?? muni.id}-${n.neighborhood}-${i}`,
+    label: n.neighborhood,
+    sublabel: n.municipality_name ?? muni.name,
+    value: n.votes,
+  }));
 
   // Cruzamento Censo: "Oportunidade" = bairro no top 50% de população onde a
   // penetração do candidato está no quartil inferior DELE MESMO (regra por
@@ -460,10 +506,82 @@ function NeighborhoodResult({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Ranking bairros */}
-          <div className="lg:col-span-2">
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[60vh] overflow-auto">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Mapa (esquerda) — ocupa mais espaço quando o painel recolhe */}
+          <div className="flex-1 min-w-0">
+            <div className="h-[62vh] rounded-lg border border-border overflow-hidden">
+              <CandidateNeighborhoodMap
+                data={data}
+                votingPlaces={showPlaces ? places ?? undefined : undefined}
+              />
+            </div>
+          </div>
+
+          {/* Painel analítico (direita), retrátil */}
+          {!panelOpen ? (
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="shrink-0 self-start rounded-lg border bg-card px-2 py-3 text-muted-foreground hover:text-foreground hover:border-primary/40"
+              title="Abrir painel de análise"
+              aria-label="Abrir painel de análise"
+            >
+              <BarChart3 className="w-4 h-4" />
+            </button>
+          ) : (
+            <aside className="lg:w-[380px] shrink-0 rounded-lg border bg-card flex flex-col max-h-[62vh]">
+              <div className="p-3 border-b border-border space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold flex items-center gap-1.5">
+                    <BarChart3 className="w-4 h-4 text-primary" /> Análise de votos
+                  </span>
+                  <button
+                    onClick={() => setPanelOpen(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Recolher painel"
+                    title="Recolher painel"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="inline-flex rounded-md border border-border p-0.5 text-xs">
+                  <button
+                    onClick={() => setPanelView("chart")}
+                    className={`px-2.5 py-1 rounded transition-colors ${panelView === "chart" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 inline mr-1" /> Gráfico
+                  </button>
+                  <button
+                    onClick={() => setPanelView("ranking")}
+                    className={`px-2.5 py-1 rounded transition-colors ${panelView === "ranking" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <List className="w-3.5 h-3.5 inline mr-1" /> Ranking
+                  </button>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showPlaces}
+                    onChange={(e) => setShowPlaces(e.target.checked)}
+                    className="accent-blue-500"
+                  />
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" /> Locais de
+                    votação no mapa
+                    {placesLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </span>
+                </label>
+                <UnmappedLocations municipalityId={muni.id} />
+              </div>
+
+              <div className="p-3 overflow-auto">
+                {panelView === "chart" ? (
+                  <VotesBarChart
+                    items={chartItems}
+                    searchPlaceholder="Filtrar bairro…"
+                    unit="votos"
+                  />
+                ) : (
+                  <ul className="rounded-lg border bg-card divide-y divide-border">
               {data.items.map((n, i) => {
                 const pct = (n.votes / maxVotes) * 100;
                 return (
@@ -519,14 +637,11 @@ function NeighborhoodResult({
                   </li>
                 );
               })}
-            </ul>
-          </div>
-          {/* Mapa */}
-          <div className="lg:col-span-3">
-            <div className="h-[60vh] rounded-lg border border-border overflow-hidden">
-              <CandidateNeighborhoodMap data={data} />
-            </div>
-          </div>
+                  </ul>
+                )}
+              </div>
+            </aside>
+          )}
         </div>
       )}
     </div>
@@ -572,6 +687,14 @@ function MapBox({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full w-full grid place-items-center text-muted-foreground">
       {children}
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="h-[300px] grid place-items-center text-muted-foreground">
+      <Loader2 className="w-5 h-5 animate-spin" />
     </div>
   );
 }

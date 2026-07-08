@@ -18,7 +18,17 @@ TENANT_NAME="${TENANT_NAME:-MareNostrum Admin}"
 # Quando tiver dominio real (ex: marenostrum.com.br), troque aqui.
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@marenostrum.com.br}"
 ADMIN_NAME="${ADMIN_NAME:-Administrador}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-MudeEss@Senha123}"
+
+# SEGURANCA: em producao a senha TEM que ser passada explicitamente. Nada de
+# default versionado (qualquer um que le o repo saberia a senha do owner).
+if [ "${APP_ENV:-}" = "production" ] && [ -z "${ADMIN_PASSWORD:-}" ]; then
+    echo "ERRO: em producao defina ADMIN_PASSWORD explicitamente." >&2
+    echo "  Ex: ADMIN_PASSWORD='<senha-forte>' ./scripts/seed-admin.sh" >&2
+    exit 1
+fi
+# Fora de producao (dev/CI local), gera uma aleatoria se nao informada — nunca
+# uma senha fixa conhecida. Precisa de >=10 chars pra passar na politica.
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-Dev-$(head -c 9 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')9}"
 
 echo "==> Seed: tenant='${TENANT_SLUG}' admin='${ADMIN_EMAIL}'"
 

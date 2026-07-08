@@ -54,7 +54,7 @@ export const INDICATOR_LABEL: Record<CensusIndicator, string> = {
   media_moradores: "Moradores / domicílio",
   taxa_alfabetizacao: "Alfabetização 15+ (%)",
   pct_pretos_pardos: "Cor ou raça — pretos e pardos (%)",
-  renda_media: "Renda média domiciliar (R$, 2010)",
+  renda_media: "Renda dos responsáveis em domicílios particulares permanentes ocupados",
   pct_bolsa_familia: "Bolsa Família (% domicílios)",
   pct_cadunico: "CadÚnico (% domicílios)",
   pib_per_capita: "PIB per capita (R$, 2023)",

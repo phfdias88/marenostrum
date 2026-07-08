@@ -75,13 +75,18 @@ def census_uf_overview(
         text(
             "SELECT g.cd_mun, g.nm_mun, g.populacao, g.domicilios, g.geometry, "
             "       g.renda_media_domiciliar, g.renda_mediana_domiciliar, "
+            "       g.renda_media_resp_2022, g.renda_mediana_resp_2022, "
             "       g.pib_total, g.pib_per_capita, g.idhm, g.idhm_educacao, "
             "       g.idhm_longevidade, g.idhm_renda, "
             "       g.ideb_anos_iniciais, g.ideb_anos_finais, "
             "       g.dom_agua_rede, g.dom_agua_total, g.dom_esgoto_adequado, "
             "       g.dom_esgoto_total, g.dom_lixo_coletado, g.dom_lixo_total, "
             "       md.cadunico_familias, md.pbf_familias, md.anomes AS mds_anomes, "
-            "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana "
+            "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana, "
+            "       s.sexo_masculino, s.sexo_feminino, "
+            "       s.idade_0_4, s.idade_5_9, s.idade_10_14, s.idade_15_19, s.idade_20_24, "
+            "       s.idade_25_29, s.idade_30_39, s.idade_40_49, s.idade_50_59, "
+            "       s.idade_60_69, s.idade_70_mais "
             "FROM census_geo g "
             "LEFT JOIN LATERAL ("
             "  SELECT count(*) AS setores, "
@@ -90,7 +95,14 @@ def census_uf_overview(
             "         round(100*(coalesce(sum(raca_preta),0)+coalesce(sum(raca_parda),0))::numeric"
             "               / NULLIF(sum(populacao),0), 1) AS pct_pretos_pardos, "
             "         round(100*sum(populacao) FILTER (WHERE situacao='Urbana')::numeric"
-            "               / NULLIF(sum(populacao),0), 1) AS pct_urbana "
+            "               / NULLIF(sum(populacao),0), 1) AS pct_urbana, "
+            "         sum(sexo_masculino) AS sexo_masculino, sum(sexo_feminino) AS sexo_feminino, "
+            "         sum(idade_0_4) AS idade_0_4, sum(idade_5_9) AS idade_5_9, "
+            "         sum(idade_10_14) AS idade_10_14, sum(idade_15_19) AS idade_15_19, "
+            "         sum(idade_20_24) AS idade_20_24, sum(idade_25_29) AS idade_25_29, "
+            "         sum(idade_30_39) AS idade_30_39, sum(idade_40_49) AS idade_40_49, "
+            "         sum(idade_50_59) AS idade_50_59, sum(idade_60_69) AS idade_60_69, "
+            "         sum(idade_70_mais) AS idade_70_mais "
             "  FROM census_geo s WHERE s.level='setor' AND s.cd_mun = g.cd_mun"
             ") s ON true "
             # CadÚnico/Bolsa Família (MDS): último mês disponível por município.
@@ -124,13 +136,36 @@ def census_uf_overview(
             "pct_urbana": (
                 float(r["pct_urbana"]) if r["pct_urbana"] is not None else None
             ),
+            # Sexo + faixa etária (Censo 2022, agregado demografia). Contagens
+            # por município (soma dos setores). Onde não há setores ingeridos,
+            # vêm null.
+            "sexo_masculino": r["sexo_masculino"],
+            "sexo_feminino": r["sexo_feminino"],
+            "faixa_etaria": {
+                "0_4": r["idade_0_4"], "5_9": r["idade_5_9"], "10_14": r["idade_10_14"],
+                "15_19": r["idade_15_19"], "20_24": r["idade_20_24"],
+                "25_29": r["idade_25_29"], "30_39": r["idade_30_39"],
+                "40_49": r["idade_40_49"], "50_59": r["idade_50_59"],
+                "60_69": r["idade_60_69"], "70_mais": r["idade_70_mais"],
+            },
+            # Renda dos responsáveis (Censo 2022) — variável pedida pelo PO;
+            # fallback pra renda domiciliar 2010 se o município ainda não tiver
+            # o dado 2022 (ex: antes de rodar a ingestão nova).
             "renda_media": (
-                float(r["renda_media_domiciliar"])
-                if r["renda_media_domiciliar"] is not None else None
+                float(r["renda_media_resp_2022"])
+                if r["renda_media_resp_2022"] is not None
+                else (
+                    float(r["renda_media_domiciliar"])
+                    if r["renda_media_domiciliar"] is not None else None
+                )
             ),
             "renda_mediana": (
-                float(r["renda_mediana_domiciliar"])
-                if r["renda_mediana_domiciliar"] is not None else None
+                float(r["renda_mediana_resp_2022"])
+                if r["renda_mediana_resp_2022"] is not None
+                else (
+                    float(r["renda_mediana_domiciliar"])
+                    if r["renda_mediana_domiciliar"] is not None else None
+                )
             ),
             # CadÚnico / Bolsa Família (MDS) — contagens + % sobre domicílios
             # (comparável entre municípios de tamanhos diferentes).

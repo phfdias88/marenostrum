@@ -709,10 +709,19 @@ def _process_locais_votacao(
         lng = _to_float(row.get("NR_LONGITUDE"))
         # TSE manda -1,-1 (ou lixo) quando o local não tem coordenada — isso
         # jogava o local "no meio do Atlântico". Cai no centroide do município
-        # (cidade certa) em vez de uma coord inválida.
-        if not _coord_in_brazil(lat, lng):
+        # (cidade certa) em vez de uma coord inválida. `geo_source` marca a
+        # ORIGEM da coord (migration 050) pro pipeline de enriquecimento saber
+        # o que reprocessar e pra lista de "Não Mapeados".
+        if _coord_in_brazil(lat, lng):
+            geo_source = "tse"
+        else:
             centroid = muni_centroid_by_id.get(muni_id)
-            lat, lng = centroid if centroid else (None, None)
+            if centroid:
+                lat, lng = centroid
+                geo_source = "centroid"
+            else:
+                lat, lng = None, None
+                geo_source = "unmapped"
         places_acc[key] = {
             "id": uuid4(),
             "year": year,
@@ -723,6 +732,7 @@ def _process_locais_votacao(
             "neighborhood": _s(row.get("NM_BAIRRO"), 120) or None,
             "latitude": lat,
             "longitude": lng,
+            "geo_source": geo_source,
             "electors_total": electors,
         }
 

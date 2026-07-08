@@ -16,7 +16,6 @@ import "leaflet.heat";
 import {
   CircleMarker,
   MapContainer,
-  Marker,
   Tooltip,
   useMap,
 } from "react-leaflet";
@@ -30,13 +29,6 @@ const numberFmt = new Intl.NumberFormat("pt-BR");
 
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
 const DEFAULT_ZOOM = 4;
-
-const PULSE_ICON = L.divIcon({
-  className: "mn-pulse-marker",
-  html: '<div class="mn-pulse-wrap"><div class="mn-pulse-ring"></div><div class="mn-pulse-dot"></div></div>',
-  iconSize: [18, 18],
-  iconAnchor: [9, 9],
-});
 
 declare module "leaflet" {
   function heatLayer(
@@ -124,20 +116,6 @@ export default function CandidateVoteMap({
             })}
 
           {mode === "heat" && <HeatLayer points={withCoords} maxVotes={maxVotes} />}
-
-          {/* Pulse dourado nos top 3 */}
-          {top3.map((r) => (
-            <Marker
-              key={`pulse-${r.municipality.id}`}
-              position={[
-                r.municipality.latitude as number,
-                r.municipality.longitude as number,
-              ]}
-              icon={PULSE_ICON}
-              interactive={false}
-              keyboard={false}
-            />
-          ))}
 
           <AutoFit
             points={withCoords.map(

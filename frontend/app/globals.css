@@ -199,31 +199,6 @@
   animation: mn-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* ---- Pulsing marker (top municipios nos mapas) ---- */
-@keyframes mn-pulse-ring {
-  0%   { transform: scale(0.85); opacity: 0.85; }
-  100% { transform: scale(2.2);  opacity: 0; }
-}
-.mn-pulse-wrap {
-  position: relative;
-  width: 18px;
-  height: 18px;
-}
-.mn-pulse-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: hsl(42 70% 55% / 0.55);
-  animation: mn-pulse-ring 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-.mn-pulse-dot {
-  position: absolute;
-  inset: 4px;
-  border-radius: 999px;
-  background: hsl(42 70% 55%);
-  box-shadow: 0 0 0 2px hsl(0 0% 100% / 0.85), 0 2px 6px hsl(36 30% 8% / 0.5);
-}
-
 /* ---- Sonner toaster: empurra acima da BottomNav no mobile ---- */
 @media (max-width: 767px) {
   /* O container do sonner usa data-sonner-toaster. Forcamos o bottom

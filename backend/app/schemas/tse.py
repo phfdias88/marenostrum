@@ -104,6 +104,12 @@ class MunicipalityResultsResponse(BaseModel):
 class CandidateByNeighborhoodItem(BaseModel):
     """Linha de votos por bairro: nome + total + locais agregados + centroide."""
     neighborhood: str
+    # Município do bairro — SEMPRE presente para desambiguar bairros homônimos
+    # de cidades diferentes (ex: vários "Centro"). Essencial para cargos
+    # estaduais/federais consultados sem filtro de município.
+    municipality_id: UUID | None = None
+    municipality_name: str | None = None
+    municipality_state: str | None = None
     votes: int
     places_count: int
     electors_total: int

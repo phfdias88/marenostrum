@@ -11,9 +11,9 @@
  *    so os municipios do partido escolhido.
  *  - Imperative pan/zoom via `focusRequest` (chips UF na pagina pai).
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
-import { CircleMarker, MapContainer, Marker, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import type { TseWinnerMapPoint } from "@/lib/types";
@@ -33,13 +33,6 @@ const PARTY_COLOR: Record<number, string> = {
 
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
 
-const PULSE_ICON = L.divIcon({
-  className: "mn-pulse-marker",
-  html: '<div class="mn-pulse-wrap"><div class="mn-pulse-ring"></div><div class="mn-pulse-dot"></div></div>',
-  iconSize: [18, 18],
-  iconAnchor: [9, 9],
-});
-
 type Props = {
   points: TseWinnerMapPoint[];
   /** Quando setado, destaca so os municipios desse partido. */
@@ -49,12 +42,6 @@ type Props = {
 };
 
 export default function WinnersMap({ points, highlightedParty, focusRequest }: Props) {
-  // Top 3 municipios por votos pra pulsar
-  const top3 = useMemo(
-    () => [...points].sort((a, b) => b.votes - a.votes).slice(0, 3),
-    [points],
-  );
-
   return (
     <MapContainer
       center={DEFAULT_CENTER}
@@ -96,17 +83,6 @@ export default function WinnersMap({ points, highlightedParty, focusRequest }: P
           </CircleMarker>
         );
       })}
-
-      {/* Pulse dourado nos top 3 — chama atencao */}
-      {top3.map((p) => (
-        <Marker
-          key={`pulse-${p.municipality_id}`}
-          position={[p.lat, p.lng]}
-          icon={PULSE_ICON}
-          interactive={false}
-          keyboard={false}
-        />
-      ))}
 
       <FocusController req={focusRequest} />
     </MapContainer>

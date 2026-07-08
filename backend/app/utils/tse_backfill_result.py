@@ -41,18 +41,26 @@ def populate(db: Session) -> dict[str, int]:
         log.info("backfill_download", url=meta["url"])
         download_zip(meta["url"], zip_path)
 
-    # Extrai {sq: result_status} — dataset tem 1 linha por (cand, municipio),
-    # mas DS_SIT_TOT_TURNO e o mesmo pro candidato. Pega a primeira ocorrencia.
+    # Extrai {sq: result_status}. CUIDADO com 2º turno: um candidato que foi ao
+    # 2º turno tem linha de NR_TURNO=1 com DS_SIT_TOT_TURNO="2º TURNO" E linha de
+    # NR_TURNO=2 com o resultado FINAL (ELEITO / NÃO ELEITO). Pegar a "primeira
+    # ocorrência" gravava "2º TURNO" pro vencedor (Paes 2020, Crivella 2016
+    # apareciam como não eleitos). Priorizamos o MAIOR NR_TURNO por candidato.
     result_by_sq: dict[int, str] = {}
+    best_turno: dict[int, int] = {}
     rows_read = 0
     for _, row in iter_csv_rows(zip_path, name_contains="_BRASIL"):
         rows_read += 1
         sq = _i(row.get("SQ_CANDIDATO"))
-        if not sq or sq in result_by_sq:
+        if not sq:
             continue
+        turno = _i(row.get("NR_TURNO")) or 1
+        if sq in best_turno and best_turno[sq] >= turno:
+            continue  # já temos um turno igual/maior (o 2º turno vence o 1º)
         rs = _s(row.get("DS_SIT_TOT_TURNO"), 40)
         if rs:
             result_by_sq[sq] = rs
+            best_turno[sq] = turno
         if rows_read % 200_000 == 0:
             log.info("backfill_read", rows=rows_read, unique=len(result_by_sq))
 

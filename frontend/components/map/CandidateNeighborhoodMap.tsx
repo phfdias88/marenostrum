@@ -24,10 +24,22 @@ import { ThemedTileLayer } from "./ThemedTileLayer";
 const numberFmt = new Intl.NumberFormat("pt-BR");
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
 
+export type VotingPlacePoint = {
+  id: string;
+  name: string;
+  neighborhood: string | null;
+  lat: number;
+  lng: number;
+  electors: number | null;
+};
+
 export default function CandidateNeighborhoodMap({
   data,
+  votingPlaces,
 }: {
   data: TseCandidateByNeighborhoodResponse;
+  /** Camada opcional de locais de votação (marcadores discretos). */
+  votingPlaces?: VotingPlacePoint[];
 }) {
   const withCoords = useMemo(
     () => data.items.filter((i) => i.avg_lat != null && i.avg_lng != null),
@@ -97,6 +109,41 @@ export default function CandidateNeighborhoodMap({
             );
           })}
 
+          {/* Camada de locais de votação (marcadores pequenos, azuis) */}
+          {(votingPlaces ?? []).map((vp) => (
+            <CircleMarker
+              key={vp.id}
+              center={[vp.lat, vp.lng]}
+              radius={3.5}
+              pathOptions={{
+                color: "#1d4ed8",
+                fillColor: "#3b82f6",
+                fillOpacity: 0.9,
+                weight: 1,
+              }}
+            >
+              <Tooltip direction="top" offset={[0, -2]} className="mn-tip" opacity={1}>
+                <span>
+                  📍 {vp.name}
+                  {vp.neighborhood ? ` · ${vp.neighborhood}` : ""}
+                </span>
+              </Tooltip>
+              <Popup>
+                <div className="text-sm">
+                  <p className="font-semibold">{vp.name}</p>
+                  {vp.neighborhood && (
+                    <p className="text-xs text-muted-foreground">{vp.neighborhood}</p>
+                  )}
+                  {vp.electors != null && vp.electors > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {numberFmt.format(vp.electors)} eleitores
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </CircleMarker>
+          ))}
+
           <AutoFit
             points={withCoords.map(
               (r) => [r.avg_lat as number, r.avg_lng as number] as [number, number],
@@ -111,6 +158,12 @@ export default function CandidateNeighborhoodMap({
           {missing > 0 && (
             <span className="ml-2 text-amber-500">
               · {numberFmt.format(missing)} sem coordenadas
+            </span>
+          )}
+          {votingPlaces && votingPlaces.length > 0 && (
+            <span className="ml-2 inline-flex items-center gap-1 text-blue-500">
+              · <span className="w-2 h-2 rounded-full bg-blue-500" />
+              {numberFmt.format(votingPlaces.length)} locais de votação
             </span>
           )}
         </span>

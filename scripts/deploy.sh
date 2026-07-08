@@ -38,6 +38,10 @@ docker compose build --pull
 echo "==> [4/5] Subindo stack..."
 docker compose up -d --remove-orphans
 
+echo "==> Limpando imagens dangling e build cache (reclaim de disco)..."
+docker image prune -f || true
+docker builder prune -f || true
+
 echo "==> [5/5] Aguardando health da API..."
 for i in {1..30}; do
     if curl -fsS http://localhost/api/health >/dev/null 2>&1; then

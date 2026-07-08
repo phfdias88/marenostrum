@@ -77,14 +77,14 @@ def test_webhook_accepts_secret_via_header(client, tenant_a_with_secret):
     assert r.json()["status"] == "received"
 
 
-def test_webhook_accepts_secret_via_query_param(client, tenant_a_with_secret):
-    """Fallback: alguns provedores nao deixam custom header."""
+def test_webhook_rejects_secret_via_query_param(client, tenant_a_with_secret):
+    """Secret via query string NAO autentica mais (vazava no access log)."""
     tenant, _, _ = tenant_a_with_secret
     r = client.post(
         f"/api/v1/webhooks/botconversa/{tenant.id}?secret={SECRET_A}",
         json=_payload(phone="(32) 99999-1111"),
     )
-    assert r.status_code == 200
+    assert r.status_code == 401
 
 
 def test_webhook_unknown_tenant_returns_404(client, tenant_a_with_secret):

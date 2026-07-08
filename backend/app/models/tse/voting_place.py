@@ -45,6 +45,13 @@ class TseVotingPlace(Base, TimestampMixin):
     # Total de eleitores aptos a votar no local (soma das secoes)
     electors_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
+    # Origem/precisao da coordenada (migration 050):
+    #   'tse'       coord real do TSE
+    #   'centroid'  fallback no centro do municipio (impreciso)
+    #   'nominatim' recuperada via ViaCEP -> Nominatim (pipeline de enriquecimento)
+    #   'unmapped'  sem coordenada (cai na lista de "Nao Mapeados")
+    geo_source: Mapped[str | None] = mapped_column(String(12), nullable=True)
+
     __table_args__ = (
         # Unique composto: mesmo numero pode existir em municipios/anos diferentes
         Index(

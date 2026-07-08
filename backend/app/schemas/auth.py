@@ -3,13 +3,53 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+# ---------------------------------------------------------------------------
+# Politica de senha (aplicada a senhas NOVAS: troca e definicao pelo admin).
+# Nao se aplica ao LOGIN — la aceitamos qualquer coisa pra nao vazar a politica
+# nem travar quem ja tem senha antiga.
+# ---------------------------------------------------------------------------
+PASSWORD_MIN_LENGTH = 10
+
+# Senhas obvias barradas independentemente do tamanho. Inclui as que ja
+# vazaram em defaults/exemplos do proprio projeto.
+_PASSWORD_DENYLIST = {
+    "senha123456", "1234567890", "12345678", "123456789", "senha12345",
+    "password", "password1", "qwertyuiop", "mudeess@senha123",
+    "senhab@123456", "marenostrum", "eleitoai", "admin12345",
+}
+# Substrings que, se dominarem a senha, indicam senha fraca/previsivel.
+_PASSWORD_WEAK_SUBSTRINGS = ("marenostrum", "eleitoai")
+
+
+def validate_password_strength(value: str) -> str:
+    """
+    Regras minimas p/ senha nova. Levanta ValueError (Pydantic -> 422) com
+    mensagem amigavel em PT-BR quando reprovada.
+    """
+    v = (value or "").strip()
+    if len(v) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"A senha deve ter pelo menos {PASSWORD_MIN_LENGTH} caracteres.")
+    low = v.lower()
+    if low in _PASSWORD_DENYLIST:
+        raise ValueError("Essa senha é muito comum. Escolha uma senha mais forte.")
+    if low.isdigit():
+        raise ValueError("A senha não pode ser só números.")
+    if any(s in low for s in _PASSWORD_WEAK_SUBSTRINGS):
+        raise ValueError("A senha não pode conter o nome do sistema.")
+    return v
 
 
 class ChangePasswordRequest(BaseModel):
     """Troca de senha pelo próprio usuário autenticado."""
     current_password: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class LoginRequest(BaseModel):
@@ -22,7 +62,7 @@ class LoginRequest(BaseModel):
             "example": {
                 "tenant_slug": "marenostrum-admin",
                 "email": "admin@marenostrum.com.br",
-                "password": "MudeEss@Senha123",
+                "password": "sua-senha-aqui",
             }
         }
     )
@@ -134,8 +174,13 @@ class ChangeRoleRequest(BaseModel):
 
 
 class SetPasswordRequest(BaseModel):
-    """Admin define uma senha específica pra um membro (mín. 8 caracteres)."""
-    password: str = Field(..., min_length=8, max_length=128)
+    """Admin define uma senha específica pra um membro."""
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class CreateUserRequest(BaseModel):

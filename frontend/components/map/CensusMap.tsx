@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import L from "leaflet";
-import { GeoJSON, MapContainer, useMap } from "react-leaflet";
+import { GeoJSON, MapContainer, Pane, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { ThemedTileLayer } from "./ThemedTileLayer";
@@ -141,7 +141,10 @@ export function CensusMap({
     fillColor: colorFor(v, breaks),
     weight: 0.6,
     color: "#7a5b1e",
-    fillOpacity: v == null ? 0.55 : 0.86,
+    // Semi-transparente: deixa o mapa-base (ruas/rótulos) aparecer sob o
+    // choropleth e não "esconde" o que estiver embaixo. O realce de
+    // hover/clique sobe pra ~0.92 pra manter o contraste na interação.
+    fillOpacity: v == null ? 0.45 : 0.72,
   });
   // refs: handlers de evento e FocusController leem sempre o estado ATUAL
   // (sem stale-closure — os layers não são recriados na troca de indicador).
@@ -204,6 +207,14 @@ export function CensusMap({
         preferCanvas
       >
         <ThemedTileLayer />
+        {/* Panes ordenados (zIndex) — força a ordem das camadas por cima do
+            tilePane (200). Hoje só a malha de setores existe; as bandas 420/430
+            ficam RESERVADAS para, quando houver, sobrepor contornos de bairro e
+            distrito (fillOpacity 0, bordas grossas) sem que os setores os
+            escondam. É a infraestrutura de MapPanes pedida. */}
+        <Pane name="mn-setores" style={{ zIndex: 410 }} />
+        <Pane name="mn-bairros" style={{ zIndex: 420 }} />
+        <Pane name="mn-distritos" style={{ zIndex: 430 }} />
         <FitBounds data={data} />
         <FocusController
           focusIds={focusIds}
@@ -214,6 +225,7 @@ export function CensusMap({
         <GeoJSON
           key={key}
           ref={geoRef as never}
+          pane="mn-setores"
           data={data as unknown as GeoJSON.GeoJsonObject}
           style={(feature) => baseStyle((feature?.properties?.[indicator] ?? null) as number | null)}
           onEachFeature={(feature, layer) => {
