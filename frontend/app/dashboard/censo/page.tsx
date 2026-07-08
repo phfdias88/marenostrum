@@ -273,7 +273,15 @@ export default function CensoPage() {
   // Malha (nível geográfico) da visão de município: setor (cru), distrito ou
   // bairro (cada setor colorido pelo agregado da área-pai). Dicionário ativo
   // no seletor de variáveis.
-  const [malha, setMalha] = useState<Malha>("setor");
+  // Default = bairro (malha dissolvida, poucos polígonos, RÁPIDO). O setor
+  // (até ~13k polígonos → trava o browser em cidade grande) vira opt-in: o
+  // usuário escolhe o detalhe quando quer, sabendo do custo.
+  const [malha, setMalha] = useState<Malha>("bairro");
+  // Geometria DISSOLVIDA (contornos de bairro/distrito) — poucos polígonos.
+  // Usada como fill do mapa quando a malha ≠ setor, no lugar de recolorir os
+  // 13k setores (que travava). O dissolve roda no backend (shapely) e é cacheado.
+  const [malhaGeo, setMalhaGeo] = useState<FC | null>(null);
+  const [malhaLoading, setMalhaLoading] = useState(false);
   const [selectedDict, setSelectedDict] = useState<string>("dominios");
   const [sel, setSel] = useState<Record<string, number | string | null> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -454,6 +462,13 @@ export default function CensoPage() {
     setBairroQuery("");
   }
 
+  // Clique no mapa (dentro do município): setor → detalhe do setor; polígono de
+  // área dissolvida (bairro/distrito, sem cd_setor) → seleciona a área inteira.
+  function onMapSelect(props: Record<string, number | string | null>) {
+    if (props.cd_setor != null) onSetorClick(props);
+    else openArea(String(props.nome ?? props.nm_mun ?? "—"));
+  }
+
   // ---- Navegação hierárquica: Setor → Bairro/Distrito → Município → Estado.
   // A "pilha" é derivada dos estados (sel ⊂ selArea ⊂ município ⊂ estado),
   // então breadcrumb, painel e destaque do mapa nunca dessincronizam.
@@ -580,6 +595,27 @@ export default function CensoPage() {
       ? String(p.nm_dist || "—")
       : String(p.nm_bairro || p.nm_dist || "—");
   const areaKind = effMalha === "distrito" || !hasBairros ? "Distritos" : "Bairros";
+
+  // Busca a geometria DISSOLVIDA da malha atual (bairro/distrito) — cacheada no
+  // backend (shapely). Só quando estamos num município e a malha ≠ setor.
+  useEffect(() => {
+    if (view !== "municipio" || effMalha === "setor" || !muniProps?.cd_mun) {
+      setMalhaGeo(null);
+      setMalhaLoading(false);
+      return;
+    }
+    const cd = String(muniProps.cd_mun);
+    let cancelled = false;
+    setMalhaGeo(null);
+    setMalhaLoading(true);
+    api<FC>(`/v1/census/malha?cd_mun=${cd}&level=${effMalha}&v=${CENSUS_V}`)
+      .then((fc) => { if (!cancelled) setMalhaGeo(fc); })
+      .catch(() => { if (!cancelled) setMalhaGeo(null); })
+      .finally(() => { if (!cancelled) setMalhaLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, effMalha, muniProps?.cd_mun]);
+
   const areasAgg = (() => {
     if (view !== "municipio" || !setores) return [];
     // "Regra da sensibilidade" centralizada em lib/censusAggregate:
@@ -612,11 +648,12 @@ export default function CensoPage() {
           .slice(0, 12)
       : [];
 
-  // Malha distrito/bairro: cada setor é colorido pelo AGREGADO da área-pai
-  // (efeito visual de "malha por bairro" sem dissolver geometria — sem PostGIS).
-  // Sobrescreve os 6 indicadores de cada setor com o valor da sua área.
-  const displayData = useMemo<FC | null>(() => {
-    if (view !== "municipio" || effMalha === "setor" || !setores) return setores;
+  // Agregação por área (nome do bairro/distrito → indicadores). MESMA regra de
+  // sensibilidade do lib/censusAggregate (absolutos somam; taxas ponderadas).
+  // Reusada pra colorir os polígonos DISSOLVIDOS — sem duplicar fórmula no back.
+  const areaAggByName = useMemo(() => {
+    const m = new Map<string, Record<string, number | null>>();
+    if (view !== "municipio" || effMalha === "setor" || !setores) return m;
     const groupOf = (p: Record<string, number | string | null>) =>
       effMalha === "distrito"
         ? String(p.nm_dist || "—")
@@ -625,9 +662,8 @@ export default function CensoPage() {
       ...f.properties,
       area_key: groupOf(f.properties),
     }));
-    const byArea = new Map<string, Record<string, number | null>>();
     for (const g of aggregateCensusData(rows, "area_key")) {
-      byArea.set(g.key, {
+      m.set(g.key, {
         populacao: g.sums.populacao ?? null,
         domicilios: g.sums.domicilios ?? null,
         densidade_hab_km2: g.derived.densidade_hab_km2 ?? null,
@@ -638,19 +674,33 @@ export default function CensoPage() {
         pct_60mais: g.averages.pct_60mais ?? null,
       });
     }
-    return {
-      type: "FeatureCollection",
-      features: setores.features.map((f) => ({
-        ...f,
-        properties: { ...f.properties, ...(byArea.get(groupOf(f.properties)) ?? {}) },
-      })),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return m;
   }, [view, effMalha, setores]);
 
-  // O que de fato vai pro mapa: agregado por malha (distrito/bairro) ou setor cru.
+  // Malha bairro/distrito: os POUCOS polígonos dissolvidos (do /census/malha)
+  // preenchidos com o agregado da área — em vez de recolorir 13k setores (que
+  // travava o browser). `nome` vira nm_mun p/ o tooltip do CensusMap.
+  const dissolvedData = useMemo<FC | null>(() => {
+    if (view !== "municipio" || effMalha === "setor" || !malhaGeo) return null;
+    return {
+      type: "FeatureCollection",
+      features: malhaGeo.features.map((f) => {
+        const nome = String((f.properties as Record<string, unknown> | null)?.nome ?? "—");
+        return {
+          ...f,
+          properties: { ...f.properties, ...(areaAggByName.get(nome) ?? {}), nm_mun: nome },
+        };
+      }),
+    };
+  }, [view, effMalha, malhaGeo, areaAggByName]);
+
+  // O que vai pro mapa: malha dissolvida (bairro/distrito) ou setor cru. Enquanto
+  // a malha carrega, shownData=null → a UI mostra loading (sem freeze); se falhar,
+  // cai pros setores (mapData) pra não ficar preso.
   const shownData =
-    view === "municipio" && effMalha !== "setor" && displayData ? displayData : mapData;
+    view === "municipio" && effMalha !== "setor"
+      ? dissolvedData ?? (malhaLoading ? null : mapData)
+      : mapData;
 
   // Destaques automáticos do município (insights prontos pra campanha).
   const destaques = (() => {
@@ -1115,7 +1165,7 @@ export default function CensoPage() {
             <CensusMap
               data={shownData}
               indicator={mapIndicator}
-              onSelect={view === "estado" ? openMunicipio : onSetorClick}
+              onSelect={view === "estado" ? openMunicipio : onMapSelect}
               focusIds={view === "municipio" ? focusIds : null}
               dataVersion={view === "municipio" ? effMalha : "estado"}
               bairroContours={view === "municipio" && showContours ? contourBairro : null}

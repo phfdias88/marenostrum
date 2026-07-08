@@ -376,10 +376,15 @@ def census_malha(
     except ImportError:  # pragma: no cover
         raise HTTPException(status_code=503, detail="Geometria indisponível (shapely).")
 
-    name_col = "nm_bairro" if level == "bairro" else "nm_dist"
+    # Nome da área. Para bairro, cai pro distrito quando o setor não tem bairro
+    # mapeado — MESMA chave que o frontend usa (nm_bairro || nm_dist), pra os
+    # polígonos dissolvidos casarem com o agregado calculado no front.
+    name_expr = (
+        "COALESCE(NULLIF(nm_bairro, ''), nm_dist)" if level == "bairro" else "nm_dist"
+    )
     rows = db.execute(
         text(
-            f"SELECT {name_col} AS nome, geometry, populacao "
+            f"SELECT {name_expr} AS nome, geometry, populacao "
             "FROM census_geo WHERE cd_mun = :m AND level='setor' "
             "AND geometry IS NOT NULL ORDER BY nome"
         ),
