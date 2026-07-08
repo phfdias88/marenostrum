@@ -633,18 +633,33 @@ export default function CensoPage() {
       alfab: (g.sums.pop_15mais ?? 0) > 0
         ? Number((((g.sums.alfabetizados_15mais ?? 0) / g.sums.pop_15mais!) * 100).toFixed(1))
         : null,
+      // Valor do indicador ATUAL do mapa (mesma agregação que colore os
+      // polígonos) — pra o ranking acompanhar o indicador, não fixar em pop.
+      val:
+        mapIndicator === "domicilios" ? (g.sums.domicilios ?? 0)
+          : mapIndicator === "densidade_hab_km2" ? (g.derived.densidade_hab_km2 ?? 0)
+            : mapIndicator === "media_moradores" ? (g.averages.media_moradores ?? 0)
+              : mapIndicator === "taxa_alfabetizacao" ? (g.averages.taxa_alfabetizacao ?? 0)
+                : mapIndicator === "pct_pretos_pardos" ? (g.averages.pct_pretos_pardos ?? 0)
+                  : mapIndicator === "pct_feminino" ? (g.averages.pct_feminino ?? 0)
+                    : mapIndicator === "pct_60mais" ? (g.averages.pct_60mais ?? 0)
+                      : (g.sums.populacao ?? 0),
     }));
   })();
-  const topAreas = areasAgg.slice(0, 12);
-  // Em modo SETOR o ranking lista os próprios setores por população (a malha do
-  // mapa é o setor) — antes ficava preso nos bairros. Setor não tem nome, então
-  // rotulamos com o bairro/distrito-pai + o final do código.
+  // Ranking de áreas pelo MESMO indicador do mapa (não fixo em população).
+  const topAreas = [...areasAgg]
+    .filter((a) => (a.val ?? 0) > 0)
+    .sort((a, b) => (b.val ?? 0) - (a.val ?? 0))
+    .slice(0, 12);
+  // Em modo SETOR o ranking lista os próprios setores pelo indicador do mapa
+  // (antes: fixo em população). Setor não tem nome, então rotulamos com o
+  // bairro/distrito-pai + o final do código.
   const topSetores =
     view === "municipio" && setores && effMalha === "setor"
       ? [...setores.features]
-          .map((f) => ({ props: f.properties, pop: Number(f.properties.populacao ?? 0) }))
-          .filter((s) => s.pop > 0)
-          .sort((a, b) => b.pop - a.pop)
+          .map((f) => ({ props: f.properties, val: Number(f.properties[mapIndicator] ?? 0) }))
+          .filter((s) => s.val > 0)
+          .sort((a, b) => b.val - a.val)
           .slice(0, 12)
       : [];
 
@@ -1349,13 +1364,13 @@ export default function CensoPage() {
                 <span className="text-foreground font-medium">{String(muniProps?.nm_mun ?? "")}</span>
               </nav>
               <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5" /> {effMalha === "setor" ? "Setores" : areaKind} por população
+                <Layers className="w-3.5 h-3.5" /> {effMalha === "setor" ? "Setores" : areaKind} por {indicatorShortLabel(mapIndicator)}
               </p>
               {effMalha === "setor" ? (
                 topSetores.length > 0 ? (
                   <ul className="space-y-2">
                     {topSetores.map((s, i) => {
-                      const max = topSetores[0]?.pop || 1;
+                      const max = topSetores[0]?.val || 1;
                       const parent = prettyName(String(s.props.nm_bairro || s.props.nm_dist || ""));
                       const code = String(s.props.cd_setor ?? "").slice(-3);
                       return (
@@ -1367,13 +1382,13 @@ export default function CensoPage() {
                                 {parent ? `${parent} · setor ${code}` : `Setor ${code}`}
                               </span>
                               <span className="font-mono text-xs shrink-0 tabular-nums">
-                                {numberFmt.format(s.pop)}
+                                {INDICATOR_FMT[mapIndicator](s.val)}
                               </span>
                             </div>
                             <div className="mt-1.5 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
                               <div
                                 className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 shadow-[0_0_10px_rgba(232,200,121,0.4)] transition-[width] duration-500"
-                                style={{ width: `${(s.pop / max) * 100}%` }}
+                                style={{ width: `${(s.val / max) * 100}%` }}
                               />
                             </div>
                           </button>
@@ -1387,7 +1402,7 @@ export default function CensoPage() {
               ) : topAreas.length > 0 ? (
                 <ul className="space-y-2">
                   {topAreas.map((d, i) => {
-                    const max = topAreas[0]?.pop || 1;
+                    const max = topAreas[0]?.val || 1;
                     return (
                       <li key={d.nome}>
                         <button onClick={() => openArea(d.nome)} className="w-full text-left group">
@@ -1397,13 +1412,13 @@ export default function CensoPage() {
                               {prettyName(d.nome)}
                             </span>
                             <span className="font-mono text-xs shrink-0 tabular-nums">
-                              {numberFmt.format(d.pop)}
+                              {INDICATOR_FMT[mapIndicator](d.val)}
                             </span>
                           </div>
                           <div className="mt-1.5 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
                             <div
                               className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500 shadow-[0_0_10px_rgba(232,200,121,0.4)] transition-[width] duration-500"
-                              style={{ width: `${(d.pop / max) * 100}%` }}
+                              style={{ width: `${(d.val / max) * 100}%` }}
                             />
                           </div>
                           <p className="text-[10px] text-muted-foreground mt-0.5">{d.setores} setores</p>
