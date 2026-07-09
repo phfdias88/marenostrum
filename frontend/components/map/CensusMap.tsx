@@ -261,7 +261,10 @@ export function CensusMap({
           onEachFeature={(feature, layer) => {
             const p = feature.properties as Record<string, number | string | null>;
             const path = layer as L.Path;
-            const regKey = String(p.cd_setor ?? p.cd_mun ?? "");
+            // Registra por cd_setor (modo setor) OU por nome (modo dissolvido:
+            // 1 polígono por bairro/distrito, sem cd_setor) — assim o
+            // FocusController acha a camada e o mapa VOA até o bairro na busca.
+            const regKey = String(p.cd_setor ?? p.nome ?? p.cd_mun ?? "");
             if (regKey) layerReg.current.set(regKey, path);
             // Valor do indicador ATUAL (via ref — o layer sobrevive à troca).
             const curV = () => (p[indicatorRef.current] ?? null) as number | null;

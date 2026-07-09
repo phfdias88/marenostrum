@@ -70,6 +70,24 @@ def _round_geom(geom, nd: int = 5):
     return {**geom, "coordinates": _round_coords(geom["coordinates"], nd)}
 
 
+def _clean_dissolved(geom, min_area: float = 1e-7):
+    """Remove aneis internos (holes) e partes minusculas (slivers) que a uniao de
+    setores deixa por vertices nao-coincidentes — sao eles que viram 'demarcacoes'
+    internas no mapa. Mantem enclaves/ilhas reais (area >> min_area). Nunca vazio."""
+    from shapely.geometry import MultiPolygon, Polygon
+    def clean_poly(poly):
+        holes = [r for r in poly.interiors if Polygon(r).area >= min_area]
+        return Polygon(poly.exterior, holes) if len(holes) != len(poly.interiors) else poly
+    if geom.geom_type == "Polygon":
+        return clean_poly(geom)
+    if geom.geom_type == "MultiPolygon":
+        parts = [clean_poly(p) for p in geom.geoms if p.area >= min_area]
+        if not parts:  # tudo minusculo: preserva a maior parte, nunca retorna vazio
+            return clean_poly(max(geom.geoms, key=lambda p: p.area))
+        return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+    return geom
+
+
 @router.get(
     "/municipalities",
     summary="Municípios com dados censitários disponíveis",
@@ -401,6 +419,12 @@ def census_setores(
                     and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
                     else None
                 ),
+                "sexo_masculino": r["sexo_masculino"],
+                "sexo_feminino": r["sexo_feminino"],
+                "idade_60mais": (
+                    (r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0)
+                    if (r["idade_60_69"] is not None or r["idade_70_mais"] is not None) else None
+                ),
                 # Renda dos responsáveis POR SETOR (Censo 2022, ingest
                 # ingest_census_renda_setor.py + migration 055). `responsaveis`
                 # é o PESO da média ponderada na agregação por bairro/distrito
@@ -529,10 +553,19 @@ def census_malha(
         except Exception:
             continue
 
+    # set_precision (shapely>=2) snapa vertices num grid ~0.1m: arestas
+    # compartilhadas passam a coincidir e a uniao dissolve limpo. Sem ele, cai
+    # no fallback (so limpeza de holes/slivers pos-uniao).
+    try:
+        from shapely import set_precision as _set_precision
+    except Exception:
+        _set_precision = None
+
     features = []
     for nome, geoms in groups.items():
         try:
-            merged = unary_union(geoms)
+            gs = [_set_precision(g, 1e-6) for g in geoms] if _set_precision else geoms
+            merged = _clean_dissolved(unary_union(gs))
         except Exception:
             continue
         features.append({

@@ -30,6 +30,12 @@ export const SUM_COLS = [
   "raca_amarela",
   "raca_parda",
   "raca_indigena",
+  // Sexo + idade absolutos (Censo 2022) — pra o painel de bairro poder mostrar
+  // nº absoluto de mulheres / 60+ (toggle %↔nº do painel). O /setores expõe
+  // idade_60mais já somado (60-69 + 70+).
+  "sexo_masculino",
+  "sexo_feminino",
+  "idade_60mais",
 ] as const;
 
 /**

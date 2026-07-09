@@ -298,6 +298,9 @@ export default function CensoPage() {
   // Marca se o usuário escolheu a malha MANUALMENTE (clique no seletor ou
   // deep-link ?malha=). Enquanto false, o default segue o adaptativo acima.
   const userPickedMalha = useRef(false);
+  // Toggle do painel de detalhe: mostra a composição (cor/raça, sexo/idade) em
+  // PORCENTAGEM ou em NÚMERO ABSOLUTO de pessoas (pedido do PO).
+  const [valueMode, setValueMode] = useState<"pct" | "abs">("pct");
   // Geometria DISSOLVIDA (contornos de bairro/distrito) — poucos polígonos.
   // Usada como fill do mapa quando a malha ≠ setor, no lugar de recolorir os
   // 13k setores (que travava). O dissolve roda no backend (shapely) e é cacheado.
@@ -328,9 +331,14 @@ export default function CensoPage() {
     nome: string; kind: string; pop: number; dom: number; setores: number;
     area: number; dens: number | null; media: number | null;
     alfab: number | null; pp: number | null;
-    // Cor/raça DESAGREGADA (Censo 2022, pedido do PO) — % ponderada por população.
+    // Cor/raça DESAGREGADA (Censo 2022, pedido do PO) — % ponderada + nº absoluto.
     branca: number | null; preta: number | null; parda: number | null;
     amarela: number | null; indigena: number | null;
+    nBranca: number | null; nPreta: number | null; nParda: number | null;
+    nAmarela: number | null; nIndigena: number | null;
+    // Sexo/idade — % + nº absoluto.
+    pctFem: number | null; nFem: number | null;
+    pct60: number | null; n60: number | null;
   } | null>(null);
   // null = verificando; true/false = liberado pelo admin?
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -524,6 +532,9 @@ export default function CensoPage() {
     // somarem ~100%. 0% é valor legítimo (ex.: indígena) → só vira "—" sem pop.
     const racaPct = (n: number | undefined) =>
       pop > 0 ? Number((((n ?? 0) / pop) * 100).toFixed(1)) : null;
+    const masc = g.sums.sexo_masculino ?? 0;
+    const fem = g.sums.sexo_feminino ?? 0;
+    const i60 = g.sums.idade_60mais ?? 0;
     setSelArea({
       nome,
       kind: feats[0].properties.nm_bairro ? "Bairro" : "Distrito",
@@ -538,9 +549,21 @@ export default function CensoPage() {
       parda: racaPct(g.sums.raca_parda),
       amarela: racaPct(g.sums.raca_amarela),
       indigena: racaPct(g.sums.raca_indigena),
+      nBranca: g.sums.raca_branca ?? null,
+      nPreta: g.sums.raca_preta ?? null,
+      nParda: g.sums.raca_parda ?? null,
+      nAmarela: g.sums.raca_amarela ?? null,
+      nIndigena: g.sums.raca_indigena ?? null,
+      pctFem: masc + fem > 0 ? Number(((fem / (masc + fem)) * 100).toFixed(1)) : null,
+      nFem: masc + fem > 0 ? fem : null,
+      pct60: pop > 0 ? Number(((i60 / pop) * 100).toFixed(1)) : null,
+      n60: pop > 0 ? i60 : null,
     });
     setSel(null);
-    setFocusIds(feats.map((f) => String(f.properties.cd_setor)));
+    // Malha dissolvida NÃO tem setores no mapa (1 polígono por bairro): foca pelo
+    // NOME (o CensusMap registra o polígono dissolvido por nome) pra o mapa VOAR
+    // até o bairro na busca. Em modo setor, foca os setores do bairro.
+    setFocusIds(effMalha === "setor" ? feats.map((f) => String(f.properties.cd_setor)) : [nome]);
     setBairroQuery("");
   }
 
@@ -1403,13 +1426,22 @@ export default function CensoPage() {
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">domicílios</p>
                 </div>
               </div>
-              <div className="mt-3 space-y-2 text-sm">
-                <Row label="Densidade" value={selArea.dens != null ? `${numberFmt.format(selArea.dens)} hab/km²` : "—"} />
-                <Row label="Moradores/domicílio" value={selArea.media != null ? String(selArea.media).replace(".", ",") : "—"} />
-                <Row label="Alfabetização 15+" value={selArea.alfab != null ? `${String(selArea.alfab).replace(".", ",")}%` : "—"} />
-                <Row label="Área" value={`${selArea.area.toFixed(3)} km²`} />
-                <RacaBreakdown branca={selArea.branca} preta={selArea.preta} parda={selArea.parda} amarela={selArea.amarela} indigena={selArea.indigena} />
-              </div>
+              <DetalheIndicadores
+                mode={valueMode}
+                onMode={setValueMode}
+                v={{
+                  dens: selArea.dens, media: selArea.media, alfab: selArea.alfab, area: selArea.area,
+                  raca: [
+                    { label: "Branca", pct: selArea.branca, n: selArea.nBranca },
+                    { label: "Preta", pct: selArea.preta, n: selArea.nPreta },
+                    { label: "Parda", pct: selArea.parda, n: selArea.nParda },
+                    { label: "Amarela", pct: selArea.amarela, n: selArea.nAmarela },
+                    { label: "Indígena", pct: selArea.indigena, n: selArea.nIndigena },
+                  ],
+                  mulheres: { pct: selArea.pctFem, n: selArea.nFem },
+                  idoso: { pct: selArea.pct60, n: selArea.n60 },
+                }}
+              />
               <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
                 Destacado no mapa. Clique num setor para o detalhe individual.
               </p>
@@ -1480,13 +1512,23 @@ export default function CensoPage() {
                 </p>
               )}
 
-              <div className="mt-3 space-y-2 text-sm">
-                <Row label="Densidade" value={sel.densidade_hab_km2 != null ? `${numberFmt.format(Number(sel.densidade_hab_km2))} hab/km²` : "—"} />
-                <Row label="Moradores/domicílio" value={sel.media_moradores != null ? String(sel.media_moradores).replace(".", ",") : "—"} />
-                <Row label="Alfabetização 15+" value={sel.taxa_alfabetizacao != null ? `${String(sel.taxa_alfabetizacao).replace(".", ",")}%` : "—"} />
-                <Row label="Área" value={sel.area_km2 != null ? `${Number(sel.area_km2).toFixed(3)} km²` : "—"} />
-                <RacaBreakdown branca={sel.pct_branca} preta={sel.pct_preta} parda={sel.pct_parda} amarela={sel.pct_amarela} indigena={sel.pct_indigena} />
-              </div>
+              <DetalheIndicadores
+                mode={valueMode}
+                onMode={setValueMode}
+                v={{
+                  dens: sel.densidade_hab_km2, media: sel.media_moradores,
+                  alfab: sel.taxa_alfabetizacao, area: sel.area_km2,
+                  raca: [
+                    { label: "Branca", pct: sel.pct_branca, n: sel.raca_branca },
+                    { label: "Preta", pct: sel.pct_preta, n: sel.raca_preta },
+                    { label: "Parda", pct: sel.pct_parda, n: sel.raca_parda },
+                    { label: "Amarela", pct: sel.pct_amarela, n: sel.raca_amarela },
+                    { label: "Indígena", pct: sel.pct_indigena, n: sel.raca_indigena },
+                  ],
+                  mulheres: { pct: sel.pct_feminino, n: sel.sexo_feminino },
+                  idoso: { pct: sel.pct_60mais, n: sel.idade_60mais },
+                }}
+              />
             </div>
           ) : (
             <div>
@@ -1857,33 +1899,84 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Detalhe de cor/raça: as 5 categorias INDIVIDUAIS do Censo 2022 (branca, preta,
-// parda, amarela, indígena) — pedido do PO. Antes o painel só mostrava o combinado
-// "pretos e pardos". Aceita number OU string (setor vem do JSON como número; a
-// área agregada já vem calculada) e normaliza a vírgula decimal do pt-BR.
-function RacaBreakdown({
-  branca, preta, parda, amarela, indigena,
+// Detalhe do bairro/setor: TODOS os indicadores do Censo 2022 que existem no
+// nível de setor (densidade, moradores, alfabetização, área) + composição de
+// cor/raça (5 categorias individuais) e sexo/idade. Um toggle %↔nº alterna a
+// composição entre porcentagem e NÚMERO ABSOLUTO de pessoas (pedido do PO).
+// Aceita number OU string (setor vem do JSON; área agregada já vem calculada).
+type DNum = number | string | null | undefined;
+function DetalheIndicadores({
+  v, mode, onMode,
 }: {
-  branca?: number | string | null; preta?: number | string | null;
-  parda?: number | string | null; amarela?: number | string | null;
-  indigena?: number | string | null;
+  v: {
+    dens: DNum; media: DNum; alfab: DNum; area: DNum;
+    raca: { label: string; pct: DNum; n: DNum }[];
+    mulheres: { pct: DNum; n: DNum };
+    idoso: { pct: DNum; n: DNum };
+  };
+  mode: "pct" | "abs";
+  onMode: (m: "pct" | "abs") => void;
 }) {
-  const pct = (v: number | string | null | undefined) =>
-    v == null ? "—" : `${String(v).replace(".", ",")}%`;
-  const rows: Array<[string, number | string | null | undefined]> = [
-    ["Branca", branca], ["Preta", preta], ["Parda", parda],
-    ["Amarela", amarela], ["Indígena", indigena],
-  ];
+  const fmt = new Intl.NumberFormat("pt-BR");
+  const asPct = (x: DNum) => (x == null ? "—" : `${String(x).replace(".", ",")}%`);
+  const asAbs = (x: DNum) => (x == null ? "—" : fmt.format(Math.round(Number(x))));
+  const cell = (o: { pct: DNum; n: DNum }) => (mode === "abs" ? asAbs(o.n) : asPct(o.pct));
   return (
-    <div className="pt-0.5">
-      <p className="text-muted-foreground mb-1.5">Cor ou raça</p>
-      <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
-        {rows.map(([label, v]) => (
-          <div key={label} className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="font-medium text-right tabular-nums">{pct(v)}</span>
+    <div className="mt-3 space-y-2 text-sm">
+      <Row label="Densidade" value={v.dens == null ? "—" : `${fmt.format(Math.round(Number(v.dens)))} hab/km²`} />
+      <Row label="Moradores/domicílio" value={v.media == null ? "—" : String(v.media).replace(".", ",")} />
+      <Row label="Alfabetização 15+" value={v.alfab == null ? "—" : `${String(v.alfab).replace(".", ",")}%`} />
+      <Row label="Área" value={v.area == null ? "—" : `${Number(v.area).toFixed(3)} km²`} />
+
+      <div className="pt-2 mt-1 border-t border-border/60 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Composição da população</span>
+          {/* Toggle %  ·  nº — alterna cor/raça e sexo/idade entre porcentagem
+              e número absoluto de pessoas. */}
+          <div className="inline-flex rounded-md border border-border overflow-hidden text-[11px] leading-none">
+            {(["pct", "abs"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onMode(m)}
+                title={m === "pct" ? "Mostrar em porcentagem" : "Mostrar em número de pessoas"}
+                className={`px-2.5 py-1 transition-colors ${
+                  mode === m
+                    ? "bg-primary/20 text-primary font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {m === "pct" ? "%" : "nº"}
+              </button>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div>
+          <p className="text-muted-foreground mb-1">Cor ou raça</p>
+          <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
+            {v.raca.map((r) => (
+              <div key={r.label} className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{r.label}</span>
+                <span className="font-medium text-right tabular-nums">{cell(r)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-muted-foreground mb-1">Sexo e idade</p>
+          <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Mulheres</span>
+              <span className="font-medium text-right tabular-nums">{cell(v.mulheres)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">60 anos ou mais</span>
+              <span className="font-medium text-right tabular-nums">{cell(v.idoso)}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
