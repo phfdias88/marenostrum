@@ -15,6 +15,7 @@ import {
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -33,7 +34,12 @@ type DataTableProps<TData, TValue> = {
   onPageChange: (next: number) => void;
   isLoading?: boolean;
   emptyMessage?: string;
+  /** CTA opcional exibido junto ao estado vazio (ex.: abrir dialog de criação). */
+  emptyAction?: { label: string; onClick: () => void };
 };
+
+// Larguras variadas pros skeletons parecerem conteudo real (ciclo deterministico).
+const SKELETON_WIDTHS = ["w-3/4", "w-1/2", "w-2/3", "w-1/3", "w-5/6"];
 
 export function DataTable<TData, TValue>({
   columns,
@@ -44,6 +50,7 @@ export function DataTable<TData, TValue>({
   onPageChange,
   isLoading,
   emptyMessage = "Nenhum registro.",
+  emptyAction,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -80,14 +87,23 @@ export function DataTable<TData, TValue>({
 
           <TableBody>
             {isLoading ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="text-center text-muted-foreground py-10"
-                >
-                  Carregando...
-                </TableCell>
-              </TableRow>
+              // Skeleton com o mesmo nº de linhas da pagina: estabiliza a
+              // altura da tabela entre paginacoes (sem "pulo" de layout).
+              Array.from({ length: pageSize || 8 }).map((_, rowIdx) => (
+                <TableRow key={`skeleton-${rowIdx}`}>
+                  {columns.map((_, colIdx) => (
+                    <TableCell key={colIdx}>
+                      <Skeleton
+                        className={`h-4 ${
+                          SKELETON_WIDTHS[
+                            (rowIdx + colIdx) % SKELETON_WIDTHS.length
+                          ]
+                        }`}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
@@ -104,7 +120,16 @@ export function DataTable<TData, TValue>({
                   colSpan={columns.length}
                   className="text-center text-muted-foreground py-10"
                 >
-                  {emptyMessage}
+                  <p>{emptyMessage}</p>
+                  {emptyAction && (
+                    <Button
+                      size="sm"
+                      className="mt-3"
+                      onClick={emptyAction.onClick}
+                    >
+                      {emptyAction.label}
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             )}

@@ -5,7 +5,6 @@
  *
  * Melhorias visuais:
  *  - Tile tematico (CartoDB Dark / Voyager).
- *  - Top 3 municipios pulsam em dourado.
  *  - Hover mostra tooltip leve.
  *  - Click num partido na legenda destaca so esses municipios.
  *  - Chips de UF (regiao + capitais) pra zoom rapido.
@@ -17,6 +16,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
+import { partyColor } from "@/lib/partyColors";
 import type { TseWinnersMapResponse } from "@/lib/types";
 import { PresentButton } from "@/components/ui/PresentButton";
 
@@ -30,16 +30,6 @@ const WinnersMap = dynamic(() => import("@/components/map/WinnersMap"), {
 });
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
-
-const PARTY_COLOR: Record<number, string> = {
-  10: "#0050a0", 11: "#ff8c00", 12: "#c41a1a", 13: "#e30613", 14: "#0099cc",
-  15: "#2d6f30", 16: "#a31a1a", 17: "#ffcd1a", 18: "#7fbc41", 19: "#16a085",
-  20: "#1f5fa6", 22: "#0a2a7d", 23: "#3f51b5", 25: "#0050a0", 27: "#27ae60",
-  28: "#e91e63", 30: "#ff5a00", 33: "#0d47a1", 35: "#c97312", 36: "#7b1fa2",
-  40: "#d81b60", 43: "#1e8a3c", 44: "#ed9b00", 45: "#005faa", 50: "#dc143c",
-  51: "#1c8537", 55: "#00a99d", 65: "#cc0000", 70: "#d35400", 77: "#673ab7",
-  80: "#6b6b6b", 90: "#37474f",
-};
 
 const OPTIONS = [
   { value: "2024-11", label: "Prefeitos 2024", year: "2024", office: "11" },
@@ -190,7 +180,7 @@ export default function MapaPage() {
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">
                       Partido destacado
                     </p>
-                    <p className="text-lg font-bold mt-0.5" style={{ color: PARTY_COLOR[highlightedParty!] }}>
+                    <p className="text-lg font-bold mt-0.5" style={{ color: partyColor(highlightedParty) }}>
                       {highlightedInfo.abbr}
                     </p>
                     <div className="grid grid-cols-3 gap-3 mt-2 text-center">
@@ -251,7 +241,7 @@ export default function MapaPage() {
                       <span className="flex items-center gap-2 min-w-0">
                         <span
                           className="w-3 h-3 rounded-full shrink-0"
-                          style={{ background: PARTY_COLOR[l.number] ?? "#888" }}
+                          style={{ background: partyColor(l.number) }}
                         />
                         <span className="font-medium truncate">{l.abbr}</span>
                       </span>
@@ -264,11 +254,6 @@ export default function MapaPage() {
               })}
             </ul>
             <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
-                Pontos dourados = os 3 municípios com mais votos neste pleito.
-              </span>
-              <br />
               Clique num partido pra destacar só os municípios dele. Use os chips
               acima do mapa pra ir direto pra uma UF.
             </p>

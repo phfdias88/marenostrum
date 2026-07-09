@@ -361,9 +361,9 @@ function KpiCard({
 }) {
   const TONE = {
     brand:   { bg: "bg-primary/10",   text: "text-primary",     icon: "bg-primary" },
-    amber:   { bg: "bg-amber-500/10",   text: "text-amber-400",   icon: "bg-amber-500" },
-    blue:    { bg: "bg-blue-500/10",    text: "text-blue-400",    icon: "bg-blue-500" },
-    emerald: { bg: "bg-emerald-500/10", text: "text-emerald-400", icon: "bg-emerald-500" },
+    amber:   { bg: "bg-amber-500/10",   text: "text-amber-700 dark:text-amber-400",   icon: "bg-amber-500" },
+    blue:    { bg: "bg-blue-500/10",    text: "text-blue-700 dark:text-blue-400",    icon: "bg-blue-500" },
+    emerald: { bg: "bg-emerald-500/10", text: "text-emerald-700 dark:text-emerald-400", icon: "bg-emerald-500" },
   }[tone];
 
   const content = (
@@ -432,7 +432,7 @@ function OnboardingStep({
       >
         <div className="flex items-center gap-2 mb-2">
           {done ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
           ) : (
             <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
           )}
@@ -498,8 +498,8 @@ function StatBlock({
 }) {
   const color = {
     brand: "text-primary",
-    amber: "text-amber-400",
-    emerald: "text-emerald-400",
+    amber: "text-amber-700 dark:text-amber-400",
+    emerald: "text-emerald-700 dark:text-emerald-400",
   }[tone];
   return (
     <div title={title}>

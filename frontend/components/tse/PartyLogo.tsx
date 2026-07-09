@@ -11,6 +11,8 @@
  */
 import { useId, useState } from "react";
 
+import { darkenHex, partyColor, readableTextOn } from "@/lib/partyColors";
+
 type Size = "sm" | "md" | "lg" | "xl";
 
 const DIM: Record<Size, { px: number; numFont: number; sigFont: number }> = {
@@ -20,46 +22,13 @@ const DIM: Record<Size, { px: number; numFont: number; sigFont: number }> = {
   xl: { px: 128, numFont: 48, sigFont: 18 },
 };
 
-// Cor primaria (fundo) e secundaria (acento) por numero de partido
-// Hex pra serem usados diretamente no SVG (Tailwind nao funciona dentro de attrs)
-const PARTY_THEME: Record<number, { bg: string; ring: string; text: string }> = {
-  10: { bg: "#0050a0", ring: "#003776", text: "#ffffff" }, // REPUBLICANOS azul
-  11: { bg: "#ff8c00", ring: "#cc6f00", text: "#ffffff" }, // PP laranja
-  12: { bg: "#c41a1a", ring: "#8a1313", text: "#ffffff" }, // PDT vermelho
-  13: { bg: "#e30613", ring: "#ad0410", text: "#ffffff" }, // PT vermelho-classico
-  14: { bg: "#0099cc", ring: "#006e91", text: "#ffffff" }, // PTB
-  15: { bg: "#2d6f30", ring: "#1d4e1f", text: "#ffffff" }, // MDB verde
-  16: { bg: "#a31a1a", ring: "#741212", text: "#ffffff" }, // PSTU
-  17: { bg: "#ffcd1a", ring: "#cc9d0a", text: "#1a1a1a" }, // PSL/UNIAO amarelo
-  18: { bg: "#7fbc41", ring: "#5c8a30", text: "#1a1a1a" }, // REDE verde-claro
-  19: { bg: "#16a085", ring: "#0e6b59", text: "#ffffff" }, // PODE
-  20: { bg: "#1f5fa6", ring: "#143d6b", text: "#ffffff" }, // PSC
-  22: { bg: "#0a2a7d", ring: "#061854", text: "#ffffff" }, // PL azul-marinho
-  23: { bg: "#3f51b5", ring: "#2c3a82", text: "#ffffff" }, // CIDADANIA
-  25: { bg: "#0050a0", ring: "#003776", text: "#ffffff" }, // UNIAO azul
-  27: { bg: "#27ae60", ring: "#1a7a43", text: "#ffffff" }, // DC verde
-  28: { bg: "#e91e63", ring: "#a31548", text: "#ffffff" }, // AVANTE
-  30: { bg: "#ff5a00", ring: "#cc4500", text: "#ffffff" }, // NOVO laranja
-  31: { bg: "#9b59b6", ring: "#6c3d80", text: "#ffffff" }, // PMN
-  33: { bg: "#0d47a1", ring: "#072c64", text: "#ffffff" }, // PMB azul
-  35: { bg: "#c97312", ring: "#8e500c", text: "#ffffff" }, // PMB/PRP
-  36: { bg: "#7b1fa2", ring: "#54156f", text: "#ffffff" }, // PTC
-  40: { bg: "#d81b60", ring: "#9c1245", text: "#ffffff" }, // PSB
-  43: { bg: "#1e8a3c", ring: "#13602a", text: "#ffffff" }, // PV verde
-  44: { bg: "#ed9b00", ring: "#a86c00", text: "#ffffff" }, // UNIAO laranja
-  45: { bg: "#005faa", ring: "#003e70", text: "#ffffff" }, // PSDB azul-tucano
-  50: { bg: "#dc143c", ring: "#8c0c25", text: "#ffffff" }, // PSOL
-  51: { bg: "#1c8537", ring: "#125724", text: "#ffffff" }, // PATRIOTA
-  54: { bg: "#0c6e3e", ring: "#08502c", text: "#ffffff" }, // PPL
-  55: { bg: "#00a99d", ring: "#007a71", text: "#ffffff" }, // PSD turquesa
-  65: { bg: "#cc0000", ring: "#8a0000", text: "#ffffff" }, // PCdoB
-  70: { bg: "#d35400", ring: "#963c00", text: "#ffffff" }, // AVANTE
-  77: { bg: "#673ab7", ring: "#48287d", text: "#ffffff" }, // SOLIDARIEDADE
-  80: { bg: "#6b6b6b", ring: "#4a4a4a", text: "#ffffff" }, // REDE/AGIR
-  90: { bg: "#37474f", ring: "#1f2a30", text: "#ffffff" }, // PROS
-};
-
-const FALLBACK = { bg: "#475569", ring: "#1e293b", text: "#ffffff" };
+// Tema do badge derivado da cor canonica do partido (lib/partyColors):
+// fundo = cor da marca, ring = fundo escurecido, texto = preto/branco legivel.
+// Hex direto porque Tailwind nao funciona dentro de attrs de SVG.
+function themeFor(partyNumber: number): { bg: string; ring: string; text: string } {
+  const bg = partyColor(partyNumber);
+  return { bg, ring: darkenHex(bg), text: readableTextOn(bg) };
+}
 
 type Props = {
   number: number;
@@ -77,7 +46,7 @@ export function PartyLogo({
   className = "",
 }: Props) {
   const { px, numFont, sigFont } = DIM[size];
-  const theme = PARTY_THEME[number] ?? FALLBACK;
+  const theme = themeFor(number);
   const gradId = useId();
   const [imgFailed, setImgFailed] = useState(false);
 

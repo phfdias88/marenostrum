@@ -8,7 +8,7 @@
  */
 import { MessageSquarePlus, Plus, Search, Upload, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
@@ -54,6 +54,10 @@ export default function ContactsPage() {
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+
+  // Ref do trigger "Novo contato" do header — o CTA do estado vazio clica
+  // nele pra abrir o MESMO dialog de criação (estado interno do dialog).
+  const newContactBtnRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(
     async (page: number, searchTerm: string, tag: string | null, creator: string | null) => {
@@ -148,7 +152,7 @@ export default function ContactsPage() {
             </Button>
           </ImportContactsDialog>
           <ContactFormDialog mode="create" onSaved={refresh}>
-            <Button>
+            <Button ref={newContactBtnRef}>
               <Plus />
               Novo contato
             </Button>
@@ -236,6 +240,14 @@ export default function ContactsPage() {
           search || tagFilter || creatorFilter
             ? `Nenhum contato encontrado com os filtros atuais.`
             : "Nenhum contato. Clique em 'Novo contato' para começar."
+        }
+        emptyAction={
+          search || tagFilter || creatorFilter
+            ? undefined
+            : {
+                label: "Novo contato",
+                onClick: () => newContactBtnRef.current?.click(),
+              }
         }
       />
 

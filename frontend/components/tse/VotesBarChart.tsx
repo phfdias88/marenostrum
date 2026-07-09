@@ -138,8 +138,12 @@ export function VotesBarChart({
                   <Cell
                     key={i}
                     fill="hsl(var(--primary))"
-                    // leve degradê: barras do topo mais fortes.
-                    fillOpacity={1 - (i / Math.max(filtered.length, 1)) * 0.55}
+                    // leve degradê: barras do topo mais fortes. Piso de 0.7
+                    // pra ultima barra nao "apagar" no tema claro.
+                    fillOpacity={Math.max(
+                      0.7,
+                      1 - (i / Math.max(filtered.length, 1)) * 0.55,
+                    )}
                   />
                 ))}
               </Bar>

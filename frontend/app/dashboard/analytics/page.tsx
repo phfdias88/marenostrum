@@ -109,28 +109,28 @@ export default function PainelPage() {
             value={d?.candidates}
             icon={Users}
             gradient="from-blue-600/20 to-blue-500/5"
-            accent="text-blue-400"
+            accent="text-blue-700 dark:text-blue-400"
           />
           <BigStat
             label="Municípios"
             value={d?.municipalities}
             icon={MapPin}
             gradient="from-emerald-600/20 to-emerald-500/5"
-            accent="text-emerald-400"
+            accent="text-emerald-700 dark:text-emerald-400"
           />
           <BigStat
             label="Partidos"
             value={d?.parties}
             icon={Building2}
             gradient="from-fuchsia-600/20 to-fuchsia-500/5"
-            accent="text-fuchsia-400"
+            accent="text-fuchsia-700 dark:text-fuchsia-400"
           />
           <BigStat
             label="Eleições"
             value={d?.elections}
             icon={FileBarChart}
             gradient="from-amber-600/20 to-amber-500/5"
-            accent="text-amber-400"
+            accent="text-amber-700 dark:text-amber-400"
           />
         </div>
 
@@ -202,7 +202,7 @@ export default function PainelPage() {
             value={d?.demandsOpen}
             icon={ClipboardList}
             gradient="from-amber-600/20 to-amber-500/5"
-            accent="text-amber-400"
+            accent="text-amber-700 dark:text-amber-400"
           />
         </div>
       </section>

@@ -65,7 +65,7 @@ function LoginForm() {
       {/* Fundo com gradiente + glow */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-primary/5" />
       <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
-      <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
         {/* Marca — logo horizontal oficial, variante por tema (texto branco
@@ -110,7 +110,7 @@ function LoginForm() {
           />
 
           {error && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2.5">
+            <p className="text-sm border border-destructive/30 bg-destructive/10 text-destructive rounded-md p-2.5">
               {error}
             </p>
           )}
@@ -118,7 +118,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold min-h-[48px] py-3 transition shadow-lg shadow-primary/20"
+            className="w-full rounded-lg bg-gradient-to-r from-primary to-amber-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold min-h-[48px] py-3 transition shadow-lg shadow-primary/20"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>

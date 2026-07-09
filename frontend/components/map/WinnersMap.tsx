@@ -20,26 +20,17 @@ import L from "leaflet";
 import { MapContainer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
+import { partyColor } from "@/lib/partyColors";
 import type { TseWinnerMapPoint } from "@/lib/types";
 import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
-const PARTY_COLOR: Record<number, string> = {
-  10: "#0050a0", 11: "#ff8c00", 12: "#c41a1a", 13: "#e30613", 14: "#0099cc",
-  15: "#2d6f30", 16: "#a31a1a", 17: "#ffcd1a", 18: "#7fbc41", 19: "#16a085",
-  20: "#1f5fa6", 22: "#0a2a7d", 23: "#3f51b5", 25: "#0050a0", 27: "#27ae60",
-  28: "#e91e63", 30: "#ff5a00", 33: "#0d47a1", 35: "#c97312", 36: "#7b1fa2",
-  40: "#d81b60", 43: "#1e8a3c", 44: "#ed9b00", 45: "#005faa", 50: "#dc143c",
-  51: "#1c8537", 55: "#00a99d", 65: "#cc0000", 70: "#d35400", 77: "#673ab7",
-  80: "#6b6b6b", 90: "#37474f",
-};
-
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
 
 // Estilo de um ponto em funcao do realce atual (dourado nos do partido, dim nos outros).
 function styleFor(party: number, hl: number | null | undefined) {
-  const color = PARTY_COLOR[party] ?? "#888";
+  const color = partyColor(party);
   const dimmed = hl != null && party !== hl;
   const active = hl != null && party === hl;
   return {
@@ -96,7 +87,7 @@ function MarkersLayer({
     for (const p of points) {
       const { radius, ...path } = styleFor(p.party_number, hlRef.current);
       const marker = L.circleMarker([p.lat, p.lng], { radius, ...path });
-      const color = PARTY_COLOR[p.party_number] ?? "#888";
+      const color = partyColor(p.party_number);
       marker.bindTooltip(
         `${p.name}/${p.state} · <b style="color:${color}">${p.party_abbreviation}</b> · ${numberFmt.format(p.votes)}`,
         { direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1 },

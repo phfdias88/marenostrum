@@ -273,26 +273,26 @@ export default function AnalisesHubPage() {
             value={stats?.candidates ?? 0}
             hint="de 2002 a 2024"
             gradient="from-blue-600/20 to-blue-500/5"
-            accent="text-blue-400"
+            accent="text-blue-700 dark:text-blue-400"
           />
           <Stat
             label="Municípios"
             value={stats?.municipalities ?? 0}
             hint="todos do Brasil"
             gradient="from-emerald-600/20 to-emerald-500/5"
-            accent="text-emerald-400"
+            accent="text-emerald-700 dark:text-emerald-400"
           />
           <Stat
             label="Partidos"
             value={stats?.parties ?? 0}
             gradient="from-fuchsia-600/20 to-fuchsia-500/5"
-            accent="text-fuchsia-400"
+            accent="text-fuchsia-700 dark:text-fuchsia-400"
           />
           <Stat
             label="Eleições"
             value={stats?.elections ?? 0}
             gradient="from-amber-600/20 to-amber-500/5"
-            accent="text-amber-400"
+            accent="text-amber-700 dark:text-amber-400"
           />
         </section>
       )}
@@ -370,7 +370,7 @@ function FavoritesSection() {
   return (
     <section>
       <div className="flex items-center gap-2 mb-3">
-        <Star className="w-5 h-5 text-amber-400" fill="currentColor" />
+        <Star className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="currentColor" />
         <h2 className="text-lg font-semibold">Seus favoritos</h2>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -438,10 +438,10 @@ function Stat({
 function SyncBadge({ job }: { job: TseSyncJob }) {
   const tone =
     job.status === "completed"
-      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
       : job.status === "running" || job.status === "pending"
-        ? "bg-blue-500/15 text-blue-400 border-blue-500/30 animate-pulse"
-        : "bg-red-500/15 text-red-400 border-red-500/30";
+        ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30 animate-pulse"
+        : "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30";
   const label =
     job.status === "running"
       ? `sincronizando… ${numberFmt.format(job.rows_processed)} linhas`

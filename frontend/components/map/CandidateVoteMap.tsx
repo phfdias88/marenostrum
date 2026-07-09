@@ -6,7 +6,6 @@
  * Melhorias:
  *  - Tile tematico (CartoDB Dark/Voyager).
  *  - Toggle bolhas <-> heatmap (leaflet.heat).
- *  - Top 3 cidades pulsam em dourado.
  *  - Tooltip on hover (nao precisa clicar).
  *  - Overlay flutuante com top 3 cidades + total.
  */

@@ -340,7 +340,7 @@ function ChangePasswordCard() {
           hint={mismatch ? "Não confere com a nova senha." : undefined}
           trailing={
             confirm.length > 0 && next === confirm ? (
-              <Check className="w-4 h-4 text-emerald-400" />
+              <Check className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
             ) : undefined
           }
         />
@@ -577,12 +577,12 @@ function TempPasswordCard({
   return (
     <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-4 mb-4">
       <div className="flex items-start gap-3">
-        <span className="grid place-items-center w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 shrink-0">
+        <span className="grid place-items-center w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 shrink-0">
           <ShieldCheck className="w-5 h-5" />
         </span>
         <div className="flex-1 min-w-0">
           <p className="font-semibold">
-            Senha temporária pra <span className="text-emerald-400">{user.full_name}</span>
+            Senha temporária pra <span className="text-emerald-700 dark:text-emerald-400">{user.full_name}</span>
           </p>
           <p className="text-xs text-muted-foreground">
             Mostrada <strong>uma única vez</strong>. Copie e envie pra pessoa por canal
@@ -599,7 +599,7 @@ function TempPasswordCard({
             </Button>
           </div>
 
-          <div className="mt-3 flex items-start gap-2 text-xs text-amber-300/80">
+          <div className="mt-3 flex items-start gap-2 text-xs text-amber-700/90 dark:text-amber-300/80">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
               Login: <strong>{user.email}</strong>. Recomende usar 1Password,
@@ -812,8 +812,8 @@ function UserRow({
                 className={
                   "p-1.5 rounded hover:bg-accent/50 transition-colors disabled:opacity-50 " +
                   (user.is_active
-                    ? "text-muted-foreground hover:text-rose-400"
-                    : "text-emerald-400 hover:text-emerald-300")
+                    ? "text-muted-foreground hover:text-rose-700 dark:hover:text-rose-400"
+                    : "text-emerald-700 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300")
                 }
               >
                 {user.is_active ? <Power className="w-4 h-4" /> : <Check className="w-4 h-4" />}
@@ -901,7 +901,7 @@ function Field({
           </span>
         )}
       </div>
-      {hint && <p className="text-[11px] text-amber-300/80 mt-1">{hint}</p>}
+      {hint && <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80 mt-1">{hint}</p>}
     </div>
   );
 }

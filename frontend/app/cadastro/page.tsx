@@ -56,7 +56,7 @@ export default function CadastroPage() {
       {/* Fundo com gradiente + glow (mesma identidade do login) */}
       <div className="absolute inset-0 -z-10 bg-gradient-to-br from-background via-background to-primary/5" />
       <div className="absolute -top-40 -right-40 -z-10 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
-      <div className="absolute -bottom-40 -left-40 -z-10 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 -z-10 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
 
       {/* Topo: marca + sair */}
       <header className="flex items-center justify-between px-4 sm:px-6 h-14 border-b border-border/60 bg-card/40 backdrop-blur">
