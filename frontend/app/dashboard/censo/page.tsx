@@ -616,7 +616,10 @@ export default function CensoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, effMalha, muniProps?.cd_mun]);
 
-  const areasAgg = (() => {
+  // useMemo: sem ele esta IIFE reagregava os ~13k setores A CADA render da
+  // página — inclusive a cada tecla digitada na busca de bairro. Idem para
+  // destaques/topSetores/areaIndex abaixo.
+  const areasAgg = useMemo(() => {
     if (view !== "municipio" || !setores) return [];
     // "Regra da sensibilidade" centralizada em lib/censusAggregate:
     // absolutos somam; médias/taxas são ponderadas — nunca somadas.
@@ -645,23 +648,32 @@ export default function CensoPage() {
                     : mapIndicator === "pct_60mais" ? (g.averages.pct_60mais ?? 0)
                       : (g.sums.populacao ?? 0),
     }));
-  })();
+    // areaGroupOf depende só de effMalha (função declarada no render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, setores, effMalha, mapIndicator]);
   // Ranking de áreas pelo MESMO indicador do mapa (não fixo em população).
-  const topAreas = [...areasAgg]
-    .filter((a) => (a.val ?? 0) > 0)
-    .sort((a, b) => (b.val ?? 0) - (a.val ?? 0))
-    .slice(0, 12);
+  const topAreas = useMemo(
+    () =>
+      [...areasAgg]
+        .filter((a) => (a.val ?? 0) > 0)
+        .sort((a, b) => (b.val ?? 0) - (a.val ?? 0))
+        .slice(0, 12),
+    [areasAgg],
+  );
   // Em modo SETOR o ranking lista os próprios setores pelo indicador do mapa
   // (antes: fixo em população). Setor não tem nome, então rotulamos com o
   // bairro/distrito-pai + o final do código.
-  const topSetores =
-    view === "municipio" && setores && effMalha === "setor"
-      ? [...setores.features]
-          .map((f) => ({ props: f.properties, val: Number(f.properties[mapIndicator] ?? 0) }))
-          .filter((s) => s.val > 0)
-          .sort((a, b) => b.val - a.val)
-          .slice(0, 12)
-      : [];
+  const topSetores = useMemo(
+    () =>
+      view === "municipio" && setores && effMalha === "setor"
+        ? [...setores.features]
+            .map((f) => ({ props: f.properties, val: Number(f.properties[mapIndicator] ?? 0) }))
+            .filter((s) => s.val > 0)
+            .sort((a, b) => b.val - a.val)
+            .slice(0, 12)
+        : [],
+    [view, setores, effMalha, mapIndicator],
+  );
 
   // Agregação por área (nome do bairro/distrito → indicadores). MESMA regra de
   // sensibilidade do lib/censusAggregate (absolutos somam; taxas ponderadas).
@@ -718,7 +730,7 @@ export default function CensoPage() {
       : mapData;
 
   // Destaques automáticos do município (insights prontos pra campanha).
-  const destaques = (() => {
+  const destaques = useMemo(() => {
     if (view !== "municipio" || !setores || areasAgg.length === 0) return null;
     const maisPopuloso = areasAgg[0];
     const candidatos = areasAgg.filter((a) => a.area > 0.05 && a.pop > 0);
@@ -743,11 +755,11 @@ export default function CensoPage() {
       menorAlfab,
       pctUrbana: popTotal > 0 ? Math.round((popUrbana / popTotal) * 100) : null,
     };
-  })();
+  }, [view, setores, areasAgg]);
 
   // Índice de busca de bairro/distrito (no município): cada nome aponta para o
   // setor mais populoso daquele bairro — clicar dá zoom nele.
-  const areaIndex = (() => {
+  const areaIndex = useMemo(() => {
     if (view !== "municipio" || !setores) return [];
     const m = new Map<string, { props: Record<string, number | string | null>; pop: number }>();
     for (const f of setores.features) {
@@ -758,7 +770,7 @@ export default function CensoPage() {
     }
     return [...m.entries()].map(([nome, v]) => ({ nome, props: v.props }))
       .sort((a, b) => a.nome.localeCompare(b.nome));
-  })();
+  }, [view, setores]);
   const areaMatches = bairroQuery.trim().length >= 1
     ? areaIndex.filter((a) => matchName(a.nome, bairroQuery)).slice(0, 8)
     : [];
@@ -1430,6 +1442,47 @@ export default function CensoPage() {
               ) : (
                 <p className="text-sm text-muted-foreground">Carregando…</p>
               )}
+              {/* Distribuição etária (Censo 2022) — o dado já viaja no payload
+                  do uf-overview (faixa_etaria por município); antes a UI só
+                  usava o recorte 60+. Barras nativas (estilo "barras de força"
+                  do app) — zero dependência nova. */}
+              {(() => {
+                const fx = muniProps?.faixa_etaria as Record<string, number | null> | null | undefined;
+                if (!fx) return null;
+                const FAIXAS: [string, string][] = [
+                  ["0_4", "0–4"], ["5_9", "5–9"], ["10_14", "10–14"],
+                  ["15_19", "15–19"], ["20_24", "20–24"], ["25_29", "25–29"],
+                  ["30_39", "30–39"], ["40_49", "40–49"], ["50_59", "50–59"],
+                  ["60_69", "60–69"], ["70_mais", "70+"],
+                ];
+                const vals = FAIXAS.map(([k, label]) => ({ label, v: Number(fx[k] ?? 0) }));
+                const total = vals.reduce((s, x) => s + x.v, 0);
+                if (total <= 0) return null;
+                const max = Math.max(...vals.map((x) => x.v));
+                return (
+                  <div className="mt-4 pt-3 border-t border-border">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                      Distribuição etária · Censo 2022
+                    </p>
+                    <ul className="space-y-1">
+                      {vals.map((x) => (
+                        <li key={x.label} className="flex items-center gap-2 text-[11px]">
+                          <span className="w-10 shrink-0 text-muted-foreground tabular-nums">{x.label}</span>
+                          <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden ring-1 ring-white/[0.03]">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500"
+                              style={{ width: `${(x.v / max) * 100}%` }}
+                            />
+                          </div>
+                          <span className="w-12 shrink-0 text-right font-mono tabular-nums text-muted-foreground">
+                            {((x.v / total) * 100).toFixed(1)}%
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
               <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
                 Clique num setor no mapa para ver os dados detalhados.
               </p>

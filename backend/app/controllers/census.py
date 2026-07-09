@@ -22,6 +22,36 @@ router = APIRouter(prefix="/census", tags=["census"])
 # atualização de dado aparece rápido. O nginx (proxy_cache) segura a carga.
 _CACHE = "public, max-age=900, stale-while-revalidate=604800"
 
+# Cache in-process do dissolve do /malha (shapely/GEOS, ~12s a frio no Rio).
+# LRU DEDICADO e pequeno (nao o agg_cache global): as features de malha pesam
+# ate ~1-3MB cada — no agg_cache (256 entradas) despejariam as agregacoes TSE
+# e poderiam estourar os 768MB do container. 40 entradas cobrem os municipios
+# realmente visitados; o proxy_cache do nginx segura a cauda. Beneficio extra:
+# o warmup (2 encodings) so paga o dissolve 1x por municipio/level.
+# Lock: handlers sync rodam no threadpool do FastAPI (ha concorrencia real).
+import threading as _threading
+from collections import OrderedDict as _OrderedDict
+
+_MALHA_MAX = 40
+_malha_cache: "_OrderedDict[str, list]" = _OrderedDict()
+_malha_lock = _threading.Lock()
+
+
+def _malha_cache_get(key: str) -> list | None:
+    with _malha_lock:
+        feats = _malha_cache.get(key)
+        if feats is not None:
+            _malha_cache.move_to_end(key)
+        return feats
+
+
+def _malha_cache_set(key: str, feats: list) -> None:
+    with _malha_lock:
+        _malha_cache[key] = feats
+        _malha_cache.move_to_end(key)
+        while len(_malha_cache) > _MALHA_MAX:
+            _malha_cache.popitem(last=False)
+
 
 def _round_coords(obj, nd: int = 5):
     """Arredonda recursivamente as coordenadas (lat/lng) de um GeoJSON.
@@ -376,6 +406,16 @@ def census_malha(
     except ImportError:  # pragma: no cover
         raise HTTPException(status_code=503, detail="Geometria indisponível (shapely).")
 
+    # Cache in-process do dissolve: mesmo se o nginx for purgado (todo deploy),
+    # o dissolve pesado so roda 1x por (municipio, level) por vida do processo.
+    _ck = f"{cd_mun}:{level}"
+    _cached = _malha_cache_get(_ck)
+    if _cached is not None:
+        return ORJSONResponse(
+            content={"type": "FeatureCollection", "features": _cached},
+            headers={"Cache-Control": _CACHE},
+        )
+
     # Nome da área. Para bairro, cai pro distrito quando o setor não tem bairro
     # mapeado — MESMA chave que o frontend usa (nm_bairro || nm_dist), pra os
     # polígonos dissolvidos casarem com o agregado calculado no front.
@@ -417,6 +457,7 @@ def census_malha(
             "properties": {"nome": nome, "level": level, "populacao": pop.get(nome)},
         })
 
+    _malha_cache_set(_ck, features)
     return ORJSONResponse(
         content={"type": "FeatureCollection", "features": features},
         headers={"Cache-Control": _CACHE},

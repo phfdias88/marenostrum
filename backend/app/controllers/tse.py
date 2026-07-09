@@ -2189,6 +2189,12 @@ def candidate_by_neighborhood(
     candidate_id: UUID,
     ctx: CurrentTenant,
     municipality_id: UUID | None = Query(None),
+    # Top-N do ranking. O frontend da pagina do candidato ja mandava limit=20
+    # — mas o param nao existia aqui e o FastAPI o ignorava em silencio,
+    # devolvendo TODOS os bairros (payload + milhares de <li> no DOM mobile).
+    # Os totais (total_votes/total_neighborhoods) continuam considerando o
+    # conjunto COMPLETO; so a lista items e cortada.
+    limit: int | None = Query(None, ge=1, le=5000),
     db: Session = Depends(get_db),
 ) -> CandidateByNeighborhoodResponse:
     candidate = db.get(Candidate, candidate_id)
@@ -2264,6 +2270,13 @@ def candidate_by_neighborhood(
 
     rows = db.execute(stmt).all()
 
+    # Totais calculados sobre TODOS os bairros (antes do corte do limit) —
+    # o denominador/percentual exibido não muda quando só o top-N é pedido.
+    total_votes_all = sum(int(r.votes) for r in rows)
+    total_neighborhoods_all = len(rows)
+    if limit is not None:
+        rows = rows[:limit]
+
     # Cruzamento Censo IBGE 2022: população/domicílios por bairro (match por
     # nome normalizado). Só quando filtrado por município E o município tem
     # dados censitários carregados (POC: RJ). Falha de match → campos None.
@@ -2335,8 +2348,8 @@ def candidate_by_neighborhood(
         ),
         municipality=MunicipalityRead.model_validate(municipality) if municipality else None,
         items=items,
-        total_votes=sum(i.votes for i in items),
-        total_neighborhoods=len(items),
+        total_votes=total_votes_all,
+        total_neighborhoods=total_neighborhoods_all,
     )
 
 

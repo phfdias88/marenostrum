@@ -60,6 +60,14 @@ REWARM_INTERVAL_S = 3.5 * 3600
 NGINX_WARM_BASE = "http://nginx:8088"
 _BROWSER_ENCODINGS = ["gzip, deflate, br, zstd", "gzip, deflate, br"]
 
+# CRITICO: o frontend SEMPRE chama o censo com "&v=<CENSUS_V>" no FIM da URL
+# (cache-buster manual, frontend/app/dashboard/censo/page.tsx). A chave do
+# proxy_cache do nginx e "$uri$is_args$args..." — args diferentes = entrada
+# DIFERENTE. Sem anexar o mesmo v= (na mesma posicao), o warmup aquece
+# entradas que nenhum browser jamais pede e 100% do trabalho e desperdicado.
+# MANTER EM SINCRONIA com o CENSUS_V do frontend — bump nos dois juntos.
+CENSUS_V = "2026-06-28"
+
 
 def _muni_top_warm_paths() -> list[str]:
     """Top-candidates dos 30 maiores municípios (por eleitorado) nos 2 combos
@@ -103,9 +111,19 @@ def _census_warm_paths() -> list[str]:
         log.warning("warmup_census_list_failed", err=str(e)[:160])
         return []
     ufs = sorted({str(cd)[:2] for cd in cds})
-    return [f"/api/v1/census/uf-overview?uf={u}" for u in ufs] + [
-        f"/api/v1/census/setores?cd_mun={cd}" for cd in cds
+    # A ORDEM dos args importa ($args entra cru na chave do nginx): o v= vai
+    # por ULTIMO, exatamente como o frontend monta as URLs.
+    paths = [f"/api/v1/census/uf-overview?uf={u}&v={CENSUS_V}" for u in ufs] + [
+        f"/api/v1/census/setores?cd_mun={cd}&v={CENSUS_V}" for cd in cds
     ]
+    # Malha dissolvida (visao DEFAULT do censo desde que bairro virou o padrao):
+    # o dissolve shapely de cidade grande custa ~12s a frio. Aquecemos so o
+    # top-30 (o cache in-process do handler + nginx cobrem a cauda) pra nao
+    # inflar a rodada — os 2 levels por causa da cascata bairro->distrito.
+    for cd in cds[:30]:
+        paths.append(f"/api/v1/census/malha?cd_mun={cd}&level=bairro&v={CENSUS_V}")
+        paths.append(f"/api/v1/census/malha?cd_mun={cd}&level=distrito&v={CENSUS_V}")
+    return paths
 
 
 async def _warm_nginx_census(headers: dict) -> None:
