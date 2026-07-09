@@ -151,7 +151,8 @@ for _uf in ALL_UFS:
 # Voto por bairro de anos anteriores (PDF item #4) — locais + seções por ANO.
 # Limitado ao RJ (estado do cliente) pra não estourar o VPS. Rodar o
 # locais_votacao_<ano> ANTES do votacao_secao_<ano>_<UF> (precisa do mapping).
-for _yr in (2020, 2022):
+# 2018 confirmado compatível (arquivo tem NM_BAIRRO + coords reais).
+for _yr in (2018, 2020, 2022):
     DATASETS[f"locais_votacao_{_yr}"] = {
         "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_{_yr}.zip",
         "year": _yr,
