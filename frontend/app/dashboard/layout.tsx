@@ -196,7 +196,12 @@ export default function DashboardLayout({
         data-scrolled={scrolled ? "true" : "false"}
         data-hidden={hidden ? "true" : "false"}
         className={cn(
-          "border-b bg-card/70 backdrop-blur-md sticky top-0 z-30 supports-[backdrop-filter]:bg-card/55 transition-[transform,box-shadow] duration-200 will-change-transform",
+          // Mobile: fundo SÓLIDO (bg-card) e SEM backdrop-blur. O header some no
+          // scroll via translate-y (só mobile), e backdrop-filter + transform NÃO
+          // compõem no mobile: o blur cai no meio da animação e o conteúdo do card
+          // atravessava o header semi-transparente (logo "fantasmado"). Sólido
+          // resolve. Desktop (md+, onde o header NÃO auto-esconde) mantém o vidro.
+          "border-b bg-card md:bg-card/70 md:supports-[backdrop-filter]:bg-card/55 md:backdrop-blur-md sticky top-0 z-30 transition-[transform,box-shadow] duration-200 will-change-transform",
           scrolled && "shadow-md shadow-black/10",
           hidden && "md:translate-y-0 -translate-y-full",
         )}
