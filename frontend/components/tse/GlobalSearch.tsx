@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { api } from "@/lib/api";
 import {
@@ -161,15 +162,24 @@ export function GlobalSearch() {
   const [allParties, setAllParties] = useState<TseParty[]>([]);
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const boxRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mobileInputRef = useRef<HTMLInputElement>(null);
+  // Portal só monta no cliente (precisa de document). Sem isso, o overlay
+  // fica preso no containing block do <header> (will-change:transform) e
+  // aparece quebrado/clipado no mobile — o "não funciona no mobile" do PO.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Fecha ao clicar fora — so no desktop. Mobile fullscreen fecha por botao.
   useEffect(() => {
     function onClick(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const t = e.target as Node;
+      // O overlay mobile agora vive num portal FORA do boxRef — ignora cliques
+      // dentro dele também, senão fecharia a cada toque no mobile.
+      const inBox = boxRef.current?.contains(t);
+      const inOverlay = overlayRef.current?.contains(t);
+      if (!inBox && !inOverlay) setOpen(false);
     }
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
@@ -325,7 +335,9 @@ export function GlobalSearch() {
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
         placeholder="Buscar candidato, contato, município…"
-        className="w-full pl-9 pr-9 py-2 rounded-md bg-background border border-border text-sm
+        // text-base no mobile (≥16px) evita o zoom automático do iOS Safari ao
+        // focar; text-sm só no desktop.
+        className="w-full pl-9 pr-9 py-2 rounded-md bg-background border border-border text-base md:text-sm
                    focus:outline-none focus:ring-2 focus:ring-primary/30"
       />
       {q ? (
@@ -341,9 +353,11 @@ export function GlobalSearch() {
         </button>
       ) : null}
 
-      {/* === MOBILE FULL-SCREEN OVERLAY === */}
-      {open && (
+      {/* === MOBILE FULL-SCREEN OVERLAY (portal p/ escapar o header, que tem
+          will-change:transform e aprisionaria o position:fixed) === */}
+      {open && mounted && createPortal(
         <div
+          ref={overlayRef}
           className="md:hidden fixed inset-0 z-[60] bg-background flex flex-col"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
@@ -411,7 +425,8 @@ export function GlobalSearch() {
               />
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* === DESKTOP DROPDOWN === */}
