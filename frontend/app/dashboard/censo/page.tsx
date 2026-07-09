@@ -328,6 +328,9 @@ export default function CensoPage() {
     nome: string; kind: string; pop: number; dom: number; setores: number;
     area: number; dens: number | null; media: number | null;
     alfab: number | null; pp: number | null;
+    // Cor/raça DESAGREGADA (Censo 2022, pedido do PO) — % ponderada por população.
+    branca: number | null; preta: number | null; parda: number | null;
+    amarela: number | null; indigena: number | null;
   } | null>(null);
   // null = verificando; true/false = liberado pelo admin?
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -516,6 +519,11 @@ export default function CensoPage() {
     const alfa = g.sums.alfabetizados_15mais ?? 0;
     const p15 = g.sums.pop_15mais ?? 0;
     const pp = (g.sums.raca_preta ?? 0) + (g.sums.raca_parda ?? 0);
+    // % por categoria de cor/raça — MESMA base do "pretos e pardos" (contagem
+    // absoluta ÷ população), pra os números baterem entre si (preta+parda=pp) e
+    // somarem ~100%. 0% é valor legítimo (ex.: indígena) → só vira "—" sem pop.
+    const racaPct = (n: number | undefined) =>
+      pop > 0 ? Number((((n ?? 0) / pop) * 100).toFixed(1)) : null;
     setSelArea({
       nome,
       kind: feats[0].properties.nm_bairro ? "Bairro" : "Distrito",
@@ -525,6 +533,11 @@ export default function CensoPage() {
       media: dom > 0 ? Number((pop / dom).toFixed(2)) : null,
       alfab: p15 > 0 ? Number(((alfa / p15) * 100).toFixed(1)) : null,
       pp: pop > 0 && pp > 0 ? Number(((pp / pop) * 100).toFixed(1)) : null,
+      branca: racaPct(g.sums.raca_branca),
+      preta: racaPct(g.sums.raca_preta),
+      parda: racaPct(g.sums.raca_parda),
+      amarela: racaPct(g.sums.raca_amarela),
+      indigena: racaPct(g.sums.raca_indigena),
     });
     setSel(null);
     setFocusIds(feats.map((f) => String(f.properties.cd_setor)));
@@ -1394,8 +1407,8 @@ export default function CensoPage() {
                 <Row label="Densidade" value={selArea.dens != null ? `${numberFmt.format(selArea.dens)} hab/km²` : "—"} />
                 <Row label="Moradores/domicílio" value={selArea.media != null ? String(selArea.media).replace(".", ",") : "—"} />
                 <Row label="Alfabetização 15+" value={selArea.alfab != null ? `${String(selArea.alfab).replace(".", ",")}%` : "—"} />
-                <Row label="Cor ou raça (pretos e pardos)" value={selArea.pp != null ? `${String(selArea.pp).replace(".", ",")}%` : "—"} />
                 <Row label="Área" value={`${selArea.area.toFixed(3)} km²`} />
+                <RacaBreakdown branca={selArea.branca} preta={selArea.preta} parda={selArea.parda} amarela={selArea.amarela} indigena={selArea.indigena} />
               </div>
               <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
                 Destacado no mapa. Clique num setor para o detalhe individual.
@@ -1471,8 +1484,8 @@ export default function CensoPage() {
                 <Row label="Densidade" value={sel.densidade_hab_km2 != null ? `${numberFmt.format(Number(sel.densidade_hab_km2))} hab/km²` : "—"} />
                 <Row label="Moradores/domicílio" value={sel.media_moradores != null ? String(sel.media_moradores).replace(".", ",") : "—"} />
                 <Row label="Alfabetização 15+" value={sel.taxa_alfabetizacao != null ? `${String(sel.taxa_alfabetizacao).replace(".", ",")}%` : "—"} />
-                <Row label="Cor ou raça (pretos e pardos)" value={sel.pct_pretos_pardos != null ? `${String(sel.pct_pretos_pardos).replace(".", ",")}%` : "—"} />
                 <Row label="Área" value={sel.area_km2 != null ? `${Number(sel.area_km2).toFixed(3)} km²` : "—"} />
+                <RacaBreakdown branca={sel.pct_branca} preta={sel.pct_preta} parda={sel.pct_parda} amarela={sel.pct_amarela} indigena={sel.pct_indigena} />
               </div>
             </div>
           ) : (
@@ -1840,6 +1853,38 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+// Detalhe de cor/raça: as 5 categorias INDIVIDUAIS do Censo 2022 (branca, preta,
+// parda, amarela, indígena) — pedido do PO. Antes o painel só mostrava o combinado
+// "pretos e pardos". Aceita number OU string (setor vem do JSON como número; a
+// área agregada já vem calculada) e normaliza a vírgula decimal do pt-BR.
+function RacaBreakdown({
+  branca, preta, parda, amarela, indigena,
+}: {
+  branca?: number | string | null; preta?: number | string | null;
+  parda?: number | string | null; amarela?: number | string | null;
+  indigena?: number | string | null;
+}) {
+  const pct = (v: number | string | null | undefined) =>
+    v == null ? "—" : `${String(v).replace(".", ",")}%`;
+  const rows: Array<[string, number | string | null | undefined]> = [
+    ["Branca", branca], ["Preta", preta], ["Parda", parda],
+    ["Amarela", amarela], ["Indígena", indigena],
+  ];
+  return (
+    <div className="pt-0.5">
+      <p className="text-muted-foreground mb-1.5">Cor ou raça</p>
+      <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
+        {rows.map(([label, v]) => (
+          <div key={label} className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-medium text-right tabular-nums">{pct(v)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
