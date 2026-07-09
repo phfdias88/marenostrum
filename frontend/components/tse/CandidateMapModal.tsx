@@ -21,7 +21,7 @@
  */
 import { Building2, Landmark, Loader2, MapPin, Search, X } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import type {
@@ -66,6 +66,22 @@ function norm(s: string): string {
     .trim();
 }
 
+// "BANGU" → "Bangu", "ENGENHO DE DENTRO" → "Engenho de Dentro". O TSE manda
+// tudo em CAIXA ALTA — no eixo do gráfico fica gritado e ocupa mais espaço.
+const TC_KEEP = new Set(["de", "da", "do", "das", "dos", "e"]);
+function titleCase(s: string): string {
+  return s
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w, i) =>
+      i > 0 && TC_KEEP.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join(" ");
+}
+
+/** Ponto pro mapa voar ao clicar numa barra — `n` re-dispara no mesmo alvo. */
+type MapFocus = { lat: number; lng: number; zoom: number; n: number };
+
 type Props = {
   results: TseCandidateResults;
   onClose: () => void;
@@ -95,6 +111,9 @@ export function CandidateMapModal({ results, onClose }: Props) {
   function pick(m: Mode) {
     setUserPicked(true);
     setMode(m);
+    // Troca de modo zera a seleção/voo (a barra selecionada era da outra visão).
+    setSelKey(null);
+    setFocusPt(null);
     // Voltar pra município limpa os filtros que só valem no modo bairro —
     // senão ficam visíveis-porém-inertes e o total "no filtro" mente.
     if (m === "municipio") {
@@ -109,6 +128,12 @@ export function CandidateMapModal({ results, onClose }: Props) {
   const [fMuni, setFMuni] = useState("");
   const [fBairro, setFBairro] = useState("");
   const [fLocal, setFLocal] = useState("");
+
+  // Sincronia GRÁFICO → MAPA: barra clicada fica destacada e o mapa voa até o
+  // bairro/município dela (pedido do PO: "responsivo quando clicar").
+  const [selKey, setSelKey] = useState<string | null>(null);
+  const [focusPt, setFocusPt] = useState<MapFocus | null>(null);
+  const mapPaneRef = useRef<HTMLDivElement | null>(null);
 
   // Digitar bairro com o modal em modo município → troca pro modo bairro.
   // NÃO marca userPicked: se a UF×ano não tiver dado de seção, o fallback
@@ -265,28 +290,61 @@ export function CandidateMapModal({ results, onClose }: Props) {
     [neighborhood, filteredNbItems],
   );
 
+  // Candidato de UM município só (prefeito/vereador): repetir "(Rio de
+  // Janeiro)" em toda barra é ruído — o sufixo de homônimo só entra quando há
+  // MAIS de um município em jogo (deputado etc.). O tooltip sempre mostra.
+  const singleMuni = results.results.length === 1;
+
   // ---- Itens do gráfico (derivados das MESMAS listas do mapa) ----
   const chartItems = useMemo<VotesBarItem[]>(() => {
     if (mode === "municipio") {
       return filteredMuniResults.results.map((r) => ({
         key: r.municipality.id,
-        label: r.municipality.name,
+        label: titleCase(r.municipality.name),
         sublabel: r.municipality.state,
         value: r.votes,
       }));
     }
     return filteredNbItems.map((i) => ({
       key: `${i.municipality_id ?? ""}-${i.neighborhood}`,
-      // Relação composta no EIXO — "Centro (Juiz de Fora)" (requisito do PO).
-      label: i.municipality_name
-        ? `${i.neighborhood} (${i.municipality_name})`
-        : i.neighborhood,
+      // Relação composta no EIXO — "Centro (Juiz de Fora)" (requisito do PO)
+      // — exceto candidato de 1 município (sufixo vira ruído repetido).
+      label:
+        i.municipality_name && !singleMuni
+          ? `${titleCase(i.neighborhood)} (${titleCase(i.municipality_name)})`
+          : titleCase(i.neighborhood),
       sublabel: i.municipality_name
-        ? `${i.municipality_name}/${i.municipality_state ?? ""}`
+        ? `${titleCase(i.municipality_name)}/${i.municipality_state ?? ""}`
         : undefined,
       value: i.votes,
     }));
-  }, [mode, filteredMuniResults, filteredNbItems]);
+  }, [mode, filteredMuniResults, filteredNbItems, singleMuni]);
+
+  // Clique na barra → destaca + voa até o alvo no mapa. No mobile (gráfico
+  // abaixo do mapa) ainda rola a tela de volta pro mapa.
+  function onBarClick(item: VotesBarItem) {
+    setSelKey(item.key);
+    let pt: Omit<MapFocus, "n"> | null = null;
+    if (mode === "municipio") {
+      const r = filteredMuniResults.results.find(
+        (x) => x.municipality.id === item.key,
+      );
+      if (r?.municipality.latitude != null && r.municipality.longitude != null) {
+        pt = { lat: r.municipality.latitude, lng: r.municipality.longitude, zoom: 11 };
+      }
+    } else {
+      const it = filteredNbItems.find(
+        (x) => `${x.municipality_id ?? ""}-${x.neighborhood}` === item.key,
+      );
+      if (it?.avg_lat != null && it.avg_lng != null) {
+        pt = { lat: it.avg_lat, lng: it.avg_lng, zoom: 14 };
+      }
+    }
+    if (pt) setFocusPt((p) => ({ ...pt, n: (p?.n ?? 0) + 1 }));
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      mapPaneRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
 
   // Local só é filtrável com locais CARREGADOS — antes disso a busca seria
   // silenciosamente inerte (o total diria "filtrado" sem filtrar nada).
@@ -389,10 +447,13 @@ export function CandidateMapModal({ results, onClose }: Props) {
             altura natural — sem isso o gráfico era CORTADO pelo overflow-hidden
             do card, inalcançável). No lg+ o aside rola por conta própria. */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-visible">
-          <div className="flex-1 min-h-[42vh] shrink-0 lg:shrink lg:min-h-0 relative">
+          <div
+            ref={mapPaneRef}
+            className="flex-1 min-h-[42vh] shrink-0 lg:shrink lg:min-h-0 relative"
+          >
             {mode === "municipio" && (
               <>
-                <CandidateVoteMap results={filteredMuniResults} />
+                <CandidateVoteMap results={filteredMuniResults} focus={focusPt} />
                 {/* Filtro zerou a lista → aviso NO MAPA (senão fica um viewport
                     velho sem explicação). pointer-events-none preserva o pan. */}
                 {results.results.length > 0 &&
@@ -418,6 +479,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 uf={c.state}
                 year={c.election.year}
                 votingPlaces={filteredPlaces}
+                focus={focusPt}
                 onRetry={() => {
                   setNeighborhood(null);
                 }}
@@ -429,7 +491,9 @@ export function CandidateMapModal({ results, onClose }: Props) {
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               {mode === "municipio"
                 ? "Votos por município"
-                : "Votos por bairro (município)"}
+                : singleMuni
+                  ? `Votos por bairro — ${titleCase(results.results[0].municipality.name)}`
+                  : "Votos por bairro (município)"}
               {" · "}
               <span className="text-foreground font-semibold">
                 {numberFmt.format(
@@ -438,11 +502,17 @@ export function CandidateMapModal({ results, onClose }: Props) {
               </span>{" "}
               votos no filtro
             </p>
+            <p className="text-[11px] text-muted-foreground -mt-1 mb-2">
+              Clique numa barra para voar até ela no mapa.
+            </p>
             <VotesBarChart
               items={chartItems}
               hideSearch
+              showValues
+              onItemClick={onBarClick}
+              selectedKey={selKey}
               topN={30}
-              yAxisWidth={mode === "bairro" ? 168 : 128}
+              yAxisWidth={mode === "bairro" && !singleMuni ? 168 : 128}
               emptyText={
                 mode === "bairro" && nbLoading
                   ? "Carregando bairros…"
@@ -542,6 +612,7 @@ function BairroView({
   uf,
   year,
   votingPlaces,
+  focus,
   onRetry,
 }: {
   loading: boolean;
@@ -552,6 +623,8 @@ function BairroView({
   uf: string;
   year: number;
   votingPlaces?: VotingPlacePoint[];
+  /** Voo gráfico→mapa (clique na barra). */
+  focus?: MapFocus | null;
   onRetry: () => void;
 }) {
   if (loading) {
@@ -610,7 +683,13 @@ function BairroView({
       </div>
     );
   }
-  return <CandidateNeighborhoodMap data={data} votingPlaces={votingPlaces} />;
+  return (
+    <CandidateNeighborhoodMap
+      data={data}
+      votingPlaces={votingPlaces}
+      focus={focus}
+    />
+  );
 }
 
 function MapPlaceholder() {

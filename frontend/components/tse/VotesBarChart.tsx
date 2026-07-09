@@ -21,6 +21,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -35,6 +36,11 @@ export type VotesBarItem = {
 };
 
 const fmt = new Intl.NumberFormat("pt-BR");
+// "72,6 mil" no fim da barra — número cheio fica no tooltip.
+const compactFmt = new Intl.NumberFormat("pt-BR", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 export function VotesBarChart({
   items,
@@ -44,6 +50,9 @@ export function VotesBarChart({
   unit = "votos",
   hideSearch = false,
   yAxisWidth = 128,
+  showValues = false,
+  onItemClick,
+  selectedKey = null,
 }: {
   items: VotesBarItem[];
   searchPlaceholder?: string;
@@ -55,6 +64,12 @@ export function VotesBarChart({
   hideSearch?: boolean;
   /** Largura do eixo Y — aumente p/ rótulos compostos "Bairro (Município)". */
   yAxisWidth?: number;
+  /** Mostra o valor compacto ("72,6 mil") no fim de cada barra. */
+  showValues?: boolean;
+  /** Clique na barra (sincronizar com mapa etc.). Liga cursor pointer. */
+  onItemClick?: (item: VotesBarItem) => void;
+  /** Barra destacada (selecionada) — a key do item. */
+  selectedKey?: string | null;
 }) {
   const [q, setQ] = useState("");
 
@@ -95,7 +110,7 @@ export function VotesBarChart({
             <BarChart
               data={filtered}
               layout="vertical"
-              margin={{ left: 4, right: 16, top: 4, bottom: 4 }}
+              margin={{ left: 4, right: showValues ? 52 : 16, top: 4, bottom: 4 }}
               barCategoryGap={4}
             >
               <CartesianGrid
@@ -153,19 +168,53 @@ export function VotesBarChart({
                   );
                 }}
               />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-                {filtered.map((_, i) => (
-                  <Cell
-                    key={i}
-                    fill="hsl(var(--primary))"
-                    // leve degradê: barras do topo mais fortes. Piso de 0.7
-                    // pra ultima barra nao "apagar" no tema claro.
-                    fillOpacity={Math.max(
-                      0.7,
-                      1 - (i / Math.max(filtered.length, 1)) * 0.55,
-                    )}
+              <Bar
+                dataKey="value"
+                radius={[0, 6, 6, 0]}
+                isAnimationActive={false}
+                cursor={onItemClick ? "pointer" : undefined}
+                onClick={
+                  onItemClick
+                    ? (d: unknown) => {
+                        // Recharts entrega o payload do item clicado.
+                        const p =
+                          (d as { payload?: VotesBarItem })?.payload ??
+                          (d as VotesBarItem);
+                        if (p && typeof p.key === "string") onItemClick(p);
+                      }
+                    : undefined
+                }
+              >
+                {filtered.map((it, i) => {
+                  const selected = selectedKey != null && it.key === selectedKey;
+                  return (
+                    <Cell
+                      key={it.key}
+                      fill="hsl(var(--primary))"
+                      // Selecionada: cheia + contorno. Demais: leve degradê
+                      // (topo mais forte; piso 0.7 pro tema claro).
+                      fillOpacity={
+                        selected
+                          ? 1
+                          : Math.max(
+                              0.7,
+                              1 - (i / Math.max(filtered.length, 1)) * 0.55,
+                            )
+                      }
+                      stroke={selected ? "hsl(var(--primary))" : undefined}
+                      strokeWidth={selected ? 1.5 : 0}
+                    />
+                  );
+                })}
+                {showValues && (
+                  <LabelList
+                    dataKey="value"
+                    position="right"
+                    formatter={(v: unknown) => compactFmt.format(Number(v))}
+                    className="fill-muted-foreground"
+                    fontSize={10}
                   />
-                ))}
+                )}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

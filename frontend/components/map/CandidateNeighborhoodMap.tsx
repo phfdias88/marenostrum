@@ -44,13 +44,20 @@ function nbLabel(r: { neighborhood: string; municipality_name?: string | null })
     : r.neighborhood;
 }
 
+/** Ponto pra onde o mapa deve VOAR (clique numa barra do gráfico). O `n` é um
+ *  nonce: clicar de novo na MESMA barra re-dispara o voo. */
+export type MapFocus = { lat: number; lng: number; zoom: number; n: number };
+
 export default function CandidateNeighborhoodMap({
   data,
   votingPlaces,
+  focus,
 }: {
   data: TseCandidateByNeighborhoodResponse;
   /** Camada opcional de locais de votação (marcadores discretos). */
   votingPlaces?: VotingPlacePoint[];
+  /** Voa até o ponto (sincronia gráfico → mapa). */
+  focus?: MapFocus | null;
 }) {
   const withCoords = useMemo(
     () => data.items.filter((i) => i.avg_lat != null && i.avg_lng != null),
@@ -135,6 +142,7 @@ export default function CandidateNeighborhoodMap({
               (r) => [r.avg_lat as number, r.avg_lng as number] as [number, number],
             )}
           />
+          <FlyTo focus={focus} />
         </MapContainer>
       </div>
 
@@ -193,6 +201,18 @@ function AutoFit({ points }: { points: [number, number][] }) {
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14, animate: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig, map]);
+  return null;
+}
+
+// Voa até o ponto clicado no gráfico. AQUI pode animar: o gotcha do
+// animate:false vale só pra chamadas na INIT do mapa (engolidas) — clique do
+// usuário chega com o mapa vivo, e o voo dá o feedback visual pedido pelo PO.
+function FlyTo({ focus }: { focus?: MapFocus | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!focus) return;
+    map.setView([focus.lat, focus.lng], focus.zoom, { animate: true });
+  }, [focus, map]);
   return null;
 }
 

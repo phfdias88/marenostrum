@@ -40,10 +40,16 @@ declare module "leaflet" {
 
 type Mode = "bubbles" | "heat";
 
+/** Ponto pra onde voar (clique numa barra do gráfico) — `n` re-dispara. */
+export type MapFocus = { lat: number; lng: number; zoom: number; n: number };
+
 export default function CandidateVoteMap({
   results,
+  focus,
 }: {
   results: TseCandidateResults;
+  /** Voa até o ponto (sincronia gráfico → mapa). */
+  focus?: MapFocus | null;
 }) {
   const [mode, setMode] = useState<Mode>("bubbles");
   const withCoords = useMemo(
@@ -85,6 +91,7 @@ export default function CandidateVoteMap({
                 ] as [number, number],
             )}
           />
+          <FlyTo focus={focus} />
         </MapContainer>
 
         {/* Toggle modo (top-right) */}
@@ -202,6 +209,17 @@ function AutoFit({ points }: { points: [number, number][] }) {
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12, animate: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig, map]);
+  return null;
+}
+
+// Voa até o ponto clicado no gráfico. Pode animar: o gotcha do animate:false
+// vale só pra INIT do mapa — clique chega com o mapa vivo.
+function FlyTo({ focus }: { focus?: MapFocus | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!focus) return;
+    map.setView([focus.lat, focus.lng], focus.zoom, { animate: true });
+  }, [focus, map]);
   return null;
 }
 
