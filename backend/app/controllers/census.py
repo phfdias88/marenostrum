@@ -124,6 +124,13 @@ def census_uf_overview(
             "               / NULLIF(sum(pop_15mais),0), 1) AS taxa_alfabetizacao, "
             "         round(100*(coalesce(sum(raca_preta),0)+coalesce(sum(raca_parda),0))::numeric"
             "               / NULLIF(sum(populacao),0), 1) AS pct_pretos_pardos, "
+            # Cor/raça DESAGREGADA (Censo 2022): pct de cada categoria sobre a
+            # população — o PO pediu Branco/Preto/Pardo/Amarelo/Indígena separados.
+            "         round(100*coalesce(sum(raca_branca),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_branca, "
+            "         round(100*coalesce(sum(raca_preta),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_preta, "
+            "         round(100*coalesce(sum(raca_parda),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_parda, "
+            "         round(100*coalesce(sum(raca_amarela),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_amarela, "
+            "         round(100*coalesce(sum(raca_indigena),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_indigena, "
             "         round(100*sum(populacao) FILTER (WHERE situacao='Urbana')::numeric"
             "               / NULLIF(sum(populacao),0), 1) AS pct_urbana, "
             "         sum(sexo_masculino) AS sexo_masculino, sum(sexo_feminino) AS sexo_feminino, "
@@ -163,6 +170,12 @@ def census_uf_overview(
             "pct_pretos_pardos": (
                 float(r["pct_pretos_pardos"]) if r["pct_pretos_pardos"] is not None else None
             ),
+            # Cor/raça desagregada (% da população por categoria do Censo 2022).
+            "pct_branca": float(r["pct_branca"]) if r["pct_branca"] is not None else None,
+            "pct_preta": float(r["pct_preta"]) if r["pct_preta"] is not None else None,
+            "pct_parda": float(r["pct_parda"]) if r["pct_parda"] is not None else None,
+            "pct_amarela": float(r["pct_amarela"]) if r["pct_amarela"] is not None else None,
+            "pct_indigena": float(r["pct_indigena"]) if r["pct_indigena"] is not None else None,
             "pct_urbana": (
                 float(r["pct_urbana"]) if r["pct_urbana"] is not None else None
             ),
@@ -359,6 +372,19 @@ def census_setores(
                 "raca_amarela": r["raca_amarela"],
                 "raca_parda": r["raca_parda"],
                 "raca_indigena": r["raca_indigena"],
+                # Cor/raça DESAGREGADA como % da população (indicadores de mapa;
+                # agregam por bairro/distrito ponderados por população no front).
+                **{
+                    f"pct_{k}": (
+                        round(100 * (r[f"raca_{col}"] or 0) / r["populacao"], 1)
+                        if (r["populacao"] or 0) > 0 and r[f"raca_{col}"] is not None
+                        else None
+                    )
+                    for k, col in (
+                        ("branca", "branca"), ("preta", "preta"), ("parda", "parda"),
+                        ("amarela", "amarela"), ("indigena", "indigena"),
+                    )
+                },
                 # Sexo + idade (Censo 2022) como indicadores de mapa.
                 "pct_feminino": (
                     round(100 * r["sexo_feminino"]

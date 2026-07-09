@@ -12,7 +12,7 @@ import { ArrowLeft, Building2, Download, Layers, Loader2, MapPin, MapPinned, Sea
 import { api } from "@/lib/api";
 import { aggregateCensusData } from "@/lib/censusAggregate";
 import type { CensusIndicator } from "@/components/map/CensusMap";
-import { INDICATOR_FMT, indicatorShortLabel } from "@/lib/census-indicators";
+import { INDICATOR_FMT, INDICATOR_TOOLTIP, indicatorShortLabel } from "@/lib/census-indicators";
 
 const CensusMap = dynamic(
   () => import("@/components/map/CensusMap").then((m) => m.CensusMap),
@@ -109,7 +109,16 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
   {
     key: "cor_raca",
     label: "Cor ou raça",
-    vars: [{ key: "pct_pretos_pardos", label: "Pretos e pardos" }],
+    // Categorias INDIVIDUAIS do Censo 2022 (pedido do PO), + o agregado
+    // pretos+pardos mantido por conveniência.
+    vars: [
+      { key: "pct_branca", label: "Branca" },
+      { key: "pct_preta", label: "Preta" },
+      { key: "pct_parda", label: "Parda" },
+      { key: "pct_amarela", label: "Amarela" },
+      { key: "pct_indigena", label: "Indígena" },
+      { key: "pct_pretos_pardos", label: "Pretos e pardos" },
+    ],
   },
   {
     key: "sexo_idade",
@@ -712,7 +721,11 @@ export default function CensoPage() {
                   : mapIndicator === "pct_feminino" ? (g.averages.pct_feminino ?? 0)
                     : mapIndicator === "pct_60mais" ? (g.averages.pct_60mais ?? 0)
                       : mapIndicator === "renda_media" ? (g.averages.renda_media ?? 0)
-                        : (g.sums.populacao ?? 0),
+                        // Cor/raça individual (pct_branca/preta/parda/amarela/indigena):
+                        // média ponderada por população, lida direto de g.averages.
+                        : mapIndicator.startsWith("pct_")
+                          ? ((g.averages as Record<string, number | undefined>)[mapIndicator] ?? 0)
+                          : (g.sums.populacao ?? 0),
     }));
     // areaGroupOf depende só de effMalha (função declarada no render).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -763,6 +776,11 @@ export default function CensoPage() {
         media_moradores: g.averages.media_moradores ?? null,
         taxa_alfabetizacao: g.averages.taxa_alfabetizacao ?? null,
         pct_pretos_pardos: g.averages.pct_pretos_pardos ?? null,
+        pct_branca: g.averages.pct_branca ?? null,
+        pct_preta: g.averages.pct_preta ?? null,
+        pct_parda: g.averages.pct_parda ?? null,
+        pct_amarela: g.averages.pct_amarela ?? null,
+        pct_indigena: g.averages.pct_indigena ?? null,
         pct_feminino: g.averages.pct_feminino ?? null,
         pct_60mais: g.averages.pct_60mais ?? null,
         renda_media: g.averages.renda_media ?? null,
@@ -1084,7 +1102,7 @@ export default function CensoPage() {
                   key={v.label}
                   onClick={() => !v.disabled && setIndicator(v.key)}
                   disabled={v.disabled}
-                  title={v.note ?? `Colorir por ${v.label}`}
+                  title={INDICATOR_TOOLTIP[v.key] ?? v.note ?? `Colorir por ${v.label}`}
                   className={`py-1 px-2.5 rounded-md border text-xs transition-colors ${
                     v.disabled
                       ? "border-dashed border-border bg-card opacity-50 cursor-help"

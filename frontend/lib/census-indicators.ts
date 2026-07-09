@@ -13,6 +13,11 @@ export type CensusIndicator =
   | "media_moradores"
   | "taxa_alfabetizacao"
   | "pct_pretos_pardos"
+  | "pct_branca"
+  | "pct_preta"
+  | "pct_parda"
+  | "pct_amarela"
+  | "pct_indigena"
   | "pct_feminino"
   | "pct_60mais"
   | "renda_media"
@@ -36,6 +41,11 @@ export const INDICATOR_FMT: Record<CensusIndicator, (v: number) => string> = {
   media_moradores: (v) => `${v.toFixed(2).replace(".", ",")} /domic.`,
   taxa_alfabetizacao: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_pretos_pardos: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_branca: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_preta: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_parda: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_amarela: (v) => `${v.toFixed(1).replace(".", ",")}%`,
+  pct_indigena: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_feminino: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   pct_60mais: (v) => `${v.toFixed(1).replace(".", ",")}%`,
   renda_media: (v) => `R$ ${numFmt.format(Math.round(v))}`,
@@ -58,9 +68,14 @@ export const INDICATOR_LABEL: Record<CensusIndicator, string> = {
   media_moradores: "Moradores / domicílio",
   taxa_alfabetizacao: "Alfabetização 15+ (%)",
   pct_pretos_pardos: "Cor ou raça — pretos e pardos (%)",
+  pct_branca: "Cor ou raça — branca (%)",
+  pct_preta: "Cor ou raça — preta (%)",
+  pct_parda: "Cor ou raça — parda (%)",
+  pct_amarela: "Cor ou raça — amarela (%)",
+  pct_indigena: "Cor ou raça — indígena (%)",
   pct_feminino: "Mulheres (% da população)",
   pct_60mais: "60 anos ou mais (% da população)",
-  renda_media: "Renda dos responsáveis em domicílios particulares permanentes ocupados",
+  renda_media: "Rendimento médio dos responsáveis por domicílio",
   pct_bolsa_familia: "Bolsa Família (% domicílios)",
   pct_cadunico: "CadÚnico (% domicílios)",
   pib_per_capita: "PIB per capita (R$, 2023)",
@@ -76,3 +91,14 @@ export const INDICATOR_LABEL: Record<CensusIndicator, string> = {
 export function indicatorShortLabel(key: CensusIndicator): string {
   return INDICATOR_LABEL[key].replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
+
+/**
+ * Descrição longa (tooltip) — só pros indicadores que precisam explicar a fonte
+ * exata. Fica em `title`/tooltip no seletor e na legenda. Ausência = sem tooltip.
+ */
+export const INDICATOR_TOOLTIP: Partial<Record<CensusIndicator, string>> = {
+  renda_media:
+    "Rendimento nominal médio mensal dos responsáveis pelos domicílios particulares permanentes ocupados (Censo 2022, IBGE). No bairro/distrito é a média dos setores, ponderada pelo nº de responsáveis.",
+  pct_pretos_pardos:
+    "Soma de pretos e pardos como % da população (Censo 2022). Prefira as categorias individuais para detalhe.",
+};

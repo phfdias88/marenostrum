@@ -41,8 +41,14 @@ export const WEIGHTED_AVG_COLS: Record<string, { weight: string; decimals: numbe
   media_moradores: { weight: "domicilios", decimals: 2 },
   // taxa de alfabetização 15+ (%) — peso: população 15+
   taxa_alfabetizacao: { weight: "pop_15mais", decimals: 1 },
-  // % cor ou raça (pretos e pardos) — peso: população do setor
+  // % cor ou raça — peso: população do setor. pretos+pardos (legado) +
+  // as 5 categorias individuais do Censo 2022 (pedido do PO).
   pct_pretos_pardos: { weight: "populacao", decimals: 1 },
+  pct_branca: { weight: "populacao", decimals: 1 },
+  pct_preta: { weight: "populacao", decimals: 1 },
+  pct_parda: { weight: "populacao", decimals: 1 },
+  pct_amarela: { weight: "populacao", decimals: 1 },
+  pct_indigena: { weight: "populacao", decimals: 1 },
   // % de mulheres e % 60+ (Censo 2022) — peso: população do setor
   pct_feminino: { weight: "populacao", decimals: 1 },
   pct_60mais: { weight: "populacao", decimals: 1 },
