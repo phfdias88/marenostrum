@@ -138,8 +138,9 @@ export function VotesBarChart({
     return base.slice(0, topN);
   }, [items, q, topN]);
 
-  // Altura proporcional ao nº de barras (cada barra ~26px), com piso.
-  const height = Math.max(200, filtered.length * 26 + 32);
+  // Altura proporcional ao nº de barras (~30px por linha: respiro entre as
+  // barras deixa o painel menos denso — polish pedido pelo PO), com piso.
+  const height = Math.max(200, filtered.length * 30 + 36);
 
   return (
     <div>
@@ -164,22 +165,33 @@ export function VotesBarChart({
               data={filtered}
               layout="vertical"
               margin={{ left: 4, right: showValues ? 52 : 16, top: 4, bottom: 4 }}
-              barCategoryGap={4}
+              barCategoryGap={7}
             >
-              {/* Degradê dourado AO LONGO da barra (base suave → ponta cheia).
-                  Uniforme em todas as barras: a cor segue a ENTIDADE, não o
-                  rank — filtrar não "repinta" quem ficou. */}
+              {/* Degradê de RELEVO ao longo da barra: base mais ESCURA → ponta
+                  mais CLARA e vibrante (sensação de volume, polish do PO).
+                  color-mix escurece/clareia a cor do tema; o stopColor de
+                  atributo fica como FALLBACK (browsers sem color-mix ignoram
+                  o style e usam o atributo). Uniforme em todas as barras: a
+                  cor segue a ENTIDADE, não o rank. */}
               <defs>
                 <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
                   <stop
                     offset="0%"
                     stopColor="hsl(var(--primary))"
-                    stopOpacity={0.45}
+                    stopOpacity={0.85}
+                    style={{
+                      stopColor:
+                        "color-mix(in srgb, hsl(var(--primary)) 65%, black)",
+                    }}
                   />
+                  <stop offset="55%" stopColor="hsl(var(--primary))" />
                   <stop
                     offset="100%"
                     stopColor="hsl(var(--primary))"
-                    stopOpacity={0.95}
+                    style={{
+                      stopColor:
+                        "color-mix(in srgb, hsl(var(--primary)) 78%, white)",
+                    }}
                   />
                 </linearGradient>
               </defs>
@@ -261,10 +273,16 @@ export function VotesBarChart({
                     <Cell
                       key={it.key}
                       // Todas com o MESMO degradê (cor segue a entidade);
-                      // a selecionada vira ouro sólido + contorno.
+                      // a selecionada vira ouro sólido + contorno. A sombra
+                      // (drop-shadow) descola a barra do fundo — profundidade.
                       fill={selected ? "hsl(var(--primary))" : `url(#${gid})`}
                       stroke={selected ? "hsl(var(--primary))" : undefined}
                       strokeWidth={selected ? 1.5 : 0}
+                      style={{
+                        filter: selected
+                          ? "drop-shadow(0 2px 4px rgb(0 0 0 / 0.4))"
+                          : "drop-shadow(0 1px 2px rgb(0 0 0 / 0.28))",
+                      }}
                     />
                   );
                 })}

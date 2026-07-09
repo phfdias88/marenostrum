@@ -550,37 +550,34 @@ export function CandidateMapModal({ results, onClose }: Props) {
             )}
           </div>
 
-          <aside className="lg:w-[400px] xl:w-[440px] shrink-0 border-t lg:border-t-0 lg:border-l border-border overflow-y-auto p-3 sm:p-4 bg-background/30">
-            {/* Cabeçalho "hero": título + total dourado + chip de contagem. */}
-            <div className="mb-3">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+          <aside className="lg:w-[400px] xl:w-[440px] shrink-0 border-t lg:border-t-0 lg:border-l border-border overflow-y-auto mn-scroll p-3 sm:p-4 bg-background/30">
+            {/* Cabeçalho "hero" CENTRALIZADO (polish do PO): título uppercase
+                discreto, número gigante em dourado, subtítulo, chip e dica. */}
+            <div className="mb-4 flex flex-col items-center justify-center text-center">
+              <p className="text-sm uppercase tracking-widest text-muted-foreground">
                 {mode === "municipio"
                   ? "Votos por município"
                   : singleMuni
                     ? `Votos por bairro · ${titleCase(results.results[0].municipality.name)}`
                     : "Votos por bairro (município)"}
               </p>
-              <div className="mt-1 flex items-baseline gap-2 flex-wrap">
-                <span className="text-2xl font-bold text-primary tabular-nums tracking-tight">
-                  {numberFmt.format(
-                    chartItems.reduce((s, i) => s + i.value, 0),
-                  )}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  votos no filtro
-                </span>
-                <span className="ml-auto text-[11px] px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground tabular-nums">
-                  {numberFmt.format(chartItems.length)}{" "}
-                  {mode === "municipio"
-                    ? chartItems.length === 1
-                      ? "município"
-                      : "municípios"
-                    : chartItems.length === 1
-                      ? "bairro"
-                      : "bairros"}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
+              <p className="mt-1 text-3xl xl:text-4xl font-bold text-primary tabular-nums tracking-tight leading-none">
+                {numberFmt.format(chartItems.reduce((s, i) => s + i.value, 0))}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                votos no filtro
+              </p>
+              <span className="mt-2 text-[11px] px-2.5 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-muted-foreground tabular-nums">
+                {numberFmt.format(chartItems.length)}{" "}
+                {mode === "municipio"
+                  ? chartItems.length === 1
+                    ? "município"
+                    : "municípios"
+                  : chartItems.length === 1
+                    ? "bairro"
+                    : "bairros"}
+              </span>
+              <p className="text-[11px] text-muted-foreground mt-2 flex items-center justify-center gap-1.5">
                 <MousePointerClick className="w-3.5 h-3.5 text-primary/70" />
                 Clique numa barra para voar até ela no mapa.
               </p>

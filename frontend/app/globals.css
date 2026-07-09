@@ -118,6 +118,27 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground));
   }
+
+  /* Scrollbar FINA p/ painéis internos (ex.: gráfico do split-screen):
+     6px, trilho transparente. Não quebra a imersão do dark mode. */
+  .mn-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .mn-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .mn-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .mn-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  .mn-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
 }
 
 /* ---- Microinterações (transições suaves) ---- */
