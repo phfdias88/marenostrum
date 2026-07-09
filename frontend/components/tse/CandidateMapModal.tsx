@@ -38,6 +38,7 @@ import type {
 } from "@/lib/types";
 import type { VotingPlacePoint } from "@/components/map/CandidateNeighborhoodMap";
 import type { VotesBarItem } from "@/components/tse/VotesBarChart";
+import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { MapLayoutSelector } from "@/components/map/MapLayoutSelector";
 
@@ -356,6 +357,51 @@ export function CandidateMapModal({ results, onClose }: Props) {
 
   // Local só é filtrável com locais CARREGADOS — antes disso a busca seria
   // silenciosamente inerte (o total diria "filtrado" sem filtrar nada).
+  // Detalhe da barra SELECIONADA (card no topo do painel): traz números que o
+  // endpoint já manda e o gráfico não mostra (locais, eleitores, penetração).
+  const selDetail = useMemo(() => {
+    if (!selKey) return null;
+    if (mode === "municipio") {
+      const r = filteredMuniResults.results.find(
+        (x) => x.municipality.id === selKey,
+      );
+      if (!r) return null;
+      return {
+        title: `${titleCase(r.municipality.name)}/${r.municipality.state}`,
+        votes: r.votes,
+        share:
+          results.total_votes > 0
+            ? (r.votes / results.total_votes) * 100
+            : null,
+        extra: null as string | null,
+      };
+    }
+    const it = filteredNbItems.find(
+      (x) => `${x.municipality_id ?? ""}-${x.neighborhood}` === selKey,
+    );
+    if (!it) return null;
+    const parts: string[] = [
+      `${numberFmt.format(it.places_count)} ${it.places_count === 1 ? "local de votação" : "locais de votação"}`,
+    ];
+    if (it.electors_total > 0)
+      parts.push(`${numberFmt.format(it.electors_total)} eleitores aptos`);
+    if (it.penetration_pct != null)
+      parts.push(
+        `${String(it.penetration_pct).replace(".", ",")}% de penetração`,
+      );
+    return {
+      title: it.municipality_name
+        ? `${titleCase(it.neighborhood)} (${titleCase(it.municipality_name)})`
+        : titleCase(it.neighborhood),
+      votes: it.votes,
+      share:
+        (neighborhood?.total_votes ?? 0) > 0
+          ? (it.votes / (neighborhood as TseCandidateByNeighborhoodResponse).total_votes) * 100
+          : null,
+      extra: parts.join(" · "),
+    };
+  }, [selKey, mode, filteredMuniResults, filteredNbItems, neighborhood, results]);
+
   const localDisabled = mode !== "bairro" || !focusMuni || places === null;
   const localPlaceholder =
     mode !== "bairro" || !focusMuni
@@ -370,6 +416,15 @@ export function CandidateMapModal({ results, onClose }: Props) {
     <div className="fixed inset-0 bg-black/70 z-50 grid place-items-center p-2 sm:p-4">
       <div className="bg-card border border-border rounded-xl w-full max-w-7xl h-[92vh] sm:h-[88vh] flex flex-col overflow-hidden">
         <header className="flex items-start justify-between p-3 sm:p-4 border-b border-border gap-3">
+          {/* Foto oficial do TSE dá cara de dossiê ao cabeçalho (fallback:
+              iniciais na cor do partido). Escondida em telas muito estreitas. */}
+          <CandidatePhoto
+            candidateId={c.id}
+            name={c.urn_name}
+            partyNumber={c.party.number}
+            size="md"
+            className="hidden sm:block ring-2 ring-primary/25 rounded-full"
+          />
           <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Distribuição de votos · {c.office_name} · {c.state}
@@ -434,7 +489,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
             value={fBairro}
             onChange={setFBairro}
             placeholder="Buscar bairro (município)…"
-            title="Filtra os bairros — a busca casa também com o município do bairro"
+            title="Filtra os bairros. A busca casa também com o município do bairro."
           />
           <FilterInput
             icon={<Landmark className="w-3.5 h-3.5" />}
@@ -502,7 +557,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 {mode === "municipio"
                   ? "Votos por município"
                   : singleMuni
-                    ? `Votos por bairro — ${titleCase(results.results[0].municipality.name)}`
+                    ? `Votos por bairro · ${titleCase(results.results[0].municipality.name)}`
                     : "Votos por bairro (município)"}
               </p>
               <div className="mt-1 flex items-baseline gap-2 flex-wrap">
@@ -530,6 +585,42 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 Clique numa barra para voar até ela no mapa.
               </p>
             </div>
+
+            {/* Card da barra selecionada: nome, votos, fatia do total e os
+                extras do bairro (locais, eleitores aptos, penetração). */}
+            {selDetail && (
+              <div className="mb-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 mn-fade-in">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold truncate">
+                    {selDetail.title}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setSelKey(null);
+                      setFocusPt(null);
+                    }}
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    aria-label="Limpar seleção"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-lg font-bold text-primary tabular-nums leading-tight">
+                  {numberFmt.format(selDetail.votes)}{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    votos
+                    {selDetail.share != null
+                      ? ` · ${selDetail.share.toFixed(1).replace(".", ",")}% do total do candidato`
+                      : ""}
+                  </span>
+                </p>
+                {selDetail.extra && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {selDetail.extra}
+                  </p>
+                )}
+              </div>
+            )}
             <VotesBarChart
               items={chartItems}
               hideSearch
@@ -542,7 +633,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 mode === "bairro" && nbLoading
                   ? "Carregando bairros…"
                   : mode === "bairro" && nbError
-                    ? "Erro ao carregar os bairros — use “Tentar novamente” no mapa."
+                    ? "Erro ao carregar os bairros. Use “Tentar novamente” no mapa."
                     : "Nada encontrado para esse filtro."
               }
             />
