@@ -8,7 +8,19 @@ import unicodedata
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+
+from app.models.user import User
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
@@ -118,7 +130,7 @@ muda dataset histórico). Para forçar refresh, delete o cache + dispare.
 @limiter.limit("3/hour")
 def trigger_sync(
     request: Request,
-    ctx: CurrentTenant,  # apenas pra exigir autenticação
+    ctx: CurrentTenant,
     background_tasks: BackgroundTasks,
     dataset: str = Query(
         "candidato_munzona_2024",
@@ -126,6 +138,18 @@ def trigger_sync(
     ),
     db: Session = Depends(get_db),
 ) -> SyncJobCreated:
+    # GATE: só owner (do tenant) ou superadmin. O sync é um job GLOBAL pesado
+    # (~10min de CPU/disco no único vCPU, escreve tabelas TSE compartilhadas
+    # por todos os tenants) — antes qualquer usuário autenticado de qualquer
+    # campanha podia disparar (vetor de DoS multi-tenant trivial).
+    if ctx.role != "owner":
+        _u = db.get(User, ctx.user_id)
+        if not (_u is not None and bool(getattr(_u, "is_superadmin", False))):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas o responsável da campanha pode disparar sincronizações.",
+            )
+
     # 3/hora por IP — sync e caro (~10min, baixa 50MB do TSE, parsea 600k+
     # linhas). Ninguem precisa disparar isso varias vezes por hora.
     if dataset not in DATASETS:

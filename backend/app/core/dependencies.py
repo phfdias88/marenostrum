@@ -63,7 +63,11 @@ def get_tenant_context(
     return TenantContext(
         user_id=user.id,
         tenant_id=user.tenant_id,
-        role=payload.role,
+        # Papel SEMPRE do BANCO, nunca do claim do JWT: com role=payload.role,
+        # rebaixar um usuário (demote) não valia na prática — o token de 7 dias
+        # (renovado em silêncio pelo /auth/me) perpetuava o papel antigo
+        # indefinidamente. A linha User já está carregada; custo zero.
+        role=user.role.value if hasattr(user.role, "value") else str(user.role),
         db=db,
         user_name=user.full_name,
         analytics_enabled=bool(getattr(user, "analytics_enabled", True)),
