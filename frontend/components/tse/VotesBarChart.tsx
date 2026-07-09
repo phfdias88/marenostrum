@@ -42,12 +42,19 @@ export function VotesBarChart({
   topN = 25,
   emptyText = "Nada encontrado para essa busca.",
   unit = "votos",
+  hideSearch = false,
+  yAxisWidth = 128,
 }: {
   items: VotesBarItem[];
   searchPlaceholder?: string;
   topN?: number;
   emptyText?: string;
   unit?: string;
+  /** Esconde a busca interna — use quando a página tem filtros GLOBAIS
+   *  próprios (ex.: modal split-screen) e a busca aqui seria redundante. */
+  hideSearch?: boolean;
+  /** Largura do eixo Y — aumente p/ rótulos compostos "Bairro (Município)". */
+  yAxisWidth?: number;
 }) {
   const [q, setQ] = useState("");
 
@@ -68,15 +75,17 @@ export function VotesBarChart({
 
   return (
     <div>
-      <div className="relative mb-3">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={searchPlaceholder}
-          className="w-full pl-9 py-2 rounded-md bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-        />
-      </div>
+      {!hideSearch && (
+        <div className="relative mb-3">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full pl-9 py-2 rounded-md bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <p className="text-sm text-muted-foreground py-10 text-center">{emptyText}</p>
@@ -105,15 +114,26 @@ export function VotesBarChart({
               <YAxis
                 type="category"
                 dataKey="label"
-                width={128}
+                width={yAxisWidth}
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={11}
                 tickLine={false}
                 axisLine={false}
                 interval={0}
-                tickFormatter={(v: string) =>
-                  v.length > 18 ? v.slice(0, 17) + "…" : v
-                }
+                // Truncagem proporcional à largura (~7px por caractere).
+                // Rótulo composto "Bairro (Município)": trunca o BAIRRO e
+                // preserva o "(Município)" — é o desambiguador de homônimos.
+                tickFormatter={(v: string) => {
+                  const max = Math.max(12, Math.floor(yAxisWidth / 7));
+                  if (v.length <= max) return v;
+                  const m = v.match(/^(.*?)\s*(\([^()]*\))$/);
+                  if (m) {
+                    const suffix = " " + m[2];
+                    const keep = Math.max(4, max - suffix.length - 1);
+                    return m[1].slice(0, keep) + "…" + suffix;
+                  }
+                  return v.slice(0, max - 1) + "…";
+                }}
               />
               <Tooltip
                 cursor={{ fill: "hsl(var(--muted-foreground))", fillOpacity: 0.08 }}
@@ -154,8 +174,10 @@ export function VotesBarChart({
 
       {!q && items.length > topN && (
         <p className="text-[11px] text-muted-foreground mt-2">
-          Mostrando os {topN} maiores de {fmt.format(items.length)}. Use a busca
-          para localizar os demais.
+          Mostrando os {topN} maiores de {fmt.format(items.length)}.{" "}
+          {hideSearch
+            ? "Use os filtros acima para localizar os demais."
+            : "Use a busca para localizar os demais."}
         </p>
       )}
     </div>

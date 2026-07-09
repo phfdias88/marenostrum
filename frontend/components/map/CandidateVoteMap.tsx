@@ -182,18 +182,26 @@ export default function CandidateVoteMap({
 
 function AutoFit({ points }: { points: [number, number][] }) {
   const map = useMap();
+  // Assinatura por VALOR: os filtros do modal re-renderizam o mapa com um
+  // array NOVO (mesmo conteúdo) a cada tecla — refit por identidade resetava
+  // o pan/zoom do usuário. Só refita quando o CONJUNTO muda de fato.
+  const sig = points.map((p) => p.join(",")).join("|");
+  const ptsRef = useRef(points);
+  ptsRef.current = points;
   useEffect(() => {
-    if (points.length === 0) return;
+    const pts = ptsRef.current;
+    if (pts.length === 0) return;
     // animate:false — os pontos chegam por prop (ja carregados), entao o efeito
     // roda no mount durante a init do mapa; sem isso o enquadramento e engolido
     // e o mapa fica na visao default do Brasil (gotcha do Leaflet ja documentado).
-    if (points.length === 1) {
-      map.setView(points[0], 11, { animate: false });
+    if (pts.length === 1) {
+      map.setView(pts[0], 11, { animate: false });
       return;
     }
-    const bounds = L.latLngBounds(points);
+    const bounds = L.latLngBounds(pts);
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12, animate: false });
-  }, [points, map]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, map]);
   return null;
 }
 

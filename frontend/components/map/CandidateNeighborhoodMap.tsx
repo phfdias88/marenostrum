@@ -7,7 +7,7 @@
  * o endpoint /candidates/{id}/by-neighborhood com filtro por municipio.
  * Cada bolha = centroide do bairro, raio = sqrt(votos/max) * 35.
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import {
   CircleMarker,
@@ -31,7 +31,18 @@ export type VotingPlacePoint = {
   lat: number;
   lng: number;
   electors: number | null;
+  /** Município do local — desambigua escolas homônimas ("Nome (Município)"). */
+  municipality?: string | null;
 };
+
+// Rótulo composto "Bairro (Município)" — regra de exibição do PO: deputado
+// recebe voto no estado inteiro e todo município tem um "Centro"; sem o
+// município junto, bairros homônimos viram ruído.
+function nbLabel(r: { neighborhood: string; municipality_name?: string | null }): string {
+  return r.municipality_name
+    ? `${r.neighborhood} (${r.municipality_name})`
+    : r.neighborhood;
+}
 
 export default function CandidateNeighborhoodMap({
   data,
@@ -73,7 +84,9 @@ export default function CandidateNeighborhoodMap({
                     : "#5cb85c";
             return (
               <CircleMarker
-                key={r.neighborhood}
+                // Chave COMPOSTA: só o bairro colidia em homônimos estaduais
+                // (todo "Centro" do estado = mesma key React).
+                key={`${r.municipality_id ?? ""}-${r.neighborhood}`}
                 center={[r.avg_lat as number, r.avg_lng as number]}
                 radius={radius}
                 pathOptions={{
@@ -85,12 +98,12 @@ export default function CandidateNeighborhoodMap({
               >
                 <Tooltip direction="top" offset={[0, -4]} className="mn-tip" opacity={1}>
                   <span>
-                    {r.neighborhood} · <b>{numberFmt.format(r.votes)}</b>
+                    {nbLabel(r)} · <b>{numberFmt.format(r.votes)}</b>
                   </span>
                 </Tooltip>
                 <Popup>
                   <div className="text-sm">
-                    <p className="font-semibold">{r.neighborhood}</p>
+                    <p className="font-semibold">{nbLabel(r)}</p>
                     <p className="text-primary font-bold text-base">
                       {numberFmt.format(r.votes)} votos
                     </p>
@@ -109,40 +122,13 @@ export default function CandidateNeighborhoodMap({
             );
           })}
 
-          {/* Camada de locais de votação (marcadores pequenos, azuis) */}
-          {(votingPlaces ?? []).map((vp) => (
-            <CircleMarker
-              key={vp.id}
-              center={[vp.lat, vp.lng]}
-              radius={3.5}
-              pathOptions={{
-                color: "#1d4ed8",
-                fillColor: "#3b82f6",
-                fillOpacity: 0.9,
-                weight: 1,
-              }}
-            >
-              <Tooltip direction="top" offset={[0, -2]} className="mn-tip" opacity={1}>
-                <span>
-                  📍 {vp.name}
-                  {vp.neighborhood ? ` · ${vp.neighborhood}` : ""}
-                </span>
-              </Tooltip>
-              <Popup>
-                <div className="text-sm">
-                  <p className="font-semibold">{vp.name}</p>
-                  {vp.neighborhood && (
-                    <p className="text-xs text-muted-foreground">{vp.neighborhood}</p>
-                  )}
-                  {vp.electors != null && vp.electors > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {numberFmt.format(vp.electors)} eleitores
-                    </p>
-                  )}
-                </div>
-              </Popup>
-            </CircleMarker>
-          ))}
+          {/* Camada de locais de votação (marcadores pequenos, azuis) —
+              IMPERATIVA: até 3000 locais viravam ~9000 mounts React
+              (CircleMarker+Tooltip+Popup) e o rebuild por tecla do filtro
+              pesava no mobile. 1 L.layerGroup em canvas resolve. */}
+          {votingPlaces && votingPlaces.length > 0 && (
+            <PlacesLayer places={votingPlaces} />
+          )}
 
           <AutoFit
             points={withCoords.map(
@@ -188,15 +174,77 @@ export default function CandidateNeighborhoodMap({
 
 function AutoFit({ points }: { points: [number, number][] }) {
   const map = useMap();
+  // Assinatura por VALOR: os filtros do modal re-renderizam o mapa com um
+  // array NOVO (mesma coordenada) a cada tecla/fetch — refit por identidade
+  // resetava o pan/zoom do usuário toda hora. Só refita quando o CONJUNTO
+  // de pontos muda de fato.
+  const sig = points.map((p) => p.join(",")).join("|");
+  const ptsRef = useRef(points);
+  ptsRef.current = points;
   useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 14, { animate: false });
+    const pts = ptsRef.current;
+    if (pts.length === 0) return;
+    if (pts.length === 1) {
+      map.setView(pts[0], 14, { animate: false });
       return;
     }
-    const bounds = L.latLngBounds(points);
+    const bounds = L.latLngBounds(pts);
     // animate:false — senão o enquadramento é engolido na init do mapa (gotcha).
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14, animate: false });
-  }, [points, map]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig, map]);
+  return null;
+}
+
+// Escapa HTML pra bindTooltip/bindPopup (strings cruas do TSE).
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Locais como UMA camada imperativa (mesmo padrão do BubblesLayer do
+// CandidateVoteMap): canvas, sem mount React por marcador. Rótulos mantêm a
+// desambiguação "Nome (Município)".
+function PlacesLayer({ places }: { places: VotingPlacePoint[] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (places.length === 0) return;
+    const group = L.layerGroup();
+    for (const vp of places) {
+      const m = L.circleMarker([vp.lat, vp.lng], {
+        radius: 3.5,
+        color: "#1d4ed8",
+        fillColor: "#3b82f6",
+        fillOpacity: 0.9,
+        weight: 1,
+      });
+      const muni = vp.municipality ? ` (${esc(vp.municipality)})` : "";
+      const nb = vp.neighborhood ? ` · ${esc(vp.neighborhood)}` : "";
+      m.bindTooltip(`📍 ${esc(vp.name)}${muni}${nb}`, {
+        direction: "top",
+        offset: [0, -2],
+        className: "mn-tip",
+        opacity: 1,
+      });
+      m.bindPopup(
+        `<div class="text-sm"><p class="font-semibold">${esc(vp.name)}${muni}</p>` +
+          (vp.neighborhood
+            ? `<p class="text-xs text-muted-foreground">${esc(vp.neighborhood)}</p>`
+            : "") +
+          (vp.electors != null && vp.electors > 0
+            ? `<p class="text-xs text-muted-foreground">${numberFmt.format(vp.electors)} eleitores</p>`
+            : "") +
+          "</div>",
+      );
+      m.addTo(group);
+    }
+    group.addTo(map);
+    return () => {
+      map.removeLayer(group);
+    };
+  }, [places, map]);
   return null;
 }
