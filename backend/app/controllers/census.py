@@ -70,7 +70,7 @@ def _round_geom(geom, nd: int = 5):
     return {**geom, "coordinates": _round_coords(geom["coordinates"], nd)}
 
 
-def _clean_dissolved(geom, min_area: float = 1e-7):
+def _clean_dissolved(geom, min_area: float = 5e-7):
     """Remove aneis internos (holes) e partes minusculas (slivers) que a uniao de
     setores deixa por vertices nao-coincidentes — sao eles que viram 'demarcacoes'
     internas no mapa. Mantem enclaves/ilhas reais (area >> min_area). Nunca vazio."""
@@ -553,9 +553,11 @@ def census_malha(
         except Exception:
             continue
 
-    # set_precision (shapely>=2) snapa vertices num grid ~0.1m: arestas
-    # compartilhadas passam a coincidir e a uniao dissolve limpo. Sem ele, cai
-    # no fallback (so limpeza de holes/slivers pos-uniao).
+    # set_precision (shapely>=2) snapa vertices num grid ~1.1m: arestas
+    # compartilhadas passam a coincidir e a uniao dissolve limpo. O grid TEM que
+    # ser >= a granularidade do dado de origem (setores ~5 casas decimais ~1.1m),
+    # senao vertices ~1m de distancia NAO caem no mesmo ponto e sobram slivers.
+    # Sem set_precision (shapely<2) cai no fallback (so limpeza pos-uniao).
     try:
         from shapely import set_precision as _set_precision
     except Exception:
@@ -564,7 +566,7 @@ def census_malha(
     features = []
     for nome, geoms in groups.items():
         try:
-            gs = [_set_precision(g, 1e-6) for g in geoms] if _set_precision else geoms
+            gs = [_set_precision(g, 1e-5) for g in geoms] if _set_precision else geoms
             merged = _clean_dissolved(unary_union(gs))
         except Exception:
             continue
