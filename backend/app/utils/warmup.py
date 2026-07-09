@@ -66,7 +66,7 @@ _BROWSER_ENCODINGS = ["gzip, deflate, br, zstd", "gzip, deflate, br"]
 # DIFERENTE. Sem anexar o mesmo v= (na mesma posicao), o warmup aquece
 # entradas que nenhum browser jamais pede e 100% do trabalho e desperdicado.
 # MANTER EM SINCRONIA com o CENSUS_V do frontend — bump nos dois juntos.
-CENSUS_V = "2026-06-28"
+CENSUS_V = "2026-07-09"
 
 
 def _muni_top_warm_paths() -> list[str]:

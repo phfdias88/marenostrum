@@ -236,7 +236,7 @@ export type Malha = "setor" | "distrito" | "bairro";
 // o NAVEGADOR cacheia. Ao adicionar/atualizar indicadores (renda, PIB, IDHM,
 // IDEB, saneamento, CadÚnico...), BUMP isto pra furar o cache do browser e os
 // novos campos aparecerem na hora, sem esperar 7 dias.
-const CENSUS_V = "2026-06-28";
+const CENSUS_V = "2026-07-09";
 
 // Limite de setores pro DEFAULT em mosaico. Até este nº de setores o município
 // abre direto no mosaico (render síncrono cabe em ~300-450ms, mascarado pelo
