@@ -13,16 +13,20 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Response, 
 
 from app.core.dependencies import CurrentTenant, require_area
 from app.core.errors import DomainError
+from app.models.contact import ContactType
 from app.schemas.contact import (
     BirthdayContact,
     ContactCreate,
     ContactRead,
     ContactUpdate,
     ImportResult,
+    LeaderboardEntry,
+    OrphanInteractionGroup,
+    OrphanRelinkResult,
     Page,
     TagItem,
 )
-from app.schemas.interaction import InteractionRead
+from app.schemas.interaction import InteractionCreate, InteractionRead
 from app.services.contact import ContactService
 
 # Limite defensivo de tamanho do upload (~5MB ~ 50k linhas).
@@ -45,6 +49,8 @@ Lista paginada de contatos **ativos** do tenant logado.
 
 ### Filtros
 - `?search=joão` — busca **case-insensitive** parcial no nome (ILIKE)
+- `?neighborhood=centro` — busca parcial no bairro (ILIKE)
+- `?contact_type=leader` — tipo exato (voter/leader/supporter/donor/other)
 - `?limit=N&offset=N` — paginação (limit max=100)
 
 ### Ordenação
@@ -74,9 +80,20 @@ def list_contacts(
         None,
         description="Filtra por quem cadastrou (id do usuário; use /contacts/creators)",
     ),
+    neighborhood: str | None = Query(
+        None,
+        max_length=100,
+        description="Filtro ILIKE parcial no bairro (mutirão WhatsApp)",
+        examples=["Centro", "Tijuca"],
+    ),
+    contact_type: ContactType | None = Query(
+        None,
+        description="Filtro por tipo de contato (voter/leader/supporter/donor/other)",
+    ),
 ) -> Page[ContactRead]:
     items, total = ContactService(ctx).list_contacts(
         limit=limit, offset=offset, search=search, tag=tag, created_by=created_by,
+        neighborhood=neighborhood, contact_type=contact_type,
     )
     return Page[ContactRead](
         items=[ContactRead.model_validate(c) for c in items],
@@ -113,6 +130,66 @@ def list_tags(ctx: CurrentTenant) -> list[TagItem]:
 )
 def list_contact_creators(ctx: CurrentTenant) -> list[dict]:
     return ContactService(ctx).list_creators()
+
+
+# ------------------------------------------ Leads órfãos do WhatsApp (inbox)
+# IMPORTANTE: rotas FIXAS declaradas ANTES de /{contact_id} — senão o path
+# "orphan-interactions" tentaria virar UUID e daria 422.
+
+
+@router.get(
+    "/orphan-interactions",
+    response_model=list[OrphanInteractionGroup],
+    summary="Leads órfãos do WhatsApp (interações sem contato)",
+    description="""\
+Interações de webhook que chegaram **sem contato correspondente**
+(`contact_id IS NULL`, telefone preenchido) — lead quente que mandou
+mensagem no WhatsApp e ainda não está no CRM.
+
+Agrupadas por telefone, mais recentes primeiro. Máx. **50 grupos**.
+
+Fluxo sugerido na UI:
+1. **Criar contato** com o telefone do grupo, ou
+2. **POST /contacts/orphan-interactions/relink** se o contato já existe
+   (vincula pelas regras de telefone normalizado).
+""",
+)
+def list_orphan_interactions(ctx: CurrentTenant) -> list[OrphanInteractionGroup]:
+    return ContactService(ctx).list_orphan_interaction_groups()
+
+
+@router.post(
+    "/orphan-interactions/relink",
+    response_model=OrphanRelinkResult,
+    summary="Revincular interações órfãs a contatos existentes",
+    description="""\
+Para cada interação órfã do tenant cujo telefone **normalizado** (só dígitos,
+sem DDI 55) casa com o `phone_normalized` de um contato ATIVO, seta
+`contact_id`. Idempotente — rodar duas vezes não duplica nada.
+
+Retorna `{relinked: N}` (total de interações vinculadas).
+""",
+)
+def relink_orphan_interactions(ctx: CurrentTenant) -> OrphanRelinkResult:
+    return OrphanRelinkResult(relinked=ContactService(ctx).relink_orphan_interactions())
+
+
+# ------------------------------------------------- Ranking de lideranças
+
+
+@router.get(
+    "/leaderboard",
+    response_model=list[LeaderboardEntry],
+    summary="Top 10 cadastradores de contatos (gamificação)",
+    description="""\
+Ranking dos usuários que mais cadastraram contatos **ativos** no tenant
+(`created_by_user_id`), ordenado por contagem DESC. Máx. 10 entradas.
+
+Contatos antigos (anteriores ao rastreio de autor) ficam fora do ranking.
+""",
+)
+def contacts_leaderboard(ctx: CurrentTenant) -> list[LeaderboardEntry]:
+    return ContactService(ctx).leaderboard()
 
 
 # ------------------------------------------------------- Aniversariantes
@@ -219,6 +296,29 @@ def list_contact_interactions(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post(
+    "/{contact_id}/interactions",
+    response_model=InteractionRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar interação manual (mutirão WhatsApp)",
+    description="""\
+Cria uma interação **manual** vinculada ao contato — usada pelo mutirão
+WhatsApp pra marcar `mensagem_enviada` por contato
+(`payload_data: {template, mutirao_id}`).
+
+### Erros
+- **404** se o contato não pertence ao seu tenant (anti cross-tenant).
+""",
+)
+def create_contact_interaction(
+    contact_id: UUID,
+    payload: InteractionCreate,
+    ctx: CurrentTenant,
+) -> InteractionRead:
+    interaction = ContactService(ctx).create_manual_interaction(contact_id, payload)
+    return InteractionRead.model_validate(interaction)
 
 
 # ------------------------------------------------------------------ Detail

@@ -88,6 +88,8 @@ type CreateProps = CommonProps & {
   mode: "create";
   children: React.ReactNode;
   // Modo "uncontrolled" — dialog usa estado interno.
+  /** Pré-preenche o telefone ao abrir (ex: criar contato de lead órfão). */
+  initialPhone?: string;
 };
 
 type EditProps = CommonProps & {
@@ -102,6 +104,11 @@ type Props = CreateProps | EditProps;
 export function ContactFormDialog(props: Props) {
   const isEdit = props.mode === "edit";
   const contact = isEdit ? props.contact : null;
+  // Defaults do modo criar — telefone pode vir pré-preenchido (lead órfão).
+  const createDefaults: FormValues =
+    !isEdit && props.initialPhone
+      ? { ...EMPTY_DEFAULTS, phone: props.initialPhone }
+      : EMPTY_DEFAULTS;
 
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
@@ -320,9 +327,10 @@ export function ContactFormDialog(props: Props) {
       open={createOpen}
       onOpenChange={(o) => {
         setCreateOpen(o);
-        // Ao abrir, começa com o formulário limpo.
+        // Ao abrir, começa com o formulário limpo (telefone pré-preenchido
+        // se veio initialPhone — fluxo "criar contato de lead órfão").
         if (o) {
-          reset(EMPTY_DEFAULTS);
+          reset(createDefaults);
           setTags([]);
           setAddress(EMPTY_ADDRESS);
           setCoordMissing(false);

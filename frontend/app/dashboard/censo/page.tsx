@@ -282,6 +282,10 @@ export default function CensoPage() {
   // 13k setores (que travava). O dissolve roda no backend (shapely) e é cacheado.
   const [malhaGeo, setMalhaGeo] = useState<FC | null>(null);
   const [malhaLoading, setMalhaLoading] = useState(false);
+  // Série mensal CadÚnico/Bolsa Família (MDS) do município aberto.
+  const [mdsSeries, setMdsSeries] = useState<
+    { anomes: string; pbf_valor: number | null; pbf_familias: number | null }[] | null
+  >(null);
   const [selectedDict, setSelectedDict] = useState<string>("dominios");
   const [sel, setSel] = useState<Record<string, number | string | null> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -406,6 +410,47 @@ export default function CensoPage() {
     setAiInsight(null);
     setAiError(null);
   }
+
+  // ---- Estado do mapa na URL (compartilhável + sobrevive ao F5) -----------
+  // Antes, F5 voltava sempre pra visão estadual default — impossível mandar
+  // um link do município/indicador pro colega. replaceState (não router) pra
+  // não re-renderizar; leitura 1x no mount + quando o ufGeo carrega.
+  const pendingUrlMun = useRef<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const pUf = q.get("uf");
+    if (pUf && /^\d{2}$/.test(pUf)) setUf(pUf);
+    const pInd = q.get("ind");
+    if (pInd) {
+      setIndicator(pInd as CensusIndicator);
+      const dict = INDICATORS.find((i) => i.key === pInd);
+      if (dict && (dict as { dict?: string }).dict) setSelectedDict((dict as { dict?: string }).dict!);
+    }
+    const pMalha = q.get("malha");
+    if (pMalha === "setor" || pMalha === "distrito" || pMalha === "bairro") setMalha(pMalha);
+    pendingUrlMun.current = q.get("mun");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Quando o estado carrega e há ?mun= pendente, abre o município do link.
+  useEffect(() => {
+    if (!ufGeo || !pendingUrlMun.current) return;
+    const f = ufGeo.features.find(
+      (x) => String(x.properties.cd_mun) === pendingUrlMun.current,
+    );
+    pendingUrlMun.current = null;
+    if (f) openMunicipio(f.properties);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ufGeo]);
+  // Espelha o estado atual na URL (sem navegação).
+  useEffect(() => {
+    if (allowed !== true) return;
+    const q = new URLSearchParams();
+    q.set("uf", uf);
+    if (view === "municipio" && muniProps?.cd_mun) q.set("mun", String(muniProps.cd_mun));
+    if (indicator !== "populacao") q.set("ind", indicator);
+    if (malha !== "bairro") q.set("malha", malha);
+    window.history.replaceState(null, "", `?${q.toString()}`);
+  }, [allowed, uf, view, muniProps?.cd_mun, indicator, malha]);
 
   function askMareIa(force = false) {
     if (!muniProps || aiLoading) return;
@@ -534,8 +579,11 @@ export default function CensoPage() {
   ];
   // Indicadores que só existem por MUNICÍPIO (não por setor) — ao entrar no
   // município (drill pra setor) caem pra população.
+  // renda_media SAIU desta lista: o Censo 2022 publicou renda do responsável
+  // POR SETOR (ingest_census_renda_setor.py) — a renda agora sobrevive ao
+  // drill-down (setor cinza = sem dado/sigilo, igual aos outros indicadores).
   const muniOnly = [
-    "renda_media", "pib_per_capita", "pct_bolsa_familia", "pct_cadunico",
+    "pib_per_capita", "pct_bolsa_familia", "pct_cadunico",
     "idhm", "ideb_anos_iniciais", "ideb_anos_finais",
     "pct_esgoto_adequado", "pct_agua_rede", "pct_lixo_coletado",
   ];
@@ -616,6 +664,23 @@ export default function CensoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, effMalha, muniProps?.cd_mun]);
 
+  // Série mensal MDS (Bolsa Família/CadÚnico) do município aberto — payload
+  // pequeno (dezenas de linhas); falha vira null e a seção some.
+  useEffect(() => {
+    if (view !== "municipio" || !muniProps?.cd_mun) {
+      setMdsSeries(null);
+      return;
+    }
+    let cancelled = false;
+    api<{ items: { anomes: string; pbf_valor: number | null; pbf_familias: number | null }[] }>(
+      `/v1/census/mds-series?cd_mun=${muniProps.cd_mun}&v=${CENSUS_V}`,
+    )
+      .then((r) => { if (!cancelled) setMdsSeries(r.items ?? null); })
+      .catch(() => { if (!cancelled) setMdsSeries(null); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, muniProps?.cd_mun]);
+
   // useMemo: sem ele esta IIFE reagregava os ~13k setores A CADA render da
   // página — inclusive a cada tecla digitada na busca de bairro. Idem para
   // destaques/topSetores/areaIndex abaixo.
@@ -646,7 +711,8 @@ export default function CensoPage() {
                 : mapIndicator === "pct_pretos_pardos" ? (g.averages.pct_pretos_pardos ?? 0)
                   : mapIndicator === "pct_feminino" ? (g.averages.pct_feminino ?? 0)
                     : mapIndicator === "pct_60mais" ? (g.averages.pct_60mais ?? 0)
-                      : (g.sums.populacao ?? 0),
+                      : mapIndicator === "renda_media" ? (g.averages.renda_media ?? 0)
+                        : (g.sums.populacao ?? 0),
     }));
     // areaGroupOf depende só de effMalha (função declarada no render).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -699,6 +765,7 @@ export default function CensoPage() {
         pct_pretos_pardos: g.averages.pct_pretos_pardos ?? null,
         pct_feminino: g.averages.pct_feminino ?? null,
         pct_60mais: g.averages.pct_60mais ?? null,
+        renda_media: g.averages.renda_media ?? null,
       });
     }
     return m;
@@ -1480,6 +1547,51 @@ export default function CensoPage() {
                         </li>
                       ))}
                     </ul>
+                  </div>
+                );
+              })()}
+              {/* Bolsa Família — série mensal do MDS (valor repassado). Antes o
+                  app só mostrava o % do mês mais recente; a série e o VALOR
+                  (argumento de palanque: "R$ X mi entram na cidade por mês")
+                  ficavam invisíveis. */}
+              {(() => {
+                const serie = (mdsSeries ?? []).filter((x) => x.pbf_valor != null).slice(-24);
+                if (serie.length === 0) return null;
+                const last = serie[serie.length - 1];
+                const maxV = Math.max(...serie.map((x) => x.pbf_valor ?? 0));
+                const fmtMes = (am: string) => `${am.slice(4)}/${am.slice(2, 4)}`;
+                const fmtMi = (v: number) =>
+                  v >= 1e6 ? `R$ ${(v / 1e6).toFixed(1).replace(".", ",")} mi` : `R$ ${Math.round(v / 1e3)} mil`;
+                return (
+                  <div className="mt-4 pt-3 border-t border-border">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                      Bolsa Família · repasse mensal (MDS)
+                    </p>
+                    <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                      {fmtMi(last.pbf_valor!)}
+                      <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+                        em {fmtMes(last.anomes)}
+                        {last.pbf_familias != null &&
+                          ` · ${numberFmt.format(last.pbf_familias)} famílias`}
+                      </span>
+                    </p>
+                    {serie.length > 1 && (
+                      <div className="mt-1.5 flex items-end gap-[2px] h-9" title="Série mensal do valor repassado">
+                        {serie.map((x) => (
+                          <div
+                            key={x.anomes}
+                            className="flex-1 rounded-sm bg-emerald-600/70 dark:bg-emerald-400/60 min-h-[2px]"
+                            style={{ height: `${Math.max(4, ((x.pbf_valor ?? 0) / maxV) * 100)}%` }}
+                            title={`${fmtMes(x.anomes)} · ${fmtMi(x.pbf_valor!)}`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {serie.length <= 2 && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Série completa após o backfill mensal do MDS.
+                      </p>
+                    )}
                   </div>
                 );
               })()}

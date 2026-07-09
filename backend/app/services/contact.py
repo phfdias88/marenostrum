@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks
 
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError
 from app.core.tenant_context import TenantContext
-from app.models.contact import Contact
+from app.models.contact import Contact, ContactType
 from app.models.interaction import Interaction
 from app.repositories.contact import ContactRepository
 from app.repositories.interaction import InteractionRepository
@@ -27,10 +27,14 @@ from app.schemas.contact import (
     ContactUpdate,
     ImportResult,
     ImportRowError,
+    LeaderboardEntry,
+    OrphanInteractionGroup,
     TagItem,
 )
+from app.schemas.interaction import InteractionCreate
 from app.utils.csv_import import parse_csv
 from app.utils.geocoding import geocode_and_persist_contact
+from app.utils.phone import mask_phone, normalize_phone
 
 log = structlog.get_logger("marenostrum.services.contact")
 
@@ -108,6 +112,8 @@ class ContactService:
             raise ConflictError("Ja existe um contato com este telefone.")
 
         data = payload.model_dump(exclude_none=False)
+        # Telefone canonizado — casa o webhook com o cadastro (utils/phone.py).
+        data["phone_normalized"] = normalize_phone(data.get("phone"))
         # Carimba quem cadastrou (liderança/membro) — pro owner filtrar depois.
         data["created_by_user_id"] = self._ctx.user_id
         data["created_by_name"] = self._ctx.user_name or None
@@ -153,8 +159,12 @@ class ContactService:
         search: str | None = None,
         tag: str | None = None,
         created_by: UUID | None = None,
+        neighborhood: str | None = None,
+        contact_type: ContactType | None = None,
     ) -> tuple[list[Contact], int]:
-        """Retorna (items, total) com filtro opcional por nome (ILIKE) + tag + autor."""
+        """Retorna (items, total) com filtro opcional por nome (ILIKE) + tag +
+        autor + bairro (ILIKE parcial) + tipo — os dois últimos alimentam o
+        mutirão WhatsApp."""
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
         # Normaliza: string vazia/whitespace = sem filtro
@@ -164,6 +174,9 @@ class ContactService:
         tag = tag.strip().lower() if tag else None
         if tag == "":
             tag = None
+        neighborhood = neighborhood.strip() if neighborhood else None
+        if neighborhood == "":
+            neighborhood = None
 
         items = self._repo.list_paginated(
             tenant_id=self._ctx.tenant_id,
@@ -172,12 +185,16 @@ class ContactService:
             search=search,
             tag=tag,
             created_by=created_by,
+            neighborhood=neighborhood,
+            contact_type=contact_type,
         )
         total = self._repo.count(
             tenant_id=self._ctx.tenant_id,
             search=search,
             tag=tag,
             created_by=created_by,
+            neighborhood=neighborhood,
+            contact_type=contact_type,
         )
         return items, total
 
@@ -185,6 +202,95 @@ class ContactService:
         """Quem já cadastrou contato (id + nome) — alimenta o filtro 'cadastrado por'."""
         rows = self._repo.list_creators(tenant_id=self._ctx.tenant_id)
         return [{"id": str(uid), "name": name} for uid, name in rows]
+
+    # -------------------------------------- Leads órfãos do WhatsApp (inbox)
+
+    def list_orphan_interaction_groups(self) -> list[OrphanInteractionGroup]:
+        """
+        Interações de webhook SEM contato (contact_id NULL, phone preenchido)
+        agrupadas por telefone — lead quente que chegou no WhatsApp e não
+        está no CRM. Máx. 50 grupos, mais recentes primeiro.
+        """
+        rows = InteractionRepository(self._ctx.db).list_orphan_groups(
+            tenant_id=self._ctx.tenant_id, limit=50,
+        )
+        return [
+            OrphanInteractionGroup(
+                phone=r["phone"],
+                phone_masked=mask_phone(r["phone"]) or "***",
+                count=r["count"],
+                last_event_type=r["last_event_type"],
+                last_at=r["last_at"],
+            )
+            for r in rows
+        ]
+
+    def relink_orphan_interactions(self) -> int:
+        """
+        Revincula interações órfãs cujo telefone NORMALIZADO casa com um
+        contato existente (phone_normalized). Idempotente — órfã vinculada
+        deixa de ser órfã. Retorna o total de interações revinculadas.
+        """
+        inter_repo = InteractionRepository(self._ctx.db)
+        phones = inter_repo.list_orphan_phones(tenant_id=self._ctx.tenant_id)
+
+        # norm -> telefones crus das órfãs que canonizam pra ele
+        by_norm: dict[str, list[str]] = {}
+        for p in phones:
+            norm = normalize_phone(p)
+            if norm:
+                by_norm.setdefault(norm, []).append(p)
+        if not by_norm:
+            return 0
+
+        contacts = self._repo.list_active_by_phone_norms(
+            tenant_id=self._ctx.tenant_id, norms=list(by_norm.keys()),
+        )
+        relinked = 0
+        seen_norms: set[str] = set()
+        for contact in contacts:
+            norm = contact.phone_normalized
+            if norm is None or norm in seen_norms:
+                # Dois contatos com o mesmo normalizado (formatos diferentes
+                # do mesmo número): o primeiro ganha — determinístico.
+                continue
+            seen_norms.add(norm)
+            relinked += inter_repo.relink_phones(
+                tenant_id=self._ctx.tenant_id,
+                phones=by_norm[norm],
+                contact_id=contact.id,
+            )
+
+        if relinked:
+            record_audit(
+                self._ctx,
+                action="update",
+                entity_type="interaction",
+                summary=f"Revinculou {relinked} interação(ões) órfã(s) do WhatsApp",
+                meta={"relinked": relinked},
+            )
+        self._ctx.db.commit()
+        log.info(
+            "orphan_interactions_relinked",
+            tenant_id=str(self._ctx.tenant_id),
+            user_id=str(self._ctx.user_id),
+            relinked=relinked,
+        )
+        return relinked
+
+    # ------------------------------------------------ Ranking de lideranças
+
+    def leaderboard(self) -> list[LeaderboardEntry]:
+        """
+        Top 10 usuários por nº de contatos ATIVOS cadastrados
+        (created_by_user_id). Contatos antigos (anteriores à migration 036,
+        created_by_user_id NULL) ficam FORA do ranking.
+        """
+        rows = self._repo.leaderboard(tenant_id=self._ctx.tenant_id, limit=10)
+        return [
+            LeaderboardEntry(user_id=uid, full_name=name, count=n)
+            for (uid, name, n) in rows
+        ]
 
     # ----------------------------------------------------- Tags & Birthdays
 
@@ -361,6 +467,39 @@ class ContactService:
         )
         return items, total
 
+    def create_manual_interaction(
+        self,
+        contact_id: UUID,
+        payload: InteractionCreate,
+    ) -> Interaction:
+        """
+        Registro MANUAL de interação (mutirão WhatsApp marca
+        "mensagem_enviada" por contato). get_contact() valida que o contato
+        é do tenant (404 caso contrário — anti cross-tenant).
+        """
+        contact = self.get_contact(contact_id)  # 404 se não for nosso
+
+        interaction = InteractionRepository(self._ctx.db).create(
+            tenant_id=self._ctx.tenant_id,
+            contact_id=contact.id,
+            phone=contact.whatsapp or contact.phone,
+            event_type=payload.event_type,
+            channel=payload.channel,
+            external_event_id=None,
+            payload_data=payload.payload_data,
+        )
+        self._ctx.db.commit()
+
+        log.info(
+            "manual_interaction_created",
+            tenant_id=str(self._ctx.tenant_id),
+            user_id=str(self._ctx.user_id),
+            contact_id=str(contact.id),
+            interaction_id=str(interaction.id),
+            event_type=payload.event_type,
+        )
+        return interaction
+
     # ---------------------------------------------------------------- Update
 
     def update_contact(
@@ -381,6 +520,9 @@ class ContactService:
                 exclude_id=contact_id,
             ):
                 raise ConflictError("Ja existe outro contato com este telefone.")
+        # Se o telefone veio no payload (mesmo que None), re-canoniza.
+        if "phone" in data:
+            data["phone_normalized"] = normalize_phone(data["phone"])
 
         # Detecta mudanca de endereco — se mudou e lat/lng NAO foram fornecidos
         # explicitamente neste payload, vamos re-geocodificar

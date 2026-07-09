@@ -72,6 +72,7 @@ class DemandService:
         offset: int = 0,
         status: DemandStatus | None = None,
         contact_id: UUID | None = None,
+        open_older_than_days: int | None = None,
     ) -> tuple[list[Demand], int]:
         limit = max(1, min(limit, 200))
         offset = max(0, offset)
@@ -93,10 +94,12 @@ class DemandService:
             tenant_id=self._ctx.tenant_id,
             limit=limit, offset=offset,
             status=status, contact_id=contact_id,
+            open_older_than_days=open_older_than_days,
         )
         total = self._repo.count(
             tenant_id=self._ctx.tenant_id,
             status=status, contact_id=contact_id,
+            open_older_than_days=open_older_than_days,
         )
         return items, total
 

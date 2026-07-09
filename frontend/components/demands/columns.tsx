@@ -13,8 +13,38 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import type { Demand } from "@/lib/types";
 import { StatusDropdown } from "./StatusDropdown";
+
+/**
+ * Badge de idade — só em demandas VIVAS (aberta/em andamento).
+ * "há N dias": neutro até 7d, amber >7d, vermelho >15d (parada demais).
+ */
+function AgeBadge({ demand }: { demand: Demand }) {
+  if (demand.status !== "aberta" && demand.status !== "em_andamento") {
+    return null;
+  }
+  const days = Math.floor(
+    (Date.now() - new Date(demand.created_at).getTime()) / 86_400_000,
+  );
+  const label = days <= 0 ? "hoje" : `há ${days} dia${days > 1 ? "s" : ""}`;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border border-transparent px-2 py-0.5 text-[10px] font-medium",
+        days > 15
+          ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400"
+          : days > 7
+            ? "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400"
+            : "bg-muted text-muted-foreground",
+      )}
+      title={`Criada ${label} — sem resolução`}
+    >
+      {label}
+    </span>
+  );
+}
 
 type Handlers = {
   onDelete: (demand: Demand) => void;
@@ -70,9 +100,12 @@ export function makeDemandColumns({
       accessorKey: "created_at",
       header: "Criada em",
       cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {new Date(row.original.created_at).toLocaleDateString("pt-BR")}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {new Date(row.original.created_at).toLocaleDateString("pt-BR")}
+          </span>
+          <AgeBadge demand={row.original} />
+        </div>
       ),
     },
     {

@@ -27,6 +27,7 @@ from app.repositories.contact import ContactRepository
 from app.repositories.interaction import InteractionRepository
 from app.repositories.tenant import TenantRepository
 from app.schemas.webhook import WebhookAck
+from app.utils.phone import mask_phone
 from sqlalchemy.orm import Session
 
 log = structlog.get_logger("marenostrum.webhook")
@@ -100,6 +101,10 @@ class WebhookService:
         external_id = _find_first(payload, _EXTERNAL_ID_KEYS)
 
         # 4. Tenta linkar com contato. Se nao achar, fica orfa.
+        # find_by_phone NORMALIZA o input (normalize_phone) e compara com
+        # phone_normalized — "5521999991234" do BotConversa casa com o
+        # "(21) 99999-1234" do cadastro. Passamos o telefone CRU porque o
+        # fallback pre-backfill compara com o phone exato.
         contact_id: UUID | None = None
         if phone:
             contact = self._contacts.find_by_phone(
@@ -125,7 +130,9 @@ class WebhookService:
             tenant_id=str(tenant_id),
             interaction_id=str(interaction.id),
             contact_matched=contact_id is not None,
-            phone=phone,
+            # PII/LGPD: telefone de eleitor NUNCA em claro no log —
+            # so' os 4 ultimos digitos ("***1234").
+            phone=mask_phone(phone),
             event_type=event_type,
             external_id=external_id,
         )

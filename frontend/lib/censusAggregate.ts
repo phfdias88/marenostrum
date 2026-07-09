@@ -46,8 +46,8 @@ export const WEIGHTED_AVG_COLS: Record<string, { weight: string; decimals: numbe
   // % de mulheres e % 60+ (Censo 2022) — peso: população do setor
   pct_feminino: { weight: "populacao", decimals: 1 },
   pct_60mais: { weight: "populacao", decimals: 1 },
-  // FUTURO (Censo 2022 ainda não publicou renda por setor): renda média
-  // nominal do responsável (V06004) — peso: responsáveis pelos domicílios.
+  // Renda média nominal do responsável (V06004, Censo 2022 por setor —
+  // ingest_census_renda_setor.py) — peso: responsáveis pelos domicílios (V06001).
   renda_media: { weight: "responsaveis", decimals: 2 },
 };
 

@@ -182,6 +182,37 @@ class ImportResult(BaseModel):
     errors: list[ImportRowError]  # truncado em 50 para nao explodir resposta
 
 
+# --------------------------------------- Leads órfãos do WhatsApp (inbox)
+
+
+class OrphanInteractionGroup(BaseModel):
+    """
+    Grupo de interações ÓRFÃS (webhook sem contato) do mesmo telefone.
+    GET /contacts/orphan-interactions — lead quente que chegou no WhatsApp
+    e ainda não está no CRM.
+    """
+    phone: str
+    phone_masked: str          # "***1234" — pra UI que não precisa do número
+    count: int
+    last_event_type: str | None = None
+    last_at: datetime
+
+
+class OrphanRelinkResult(BaseModel):
+    """POST /contacts/orphan-interactions/relink."""
+    relinked: int
+
+
+# ------------------------------------------------ Ranking de lideranças
+
+
+class LeaderboardEntry(BaseModel):
+    """Top cadastradores de contato (GET /contacts/leaderboard)."""
+    user_id: UUID
+    full_name: str
+    count: int
+
+
 # --------------------------------------------------- Tags & Birthdays
 
 

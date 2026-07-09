@@ -308,7 +308,8 @@ def census_setores(
             "       situacao, area_km2, populacao, domicilios, geometry, "
             "       alfabetizados_15mais, pop_15mais, "
             "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena, "
-            "       sexo_masculino, sexo_feminino, idade_60_69, idade_70_mais "
+            "       sexo_masculino, sexo_feminino, idade_60_69, idade_70_mais, "
+            "       renda_media_resp_2022, responsaveis_2022 "
             "FROM census_geo WHERE cd_mun = :m AND level='setor' ORDER BY cd_setor "
             "LIMIT 30000"  # cap defensivo: maior município do BR (SP) tem ~27k setores
         ),
@@ -372,12 +373,67 @@ def census_setores(
                     and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
                     else None
                 ),
+                # Renda dos responsáveis POR SETOR (Censo 2022, ingest
+                # ingest_census_renda_setor.py + migration 055). `responsaveis`
+                # é o PESO da média ponderada na agregação por bairro/distrito
+                # (lib/censusAggregate.ts). None = setor sem dado/sigilo (a
+                # renda some do drill-down até o ingest rodar — comportamento
+                # idêntico aos demais indicadores).
+                "renda_media": (
+                    float(r["renda_media_resp_2022"])
+                    if r["renda_media_resp_2022"] is not None else None
+                ),
+                "responsaveis": r["responsaveis_2022"],
             },
         })
     # ORJSONResponse direto: FastAPI NÃO roda o jsonable_encoder (caro pra
     # 8MB de dicts) — orjson serializa tudo em Rust de uma vez.
     return ORJSONResponse(
         content={"type": "FeatureCollection", "features": features},
+        headers={"Cache-Control": _CACHE},
+    )
+
+
+@router.get(
+    "/mds-series",
+    summary="Série mensal CadÚnico/Bolsa Família do município (MDS)",
+    description=(
+        "Série temporal de famílias/pessoas no CadÚnico e no Bolsa Família, e o "
+        "VALOR repassado por mês (R$), a partir de mds_social_municipio (MI "
+        "Social/MDS). A tabela é alimentada pelo ingest mensal; o backfill de "
+        "meses anteriores é rodar o ingest com MDS_ANOMES=YYYYMM. Antes deste "
+        "endpoint, o app jogava fora a dimensão TEMPO (só o mês mais recente "
+        "aparecia) e a coluna mais forte (valor repassado) era invisível."
+    ),
+)
+def census_mds_series(
+    ctx: CurrentTenant,
+    cd_mun: str = Query(..., description="Código IBGE do município (7 dígitos)"),
+    db: Session = Depends(get_db),
+) -> Response:
+    rows = db.execute(
+        text(
+            "SELECT anomes, cadunico_familias, cadunico_pessoas, "
+            "       pbf_familias, pbf_pessoas, pbf_valor "
+            "FROM mds_social_municipio WHERE cd_mun = :m ORDER BY anomes"
+        ),
+        {"m": cd_mun},
+    ).mappings().all()
+    return ORJSONResponse(
+        content={
+            "cd_mun": cd_mun,
+            "items": [
+                {
+                    "anomes": r["anomes"],
+                    "cadunico_familias": r["cadunico_familias"],
+                    "cadunico_pessoas": r["cadunico_pessoas"],
+                    "pbf_familias": r["pbf_familias"],
+                    "pbf_pessoas": r["pbf_pessoas"],
+                    "pbf_valor": float(r["pbf_valor"]) if r["pbf_valor"] is not None else None,
+                }
+                for r in rows
+            ],
+        },
         headers={"Cache-Control": _CACHE},
     )
 

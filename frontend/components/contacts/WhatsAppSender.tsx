@@ -15,14 +15,16 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import type { Contact, MessageTemplate } from "@/lib/types";
 
-function digits(phone: string | null): string | null {
+/** Só dígitos do telefone (mín. 10 = DDD + número) — pra url wa.me. */
+export function waDigits(phone: string | null): string | null {
   if (!phone) return null;
   const d = phone.replace(/\D/g, "");
   return d.length >= 10 ? d : null;
 }
 
-/** Substitui {nome}, {cidade}, {bairro}, {tratamento} com dados do contato. */
-function fill(body: string, c: Contact): string {
+/** Substitui {nome}, {cidade}, {bairro}, {tratamento} com dados do contato.
+ * Exportado — o Mutirão WhatsApp usa a MESMA resolução de template. */
+export function fillTemplate(body: string, c: Contact): string {
   const first = c.full_name.split(" ")[0];
   return body
     .replaceAll("{nome}", first)
@@ -33,6 +35,9 @@ function fill(body: string, c: Contact): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+const digits = waDigits;
+const fill = fillTemplate;
 
 export function WhatsAppSender({ contact }: { contact: Contact }) {
   const [open, setOpen] = useState(false);

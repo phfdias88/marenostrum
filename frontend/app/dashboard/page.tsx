@@ -33,6 +33,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { InsightCarousel } from "@/components/tse/InsightCarousel";
 import { PullToRefresh } from "@/components/ui/PullToRefresh";
 import { BirthdaysCard } from "@/components/contacts/BirthdaysCard";
+import { LeaderboardCard } from "@/components/contacts/LeaderboardCard";
 
 // -------------------------------------------------------------------- types
 
@@ -266,8 +267,11 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Aniversariantes da semana — widget gabinete/campanha */}
-      <BirthdaysCard />
+      {/* Aniversariantes + gamificação de cadastros (cards somem se vazios) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <BirthdaysCard />
+        <LeaderboardCard />
+      </div>
 
       {/* Insight + Sobre */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -24,7 +24,7 @@ from app.models.user import User
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
-from app.utils.agg_cache import agg_get, agg_set
+from app.utils.agg_cache import agg_get, agg_set, cached_agg
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
@@ -63,8 +63,12 @@ from app.schemas.tse import (
     AiReport,
     AiTerritoryReport,
     ElectorateProfileResponse,
+    MunicipalityPartyMembershipItem,
+    MunicipalityPartyMembershipsResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
+    NeighborhoodRankingItem,
+    NeighborhoodRankingResponse,
     OpportunityMunicipality,
     OpportunityResponse,
     PathTarget,
@@ -1547,6 +1551,95 @@ def party_membership(
 
 
 @router.get(
+    "/municipalities/{municipality_id}/party-memberships",
+    response_model=MunicipalityPartyMembershipsResponse,
+    summary="Filiados por partido no município + demografia (TSE)",
+    description="""\
+Força local dos partidos: filiados por partido neste município (snapshot
+mensal mais recente do `perfil_filiacao_partidaria`), ordenado por total desc,
+com os breakdowns demográficos (gênero/idade/escolaridade) ingeridos do TSE.
+
+Dado público e agregado (contagens por bucket — sem PII). `items` vazio se o
+dataset `filiacao_partidaria` não foi sincronizado.
+""",
+)
+def municipality_party_memberships(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    limit: int = Query(15, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> MunicipalityPartyMembershipsResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    _key = f"muni_party_members:{municipality_id}:{limit}"
+    return cached_agg(
+        _key, lambda: _compute_muni_party_memberships(db, muni, limit)
+    )
+
+
+def _compute_muni_party_memberships(
+    db: Session, muni: Municipality, limit: int
+) -> MunicipalityPartyMembershipsResponse:
+    # Snapshot mais recente DESTE município (o TSE sobrescreve o arquivo
+    # mensalmente; period = AAAAMM).
+    period = db.execute(
+        select(func.max(PartyMembership.period)).where(
+            PartyMembership.municipality_id == muni.id
+        )
+    ).scalar()
+    if period is None:
+        return MunicipalityPartyMembershipsResponse(
+            municipality=MunicipalityRead.model_validate(muni),
+            period=None,
+            total_members=0,
+            items=[],
+        )
+
+    # Partido é FK (party_id) → join direto em tse_parties pra sigla/nome.
+    rows = db.execute(
+        select(PartyMembership, Party)
+        .join(Party, Party.id == PartyMembership.party_id)
+        .where(
+            PartyMembership.municipality_id == muni.id,
+            PartyMembership.period == period,
+        )
+        .order_by(PartyMembership.total.desc())
+        .limit(limit)
+    ).all()
+
+    # Total do município (todos os partidos, não só o top-N) — denominador.
+    total_members = int(
+        db.execute(
+            select(func.coalesce(func.sum(PartyMembership.total), 0)).where(
+                PartyMembership.municipality_id == muni.id,
+                PartyMembership.period == period,
+            )
+        ).scalar()
+        or 0
+    )
+
+    return MunicipalityPartyMembershipsResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        period=period,
+        total_members=total_members,
+        items=[
+            MunicipalityPartyMembershipItem(
+                party_number=p.number,
+                party_abbreviation=p.abbreviation,
+                party_name=p.name,
+                total=int(m.total),
+                by_gender=m.by_gender or {},
+                by_age=m.by_age or {},
+                by_education=m.by_education or {},
+            )
+            for m, p in rows
+        ],
+    )
+
+
+@router.get(
     "/municipalities/{municipality_id}/timeline",
     response_model=MunicipalityTimelineResponse,
     summary="Linha do tempo eleitoral do municipio — vencedor por ano/cargo",
@@ -2374,6 +2467,176 @@ def candidate_by_neighborhood(
         items=items,
         total_votes=total_votes_all,
         total_neighborhoods=total_neighborhoods_all,
+    )
+
+
+# ============================================================ NEIGHBORHOOD RANKING
+
+
+def _neighborhood_norm_expr():
+    """Mesma normalização de bairro do by-neighborhood (chave simétrica):
+    trim + vazio→'(Sem bairro)'. O label devolvido lá casa exato aqui."""
+    return func.coalesce(
+        func.nullif(func.trim(TseVotingPlace.neighborhood), ""),
+        "(Sem bairro)",
+    )
+
+
+@router.get(
+    "/neighborhoods/ranking",
+    response_model=NeighborhoodRankingResponse,
+    summary="Raio-X do bairro — ranking de TODOS os candidatos num bairro",
+    description="""\
+Inverso do `/candidates/{id}/by-neighborhood`: em vez de "onde o candidato X
+votou bem", responde **"quem domina este bairro?"** — ranking de todos os
+candidatos com votos de seção nos locais do bairro.
+
+Use o `neighborhood` EXATAMENTE como devolvido pelo by-neighborhood (mesma
+normalização: trim + vazio vira `(Sem bairro)`).
+
+Cobertura: seções 2024 (Brasil) · 2020/2022 (RJ). Sem `year`, usa o ano mais
+recente com dados de seção no município.
+
+`electors_total` = eleitores aptos dos locais do bairro (soma por local, sem
+duplicar por candidato); `pct_electors` de cada candidato usa esse denominador.
+""",
+)
+def neighborhood_ranking(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    neighborhood: str = Query(..., min_length=1, max_length=120),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    year: int | None = Query(None, ge=1994, le=2030),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> NeighborhoodRankingResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    nb = neighborhood.strip()
+    # Agregação pesada (varre seção × local × candidato) — cache 4h por chave.
+    _key = f"nb_ranking:{municipality_id}:{nb.upper()}:{office_code}:{year}:{limit}"
+    return cached_agg(
+        _key,
+        lambda: _compute_neighborhood_ranking(db, muni, nb, office_code, year, limit),
+    )
+
+
+def _compute_neighborhood_ranking(
+    db: Session,
+    muni: Municipality,
+    nb: str,
+    office_code: int | None,
+    year: int | None,
+    limit: int,
+) -> NeighborhoodRankingResponse:
+    nb_expr = _neighborhood_norm_expr()
+
+    # Sem ano explícito → ano mais recente com dados de SEÇÃO neste município
+    # (2024 Brasil; 2020/2022 só RJ). None = município sem votos de seção.
+    if year is None:
+        year = db.execute(
+            select(func.max(Election.year))
+            .select_from(TseSectionVote)
+            .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+            .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+            .join(Election, Election.id == Candidate.election_id)
+            .where(TseVotingPlace.municipality_id == muni.id)
+        ).scalar()
+
+    def _with_filters(stmt):
+        stmt = stmt.where(
+            TseVotingPlace.municipality_id == muni.id,
+            nb_expr == nb,
+            TseSectionVote.votes > 0,
+        )
+        if year is not None:
+            stmt = stmt.where(Election.year == year)
+        if office_code is not None:
+            stmt = stmt.where(Candidate.office_code == office_code)
+        return stmt
+
+    # Ranking: JOIN seção × local × candidato × partido × eleição, SUM por
+    # candidato. Usa ix_tse_voting_places_muni_neighborhood pra achar os locais
+    # e ix_tse_section_votes_place_votes pra varrer os votos de cada local.
+    rank_stmt = _with_filters(
+        select(
+            Candidate,
+            Party,
+            Election,
+            func.sum(TseSectionVote.votes).label("votes"),
+            func.count(func.distinct(TseVotingPlace.id)).label("places_count"),
+        )
+        .select_from(TseSectionVote)
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+        .join(Election, Election.id == Candidate.election_id)
+        .join(Party, Party.id == Candidate.party_id)
+    ).group_by(Candidate.id, Party.id, Election.id).order_by(
+        func.sum(TseSectionVote.votes).desc()
+    ).limit(limit)
+    rows = db.execute(rank_stmt).all()
+
+    # Total do bairro (TODOS os candidatos do filtro, não só o top-N) —
+    # denominador pra % relativa entre candidatos na UI.
+    total_votes = int(
+        db.execute(
+            _with_filters(
+                select(func.coalesce(func.sum(TseSectionVote.votes), 0))
+                .select_from(TseSectionVote)
+                .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+                .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+                .join(Election, Election.id == Candidate.election_id)
+            )
+        ).scalar()
+        or 0
+    )
+
+    # Eleitores aptos do bairro: soma por LOCAL (subquery separada — somar no
+    # JOIN do ranking duplicaria o local uma vez por candidato). Filtra pelo
+    # ano do local (locais mudam entre pleitos; sem isso somaria 2020+2022+2024).
+    el_stmt = select(func.coalesce(func.sum(TseVotingPlace.electors_total), 0)).where(
+        TseVotingPlace.municipality_id == muni.id,
+        nb_expr == nb,
+    )
+    if year is not None:
+        el_stmt = el_stmt.where(TseVotingPlace.year == year)
+    electors_total = int(db.execute(el_stmt).scalar() or 0)
+
+    items = [
+        NeighborhoodRankingItem(
+            candidate=CandidateRead(
+                id=cand.id,
+                number=cand.number,
+                name=cand.name,
+                urn_name=cand.urn_name,
+                office_code=cand.office_code,
+                office_name=cand.office_name,
+                state=cand.state,
+                situation=cand.situation,
+                result_status=cand.result_status,
+                party=PartyRead.model_validate(party),
+                election=ElectionRead.model_validate(election),
+            ),
+            votes=int(votes),
+            places_count=int(places_count),
+            pct_electors=(
+                round(int(votes) / electors_total * 100, 1)
+                if electors_total > 0 else None
+            ),
+        )
+        for cand, party, election, votes, places_count in rows
+    ]
+
+    return NeighborhoodRankingResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        neighborhood=nb,
+        year=year,
+        office_code=office_code,
+        electors_total=electors_total,
+        total_votes=total_votes,
+        items=items,
     )
 
 

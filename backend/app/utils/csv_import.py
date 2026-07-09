@@ -23,6 +23,7 @@ from typing import Any
 
 from app.models.contact import ContactType
 from app.schemas.contact import ImportRowError
+from app.utils.phone import normalize_phone
 
 # ----------------------------- column mapping -----------------------------
 
@@ -220,6 +221,11 @@ def _normalize_row(
 
     # Default de tipo
     data.setdefault("type", ContactType.VOTER)
+
+    # Telefone canonizado — casa o webhook com o cadastro (utils/phone.py).
+    # Preenchido AQUI porque bulk_create insere o dict direto (sem service).
+    if data.get("phone"):
+        data["phone_normalized"] = normalize_phone(data["phone"])
 
     # Nome e obrigatorio
     name = data.get("full_name")

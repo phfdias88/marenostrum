@@ -33,6 +33,22 @@ export type Contact = {
 /** Quem já cadastrou contato (resposta de GET /v1/contacts/creators). */
 export type ContactCreator = { id: string; name: string };
 
+/** Grupo de interações órfãs do WhatsApp (GET /v1/contacts/orphan-interactions). */
+export type OrphanInteractionGroup = {
+  phone: string;
+  phone_masked: string;
+  count: number;
+  last_event_type: string | null;
+  last_at: string; // ISO
+};
+
+/** Entrada do ranking de cadastros (GET /v1/contacts/leaderboard). */
+export type ContactLeaderboardEntry = {
+  user_id: string;
+  full_name: string;
+  count: number;
+};
+
 /** Tag + contagem (resposta de GET /v1/contacts/tags). */
 export type ContactTag = { tag: string; count: number };
 
@@ -562,6 +578,50 @@ export type TseCandidateByNeighborhoodResponse = {
   items: TseCandidateByNeighborhoodItem[];
   total_votes: number;
   total_neighborhoods: number;
+};
+
+/** Raio-X do bairro: ranking de TODOS os candidatos num bairro
+ * (GET /v1/tse/neighborhoods/ranking — inverso do by-neighborhood). */
+export type TseNeighborhoodRankingItem = {
+  candidate: TseCandidate;
+  votes: number;
+  /** Em quantos locais de votação do bairro o candidato pontuou. */
+  places_count: number;
+  /** votos ÷ eleitores aptos dos locais do bairro, em % (null = aptos desconhecidos). */
+  pct_electors: number | null;
+};
+
+export type TseNeighborhoodRanking = {
+  municipality: TseMunicipality;
+  neighborhood: string;
+  /** Ano efetivo (resolvido pro mais recente com dados de seção). null = sem dados. */
+  year: number | null;
+  office_code: number | null;
+  /** Eleitores aptos dos locais do bairro (soma por local, sem duplicar). */
+  electors_total: number;
+  /** Votos de TODOS os candidatos do filtro no bairro (não só top-N). */
+  total_votes: number;
+  items: TseNeighborhoodRankingItem[];
+};
+
+/** Filiados por partido num município (GET /v1/tse/municipalities/{id}/party-memberships). */
+export type TseMunicipalityPartyMembershipItem = {
+  party_number: number;
+  party_abbreviation: string;
+  party_name: string;
+  total: number;
+  by_gender: Record<string, number>;
+  by_age: Record<string, number>;
+  by_education: Record<string, number>;
+};
+
+export type TseMunicipalityPartyMemberships = {
+  municipality: TseMunicipality;
+  /** AAAAMM do snapshot mensal (ex. 202605). null = dataset não sincronizado. */
+  period: number | null;
+  /** Total de filiados no município (todos os partidos). */
+  total_members: number;
+  items: TseMunicipalityPartyMembershipItem[];
 };
 
 export type TseWinnerMapPoint = {

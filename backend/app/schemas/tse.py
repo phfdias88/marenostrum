@@ -133,6 +133,56 @@ class CandidateByNeighborhoodResponse(BaseModel):
     total_neighborhoods: int
 
 
+class NeighborhoodRankingItem(BaseModel):
+    """Linha do raio-X do bairro: candidato + votos + % sobre aptos."""
+    candidate: CandidateRead
+    votes: int
+    # Em quantos locais de votacao do bairro o candidato pontuou.
+    places_count: int
+    # votos ÷ eleitores aptos dos locais do bairro, em % (mesma base do
+    # penetration_pct do by-neighborhood). None se aptos desconhecidos/zero.
+    pct_electors: float | None = None
+
+
+class NeighborhoodRankingResponse(BaseModel):
+    """GET /neighborhoods/ranking — quem domina este bairro (inverso do
+    by-neighborhood: ranking de TODOS os candidatos num bairro)."""
+    municipality: MunicipalityRead
+    neighborhood: str
+    # Ano efetivo usado (resolvido pro mais recente com dados de secao no
+    # municipio quando nao informado). None = municipio sem dados de secao.
+    year: int | None
+    office_code: int | None
+    # Eleitores aptos dos locais do bairro (soma por LOCAL — sem duplicar
+    # por candidato; subquery separada da agregacao de votos).
+    electors_total: int
+    # Votos nominais de TODOS os candidatos do filtro no bairro (nao so top-N).
+    total_votes: int
+    items: list[NeighborhoodRankingItem]
+
+
+class MunicipalityPartyMembershipItem(BaseModel):
+    """Filiados de UM partido no municipio (snapshot mais recente)."""
+    party_number: int
+    party_abbreviation: str
+    party_name: str
+    total: int
+    # dicts {rótulo: quantidade} — direto do JSON ingerido do TSE.
+    by_gender: dict[str, int] = {}
+    by_age: dict[str, int] = {}
+    by_education: dict[str, int] = {}
+
+
+class MunicipalityPartyMembershipsResponse(BaseModel):
+    """GET /municipalities/{id}/party-memberships — força local dos partidos."""
+    municipality: MunicipalityRead
+    # AAAAMM do snapshot mais recente (ex. 202605). None = dataset nao sincronizado.
+    period: int | None
+    # Total de filiados no municipio (todos os partidos, nao so o top-N).
+    total_members: int
+    items: list[MunicipalityPartyMembershipItem]
+
+
 class ElectionStatsResponse(BaseModel):
     """GET /elections/{id}/stats — sumario de uma eleicao."""
     election: ElectionRead

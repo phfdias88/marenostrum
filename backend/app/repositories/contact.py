@@ -17,11 +17,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import cast, extract, func, insert, select, text, update
+from sqlalchemy import and_, cast, extract, func, insert, or_, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
-from app.models.contact import Contact
+from app.models.contact import Contact, ContactType
+from app.models.user import User
+from app.utils.phone import normalize_phone
 
 
 class ContactRepository:
@@ -64,13 +66,52 @@ class ContactRepository:
         """
         Busca contato ATIVO por telefone. Usado pelo webhook — soft-deleted
         nao deve linkar (webhook nao 'ressuscita' contato apagado).
+
+        MATCH NORMALIZADO: o input e' canonizado (normalize_phone) e comparado
+        com phone_normalized — "(21) 99999-1234" casa com "5521999991234".
+        Fallback: contatos pre-backfill (phone_normalized NULL) comparam com
+        o phone cru. limit(1) porque a normalizacao pode colidir formatos
+        distintos do mesmo numero (a unique do DB e' no phone cru).
         """
+        norm = normalize_phone(phone)
+        if norm is not None:
+            match = or_(
+                Contact.phone_normalized == norm,
+                and_(
+                    Contact.phone_normalized.is_(None),
+                    Contact.phone == phone,
+                ),
+            )
+        else:
+            match = Contact.phone == phone
+        stmt = (
+            select(Contact)
+            .where(
+                Contact.tenant_id == tenant_id,
+                match,
+                Contact.is_active.is_(True),
+            )
+            .order_by(Contact.created_at.desc())
+            .limit(1)
+        )
+        return self._db.execute(stmt).scalars().first()
+
+    def list_active_by_phone_norms(
+        self,
+        *,
+        tenant_id: UUID,
+        norms: list[str],
+    ) -> list[Contact]:
+        """Contatos ATIVOS cujo phone_normalized esta na lista — usado pelo
+        relink de interacoes orfas (uma query pra todos os telefones)."""
+        if not norms:
+            return []
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
-            Contact.phone == phone,
             Contact.is_active.is_(True),
+            Contact.phone_normalized.in_(norms),
         )
-        return self._db.execute(stmt).scalar_one_or_none()
+        return list(self._db.execute(stmt).scalars().all())
 
     def exists_by_phone(
         self,
@@ -98,6 +139,8 @@ class ContactRepository:
         search: str | None = None,
         tag: str | None = None,
         created_by: UUID | None = None,
+        neighborhood: str | None = None,
+        contact_type: ContactType | None = None,
     ) -> int:
         stmt = select(func.count(Contact.id)).where(
             Contact.tenant_id == tenant_id,
@@ -110,6 +153,10 @@ class ContactRepository:
             stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
         if created_by:
             stmt = stmt.where(Contact.created_by_user_id == created_by)
+        if neighborhood:
+            stmt = stmt.where(Contact.neighborhood.ilike(f"%{neighborhood}%"))
+        if contact_type:
+            stmt = stmt.where(Contact.type == contact_type)
         return int(self._db.execute(stmt).scalar_one())
 
     def list_paginated(
@@ -121,12 +168,15 @@ class ContactRepository:
         search: str | None = None,
         tag: str | None = None,
         created_by: UUID | None = None,
+        neighborhood: str | None = None,
+        contact_type: ContactType | None = None,
     ) -> list[Contact]:
         """
         Lista contatos ATIVOS do tenant.
         ILIKE no nome se search fornecido; case-insensitive.
         Filtro por tag usa contains (`tags @> '["x"]'`) — bate indice GIN.
         Filtro por created_by = quem cadastrou (id do usuário).
+        Filtro por neighborhood (ILIKE parcial) + contact_type — mutirão WhatsApp.
         """
         stmt = select(Contact).where(
             Contact.tenant_id == tenant_id,
@@ -138,12 +188,43 @@ class ContactRepository:
             stmt = stmt.where(Contact.tags.op("@>")(cast([tag], JSONB)))
         if created_by:
             stmt = stmt.where(Contact.created_by_user_id == created_by)
+        if neighborhood:
+            stmt = stmt.where(Contact.neighborhood.ilike(f"%{neighborhood}%"))
+        if contact_type:
+            stmt = stmt.where(Contact.type == contact_type)
         stmt = (
             stmt.order_by(Contact.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
         return list(self._db.execute(stmt).scalars().all())
+
+    def leaderboard(
+        self,
+        *,
+        tenant_id: UUID,
+        limit: int = 10,
+    ) -> list[tuple[UUID, str, int]]:
+        """
+        Ranking de cadastros: COUNT de contatos ATIVOS por created_by_user_id
+        (NULL excluido — contatos pre-migration-036 ficam fora), join com
+        users pro nome atual. Retorna [(user_id, full_name, count)] desc.
+        """
+        n = func.count(Contact.id).label("n")
+        stmt = (
+            select(Contact.created_by_user_id, User.full_name, n)
+            .join(User, User.id == Contact.created_by_user_id)
+            .where(
+                Contact.tenant_id == tenant_id,
+                Contact.is_active.is_(True),
+                Contact.created_by_user_id.is_not(None),
+            )
+            .group_by(Contact.created_by_user_id, User.full_name)
+            .order_by(n.desc(), User.full_name.asc())
+            .limit(limit)
+        )
+        rows = self._db.execute(stmt).all()
+        return [(r[0], r[1], int(r[2])) for r in rows]
 
     def list_creators(self, *, tenant_id: UUID) -> list[tuple[UUID, str]]:
         """Quem já cadastrou contato neste tenant (id + nome) — alimenta o filtro."""
