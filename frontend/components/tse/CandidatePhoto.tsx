@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { partyColor, readableTextOn } from "@/lib/partyColors";
+import { partyTheme } from "@/lib/partyColors";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -57,7 +57,7 @@ export function CandidatePhoto({
   const [visible, setVisible] = useState(false);
   const dim = SIZE_PX[size];
   const url = `${API_BASE}/v1/tse/candidates/${candidateId}/photo`;
-  const color = partyColor(partyNumber);
+  const theme = partyTheme(partyNumber);
   const ref = useRef<HTMLDivElement>(null);
 
   // IntersectionObserver "estrito" — so dispara fetch da foto quando o
@@ -93,7 +93,7 @@ export function CandidatePhoto({
     >
       <div
         className="absolute inset-0 rounded-full grid place-items-center font-bold"
-        style={{ backgroundColor: color, color: readableTextOn(color) }}
+        style={{ backgroundColor: theme.color, color: theme.text }}
       >
         {initials(name)}
       </div>

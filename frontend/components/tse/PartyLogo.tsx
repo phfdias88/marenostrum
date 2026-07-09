@@ -11,7 +11,7 @@
  */
 import { useId, useState } from "react";
 
-import { darkenHex, partyColor, readableTextOn } from "@/lib/partyColors";
+import { partyTheme } from "@/lib/partyColors";
 
 type Size = "sm" | "md" | "lg" | "xl";
 
@@ -22,12 +22,11 @@ const DIM: Record<Size, { px: number; numFont: number; sigFont: number }> = {
   xl: { px: 128, numFont: 48, sigFont: 18 },
 };
 
-// Tema do badge derivado da cor canonica do partido (lib/partyColors):
-// fundo = cor da marca, ring = fundo escurecido, texto = preto/branco legivel.
+// Tema CURADO do badge (fundo/anel/texto escolhidos à mão em lib/partyColors).
 // Hex direto porque Tailwind nao funciona dentro de attrs de SVG.
 function themeFor(partyNumber: number): { bg: string; ring: string; text: string } {
-  const bg = partyColor(partyNumber);
-  return { bg, ring: darkenHex(bg), text: readableTextOn(bg) };
+  const t = partyTheme(partyNumber);
+  return { bg: t.color, ring: t.ring, text: t.text };
 }
 
 type Props = {
