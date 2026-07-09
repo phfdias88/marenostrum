@@ -936,7 +936,10 @@ export default function CensoPage() {
     if (!setores || !muniProps) return;
     const cols = ["cd_setor", "nm_dist", "nm_bairro", "situacao", "populacao",
       "domicilios", "densidade_hab_km2", "media_moradores",
-      "taxa_alfabetizacao", "pct_pretos_pardos", "area_km2"];
+      "taxa_alfabetizacao",
+      // Cor/raça: 5 categorias individuais + combinado (compat) — pedido do PO.
+      "pct_branca", "pct_preta", "pct_parda", "pct_amarela", "pct_indigena",
+      "pct_pretos_pardos", "area_km2"];
     const lines = [cols.join(";")];
     for (const f of setores.features) {
       lines.push(cols.map((c) => {
@@ -950,7 +953,10 @@ export default function CensoPage() {
   function exportCsvEstado() {
     if (!ufGeo) return;
     const cols = ["cd_mun", "nm_mun", "populacao", "domicilios", "setores",
-      "media_moradores", "taxa_alfabetizacao", "pct_pretos_pardos", "pct_urbana",
+      "media_moradores", "taxa_alfabetizacao",
+      // Cor/raça: 5 categorias individuais + combinado (compat) — pedido do PO.
+      "pct_branca", "pct_preta", "pct_parda", "pct_amarela", "pct_indigena",
+      "pct_pretos_pardos", "pct_urbana",
       "renda_media", "renda_mediana", "pct_bolsa_familia", "pct_cadunico",
       "cadunico_familias", "pbf_familias", "pib_per_capita", "idhm",
       "ideb_anos_iniciais", "ideb_anos_finais", "pct_esgoto_adequado",
@@ -1761,7 +1767,14 @@ export default function CensoPage() {
               ["Setores censitários", Number(fa.setores ?? 0), Number(fb.setores ?? 0), (v) => numberFmt.format(v)],
               ["Moradores/domicílio", fa.media_moradores as number | null, fb.media_moradores as number | null, (v) => String(v).replace(".", ",")],
               ["Alfabetização 15+ (%)", fa.taxa_alfabetizacao as number | null, fb.taxa_alfabetizacao as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça · pretos e pardos (%)", fa.pct_pretos_pardos as number | null, fb.pct_pretos_pardos as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              // Cor/raça DESDOBRADA nas 5 categorias individuais do Censo 2022
+              // (pedido do PO — mesma regra do painel de clique do bairro).
+              // O uf-overview devolve os pct_* por município desde o ef41945.
+              ["Cor ou raça · Branca (%)", fa.pct_branca as number | null, fb.pct_branca as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Cor ou raça · Preta (%)", fa.pct_preta as number | null, fb.pct_preta as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Cor ou raça · Parda (%)", fa.pct_parda as number | null, fb.pct_parda as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Cor ou raça · Amarela (%)", fa.pct_amarela as number | null, fb.pct_amarela as number | null, (v) => `${String(v).replace(".", ",")}%`],
+              ["Cor ou raça · Indígena (%)", fa.pct_indigena as number | null, fb.pct_indigena as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, (v) => `${String(v).replace(".", ",")}%`],
               ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
               ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
