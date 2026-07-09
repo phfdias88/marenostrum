@@ -33,7 +33,7 @@ type FC = {
 
 // Rampa sequencial quente (ouro → carmim). A cor mais clara é um ouro nítido
 // (não creme) pra não sumir no tile claro do mapa.
-const RAMP = ["#fdd692", "#f9bb5b", "#f09a3c", "#e0742e", "#c44a2a", "#8f1d2c"];
+const RAMP = ["#ffd98a", "#f9b64d", "#f0902f", "#df6a2b", "#c53f2a", "#8f1d2c"];
 const NO_DATA = "#9aa0a6";
 
 const numFmt = new Intl.NumberFormat("pt-BR");
@@ -57,13 +57,38 @@ function computeBreaks(values: number[]): number[] {
   return [Math.min(...v), q(0.2), q(0.4), q(0.6), q(0.8), q(0.95)];
 }
 
+// Bounds a partir das coordenadas cruas do FeatureCollection — SEM instanciar
+// um segundo L.geoJSON só pra getBounds() (aquilo duplicava o parse dos ~13k
+// setores e comia o orçamento do render de mosaico). Varre os arrays de coords
+// sem alocar L.LatLng por vértice.
+function boundsFromFC(fc: FC): L.LatLngBounds | null {
+  let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
+  const scan = (c: unknown): void => {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === "number" && typeof c[1] === "number") {
+      const lng = c[0] as number, lat = c[1] as number;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      return;
+    }
+    for (const x of c) scan(x);
+  };
+  for (const f of fc.features) {
+    scan((f.geometry as { coordinates?: unknown } | null)?.coordinates);
+  }
+  if (minLat === Infinity) return null;
+  return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+}
+
 function FitBounds({ data }: { data: FC }) {
   const map = useMap();
   useEffect(() => {
     if (!data.features.length) return;
-    const layer = L.geoJSON(data as unknown as GeoJSON.GeoJsonObject);
-    const b = layer.getBounds();
-    if (b.isValid()) map.fitBounds(b, { padding: [16, 16] });
+    const b = boundsFromFC(data);
+    // animate:false — senão o fit é engolido na init do mapa (gotcha do projeto).
+    if (b && b.isValid()) map.fitBounds(b, { padding: [16, 16], animate: false });
   }, [data, map]);
   return null;
 }
@@ -98,7 +123,7 @@ function FocusController({
     if (!layers.length) return;
     let bounds: L.LatLngBounds | null = null;
     for (const lyr of layers) {
-      lyr.setStyle({ weight: 1.4, color: "#e8c879", fillOpacity: 0.95 });
+      lyr.setStyle({ weight: 1.6, color: "#ffe6a3", fillOpacity: 0.92 });
       lyr.bringToFront();
       const b = (lyr as unknown as { getBounds?: () => L.LatLngBounds }).getBounds?.();
       if (b && b.isValid()) bounds = bounds ? bounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast());
@@ -149,7 +174,7 @@ export function CensusMap({
     // Semi-transparente: deixa o mapa-base (ruas/rótulos) aparecer sob o
     // choropleth e não "esconde" o que estiver embaixo. O realce de
     // hover/clique sobe pra ~0.92 pra manter o contraste na interação.
-    fillOpacity: v == null ? 0.45 : 0.72,
+    fillOpacity: v == null ? 0.55 : 0.86,
   });
   // refs: handlers de evento e FocusController leem sempre o estado ATUAL
   // (sem stale-closure — os layers não são recriados na troca de indicador).
@@ -251,7 +276,7 @@ export function CensusMap({
                   const pv = (prevFeat?.properties?.[indicatorRef.current] ?? null) as number | null;
                   selectedRef.current.setStyle(baseStyleRef.current(pv));
                 }
-                path.setStyle({ weight: 2.5, color: "#e8c879", fillOpacity: 0.95 });
+                path.setStyle({ weight: 2.8, color: "#ffe6a3", fillOpacity: 0.95 });
                 path.bringToFront();
                 selectedRef.current = path;
                 onSelect(p);
@@ -266,7 +291,10 @@ export function CensusMap({
                   tipBound = true;
                   layer.openTooltip();
                 }
-                if (path !== selectedRef.current) path.setStyle({ weight: 1.6, color: "#fff", fillOpacity: 0.92 });
+                if (path !== selectedRef.current) {
+                  path.setStyle({ weight: 1.8, color: "#fdf3dd", fillOpacity: 0.92 });
+                  path.bringToFront();
+                }
               },
               mouseout: () => {
                 if (path !== selectedRef.current) path.setStyle(baseStyleRef.current(curV()));
@@ -282,7 +310,7 @@ export function CensusMap({
             key={`bairro-${bairroContours.features.length}-${String(bairroContours.features[0]?.properties?.nome ?? "")}`}
             data={bairroContours as unknown as GeoJSON.GeoJsonObject}
             pane="mn-bairros"
-            style={{ fillOpacity: 0, weight: 1.8, color: "#38bdf8", opacity: 0.9 }}
+            style={{ fillOpacity: 0, weight: 1.6, color: "#8fcddb", opacity: 0.85 }}
             onEachFeature={(f, layer) => {
               const nome = (f.properties as { nome?: string } | null)?.nome;
               if (nome) layer.bindTooltip(String(nome), { sticky: true, className: "mn-tip" });
@@ -297,7 +325,7 @@ export function CensusMap({
             key={`distrito-${distritoContours.features.length}-${String(distritoContours.features[0]?.properties?.nome ?? "")}`}
             data={distritoContours as unknown as GeoJSON.GeoJsonObject}
             pane="mn-distritos"
-            style={{ fillOpacity: 0, weight: 3, color: "#f59e0b", opacity: 0.95, dashArray: "6 3" }}
+            style={{ fillOpacity: 0, weight: 3, color: "#3f9cb5", opacity: 0.95, dashArray: "6 3" }}
             onEachFeature={(f, layer) => {
               const nome = (f.properties as { nome?: string } | null)?.nome;
               if (nome) layer.bindTooltip("Distrito: " + String(nome), { sticky: true, className: "mn-tip" });

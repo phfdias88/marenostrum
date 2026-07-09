@@ -238,6 +238,13 @@ export type Malha = "setor" | "distrito" | "bairro";
 // novos campos aparecerem na hora, sem esperar 7 dias.
 const CENSUS_V = "2026-06-28";
 
+// Limite de setores pro DEFAULT em mosaico. Até este nº de setores o município
+// abre direto no mosaico (render síncrono cabe em ~300-450ms, mascarado pelo
+// spinner de "Carregando N setores"); acima, o default cai pro bairro dissolvido
+// pra não travar o browser (setor continua opt-in). ~15-20 capitais ficam acima
+// (BH/Recife ~4-6k, Rio ~10.7k, SP ~26k); todo o resto ganha o mosaico por padrão.
+const SETOR_MAX_FEATURES = 3000;
+
 export default function CensoPage() {
   const [ufGeo, setUfGeo] = useState<FC | null>(null);
   const [setores, setSetores] = useState<FC | null>(null);
@@ -282,10 +289,15 @@ export default function CensoPage() {
   // Malha (nível geográfico) da visão de município: setor (cru), distrito ou
   // bairro (cada setor colorido pelo agregado da área-pai). Dicionário ativo
   // no seletor de variáveis.
-  // Default = bairro (malha dissolvida, poucos polígonos, RÁPIDO). O setor
-  // (até ~13k polígonos → trava o browser em cidade grande) vira opt-in: o
-  // usuário escolhe o detalhe quando quer, sabendo do custo.
+  // Estado da malha. O default do STATE é "bairro", mas o EFETIVO (effMalha) é
+  // ADAPTATIVO enquanto o usuário não escolhe na mão: cidade pequena/média abre
+  // no MOSAICO de setor (bordas finas, cores vivas); só megacidade (> ~3k
+  // setores → trava o browser) cai no bairro dissolvido. Setor acima do limite
+  // continua opt-in explícito (mascarado pelo spinner).
   const [malha, setMalha] = useState<Malha>("bairro");
+  // Marca se o usuário escolheu a malha MANUALMENTE (clique no seletor ou
+  // deep-link ?malha=). Enquanto false, o default segue o adaptativo acima.
+  const userPickedMalha = useRef(false);
   // Geometria DISSOLVIDA (contornos de bairro/distrito) — poucos polígonos.
   // Usada como fill do mapa quando a malha ≠ setor, no lugar de recolorir os
   // 13k setores (que travava). O dissolve roda no backend (shapely) e é cacheado.
@@ -436,7 +448,10 @@ export default function CensoPage() {
       if (dict && (dict as { dict?: string }).dict) setSelectedDict((dict as { dict?: string }).dict!);
     }
     const pMalha = q.get("malha");
-    if (pMalha === "setor" || pMalha === "distrito" || pMalha === "bairro") setMalha(pMalha);
+    if (pMalha === "setor" || pMalha === "distrito" || pMalha === "bairro") {
+      userPickedMalha.current = true;
+      setMalha(pMalha);
+    }
     pendingUrlMun.current = q.get("mun");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -638,14 +653,23 @@ export default function CensoPage() {
   const hasDistritos = !!setores?.features.some(
     (f) => f.properties.nm_dist && String(f.properties.nm_dist).trim() !== "",
   );
+  // Default ADAPTATIVO: enquanto o usuário não escolhe a malha na mão, cidades
+  // pequenas/médias (<= SETOR_MAX_FEATURES setores) abrem no MOSAICO de setores
+  // (bordas finas, cores vivas, alta variância); só as megacidades acima do
+  // limite caem no fallback dissolvido pra não travar o browser. setores.features
+  // já está em mãos no render — não precisa de query. setores=null (carregando)
+  // → autoDefault "bairro", igual ao comportamento seguro atual até chegar o dado.
+  const autoDefaultMalha: Malha =
+    setores && setores.features.length <= SETOR_MAX_FEATURES ? "setor" : "bairro";
+  const baseMalha: Malha = userPickedMalha.current ? malha : autoDefaultMalha;
   const effMalha: Malha =
-    malha === "bairro" && !hasBairros
+    baseMalha === "bairro" && !hasBairros
       ? hasDistritos
         ? "distrito"
         : "setor"
-      : malha === "distrito" && !hasDistritos
+      : baseMalha === "distrito" && !hasDistritos
         ? "setor"
-        : malha;
+        : baseMalha;
   // Coluna de agrupamento da área conforme a malha escolhida.
   const areaGroupOf = (p: Record<string, number | string | null>) =>
     effMalha === "distrito"
@@ -1050,7 +1074,7 @@ export default function CensoPage() {
                 return (
                   <button
                     key={m}
-                    onClick={() => !disabled && setMalha(m)}
+                    onClick={() => { if (!disabled) { userPickedMalha.current = true; setMalha(m); } }}
                     disabled={disabled}
                     title={
                       disabled
