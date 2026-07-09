@@ -19,7 +19,15 @@
  * município em foco (o dado de locais é por município) e, quando ativo,
  * também restringe os bairros aos que têm local casando com a busca.
  */
-import { Building2, Landmark, Loader2, MapPin, Search, X } from "lucide-react";
+import {
+  Building2,
+  Landmark,
+  Loader2,
+  MapPin,
+  MousePointerClick,
+  Search,
+  X,
+} from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -488,23 +496,40 @@ export function CandidateMapModal({ results, onClose }: Props) {
           </div>
 
           <aside className="lg:w-[400px] xl:w-[440px] shrink-0 border-t lg:border-t-0 lg:border-l border-border overflow-y-auto p-3 sm:p-4 bg-background/30">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-              {mode === "municipio"
-                ? "Votos por município"
-                : singleMuni
-                  ? `Votos por bairro — ${titleCase(results.results[0].municipality.name)}`
-                  : "Votos por bairro (município)"}
-              {" · "}
-              <span className="text-foreground font-semibold">
-                {numberFmt.format(
-                  chartItems.reduce((s, i) => s + i.value, 0),
-                )}
-              </span>{" "}
-              votos no filtro
-            </p>
-            <p className="text-[11px] text-muted-foreground -mt-1 mb-2">
-              Clique numa barra para voar até ela no mapa.
-            </p>
+            {/* Cabeçalho "hero": título + total dourado + chip de contagem. */}
+            <div className="mb-3">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                {mode === "municipio"
+                  ? "Votos por município"
+                  : singleMuni
+                    ? `Votos por bairro — ${titleCase(results.results[0].municipality.name)}`
+                    : "Votos por bairro (município)"}
+              </p>
+              <div className="mt-1 flex items-baseline gap-2 flex-wrap">
+                <span className="text-2xl font-bold text-primary tabular-nums tracking-tight">
+                  {numberFmt.format(
+                    chartItems.reduce((s, i) => s + i.value, 0),
+                  )}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  votos no filtro
+                </span>
+                <span className="ml-auto text-[11px] px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground tabular-nums">
+                  {numberFmt.format(chartItems.length)}{" "}
+                  {mode === "municipio"
+                    ? chartItems.length === 1
+                      ? "município"
+                      : "municípios"
+                    : chartItems.length === 1
+                      ? "bairro"
+                      : "bairros"}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                <MousePointerClick className="w-3.5 h-3.5 text-primary/70" />
+                Clique numa barra para voar até ela no mapa.
+              </p>
+            </div>
             <VotesBarChart
               items={chartItems}
               hideSearch
