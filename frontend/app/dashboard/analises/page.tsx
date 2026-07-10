@@ -82,11 +82,22 @@ async function loadStats(): Promise<Stats> {
 
 // ------------------------------------------------------------------- cards
 
+// Grupos do hub — agrupa os ~15 cards por intenção de uso (explorar dados,
+// comparar entidades, operar a campanha) em vez de um grid flat gigante.
+type CardGroup = "Explorar" | "Comparar lado a lado" | "Ferramentas de campanha";
+
+const CARD_GROUPS: CardGroup[] = [
+  "Explorar",
+  "Comparar lado a lado",
+  "Ferramentas de campanha",
+];
+
 type Card = {
   href: string;
   label: string;
   icon: LucideIcon;
   description: string;
+  group: CardGroup;
   disabled?: boolean;
 };
 
@@ -97,60 +108,70 @@ const CARDS: Card[] = [
     icon: Vote,
     description:
       "Resultado por cidade e cargo: ranking com votos, % e quem foi eleito.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/candidato",
     label: "Candidatos",
     icon: Users,
     description: "Busque por UF, cargo, partido, nome (candidaturas de 2002 a 2024). Votos por município de 2014 a 2024.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/ranking",
     label: "Ranking nacional",
     icon: Trophy,
     description: "Os candidatos mais votados do Brasil por cargo e ano.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/partidos",
     label: "Partidos",
     icon: Building2,
     description: "Todos os partidos brasileiros registrados, com seus candidatos por estado.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/mapa",
     label: "Mapa partidário",
     icon: MapIcon,
     description: "Mapa do Brasil colorido pelo partido vencedor em cada cidade.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/municipios",
     label: "Municípios",
     icon: MapPin,
     description: "Top candidatos por cidade · busque qualquer município do Brasil.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
     description: "Eleições de 2002 a 2024 (municipais e gerais): presidente, governador, deputados.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/comparar",
     label: "Comparar",
     icon: UsersRound,
     description: "Coloque candidatos lado a lado e compare cenários.",
+    group: "Comparar lado a lado",
   },
   {
     href: "/dashboard/analises/comparar-partidos",
     label: "Comparar partidos",
     icon: Building2,
     description: "Partidos lado a lado: eleitos, votos e candidatos por cargo.",
+    group: "Comparar lado a lado",
   },
   {
     href: "/dashboard/analises/comparar-municipios",
     label: "Comparar municípios",
     icon: MapPin,
     description: "Cidades lado a lado: prefeito eleito, votos e participação.",
+    group: "Comparar lado a lado",
   },
   {
     href: "/dashboard/analises/bairros",
@@ -158,30 +179,35 @@ const CARDS: Card[] = [
     icon: MapIcon,
     description:
       "Escolha um candidato e veja os votos dele bairro a bairro (ranking + mapa).",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/zona",
     label: "Zona eleitoral",
     icon: Compass,
     description: "Top candidatos por zona numa cidade · votos e % por zona.",
+    group: "Explorar",
   },
   {
     href: "/dashboard/analises/projecao",
     label: "Projeção eleitoral",
     icon: Calculator,
     description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base no resultado da última eleição. Modo 'e se' com edição de votos por partido.",
+    group: "Ferramentas de campanha",
   },
   {
     href: "/dashboard/analises/adversarios",
     label: "Adversários",
     icon: Swords,
     description: "Defina seu candidato + adversários e mantenha o comparativo persistente entre sessões.",
+    group: "Ferramentas de campanha",
   },
   {
     href: "/dashboard/calendario",
     label: "Calendário eleitoral",
     icon: Calendar,
     description: "Datas-chave do TSE (propaganda, debate, registro, prestação de contas) com checklist por etapa.",
+    group: "Ferramentas de campanha",
   },
 ];
 
@@ -312,52 +338,67 @@ export default function AnalisesHubPage() {
         </div>
       )}
 
-      {/* Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {CARDS.map((c) => {
-          const Icon = c.icon;
-          const blocked = c.disabled || (!hasData && c.href.includes("/analises/"));
-          const body = (
-            <div
-              className={`group h-full rounded-xl border bg-card p-5 transition-all
-                          ${
-                            blocked
-                              ? "border-border/60 opacity-60 cursor-not-allowed"
-                              : "border-border hover:border-primary/60 hover:bg-card/80 hover:-translate-y-0.5"
-                          }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`grid place-items-center w-11 h-11 rounded-lg
+      {/* Cards agrupados por intenção de uso — 3 seções tituladas com
+          fade-in escalonado (cada seção entra um pouco depois da anterior) */}
+      {CARD_GROUPS.map((group, gi) => (
+        <section
+          key={group}
+          className="mn-fade-in"
+          style={{ animationDelay: `${gi * 120}ms` }}
+        >
+          <p className="uppercase text-xs tracking-wider text-muted-foreground mb-2">
+            {group}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            {CARDS.filter((c) => c.group === group).map((c) => {
+              const Icon = c.icon;
+              const blocked = c.disabled || (!hasData && c.href.includes("/analises/"));
+              const body = (
+                <div
+                  className={`group relative overflow-hidden h-full rounded-xl border bg-card p-5 transition-all
+                              before:absolute before:inset-x-0 before:top-0 before:h-0.5
+                              before:bg-gradient-to-r before:from-primary/0 before:via-primary before:to-primary/0
+                              before:opacity-0 before:transition-opacity
                               ${
                                 blocked
-                                  ? "bg-muted text-muted-foreground"
-                                  : "bg-primary/15 text-primary group-hover:bg-primary/25"
+                                  ? "border-border/60 opacity-60 cursor-not-allowed"
+                                  : "border-border hover:border-primary/60 hover:bg-card/80 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/10 hover:before:opacity-100"
                               }`}
                 >
-                  <Icon className="w-5 h-5" />
-                </span>
-                <h3 className="font-semibold text-base">{c.label}</h3>
-              </div>
-              <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
-                {c.description}
-              </p>
-              {c.disabled && (
-                <p className="mt-3 text-xs uppercase tracking-wide text-amber-500">
-                  Em breve
-                </p>
-              )}
-            </div>
-          );
-          return blocked ? (
-            <div key={c.href}>{body}</div>
-          ) : (
-            <Link key={c.href} href={c.href} className="block h-full">
-              {body}
-            </Link>
-          );
-        })}
-      </section>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`grid place-items-center w-11 h-11 rounded-lg transition-transform
+                                  ${
+                                    blocked
+                                      ? "bg-muted text-muted-foreground"
+                                      : "bg-primary/15 text-primary group-hover:bg-primary/25 group-hover:scale-110"
+                                  }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </span>
+                    <h3 className="font-semibold text-base">{c.label}</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+                    {c.description}
+                  </p>
+                  {c.disabled && (
+                    <p className="mt-3 text-xs uppercase tracking-wide text-amber-500">
+                      Em breve
+                    </p>
+                  )}
+                </div>
+              );
+              return blocked ? (
+                <div key={c.href}>{body}</div>
+              ) : (
+                <Link key={c.href} href={c.href} className="block h-full">
+                  {body}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

@@ -77,7 +77,9 @@ export function OrphanLeadsCard({ onChanged }: { onChanged: () => void }) {
   }
 
   return (
-    <div className="rounded-xl border border-emerald-600/30 bg-emerald-500/[0.05]">
+    // mn-fade-in aqui (e não em wrapper no pai): o card só existe quando há
+    // órfãos, então a animação roda exatamente quando ele aparece.
+    <div className="mn-fade-in rounded-xl border border-emerald-600/30 bg-emerald-500/[0.05]">
       {/* Header collapsible */}
       <button
         type="button"

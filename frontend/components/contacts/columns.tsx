@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { ExternalLink, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, MapPin, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
+import { hashColor } from "@/lib/color-hash";
+import { cn } from "@/lib/utils";
 import { CONTACT_TYPE_LABELS, type Contact } from "@/lib/types";
 
 type Handlers = {
@@ -34,26 +37,29 @@ export function makeContactColumns({
       accessorKey: "full_name",
       header: "Nome",
       cell: ({ row }) => (
-        // Nome clicavel = atalho rapido pro perfil
+        // Nome clicavel = atalho rapido pro perfil (avatar de iniciais junto)
         <Link
           href={`/dashboard/contacts/${row.original.id}`}
-          className="font-medium hover:text-primary hover:underline underline-offset-2"
+          className="group inline-flex items-center gap-2.5 font-medium"
         >
-          {row.original.full_name}
+          <ContactAvatar name={row.original.full_name} size="sm" />
+          <span className="group-hover:text-primary group-hover:underline underline-offset-2">
+            {row.original.full_name}
+          </span>
         </Link>
       ),
     },
     {
       accessorKey: "phone",
       header: "Telefone",
-      cell: ({ row }) => row.original.phone ?? "—",
+      cell: ({ row }) => row.original.phone ?? "·",
     },
     {
       accessorKey: "email",
       header: "Email",
       cell: ({ row }) => (
         <span className="text-muted-foreground">
-          {row.original.email ?? "—"}
+          {row.original.email ?? "·"}
         </span>
       ),
     },
@@ -65,7 +71,7 @@ export function makeContactColumns({
           row.original.neighborhood,
           row.original.city,
         ].filter(Boolean);
-        return parts.length ? parts.join(" · ") : "—";
+        return parts.length ? parts.join(" · ") : "·";
       },
     },
     {
@@ -82,20 +88,29 @@ export function makeContactColumns({
       header: "Tags",
       cell: ({ row }) => {
         const tags = row.original.tags ?? [];
-        if (!tags.length) return <span className="text-xs text-muted-foreground">—</span>;
+        if (!tags.length) return <span className="text-xs text-muted-foreground">·</span>;
         // Mostra ate' 2 + "+N" se sobrar
         const shown = tags.slice(0, 2);
         const extra = tags.length - shown.length;
         return (
           <div className="flex flex-wrap gap-1">
-            {shown.map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium"
-              >
-                {t}
-              </span>
-            ))}
+            {shown.map((t) => {
+              // Cor determinística por tag — mesma cor no TagInput do form
+              const c = hashColor(t);
+              return (
+                <span
+                  key={t}
+                  className={cn(
+                    "inline-flex items-center px-1.5 py-0.5 rounded-full border text-[10px] font-medium",
+                    c.bg,
+                    c.text,
+                    c.border,
+                  )}
+                >
+                  {t}
+                </span>
+              );
+            })}
             {extra > 0 && (
               <span className="text-[10px] text-muted-foreground self-center">
                 +{extra}
@@ -112,7 +127,7 @@ export function makeContactColumns({
         row.original.created_by_name ? (
           <span className="text-xs text-foreground">{row.original.created_by_name}</span>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">·</span>
         ),
     },
     {
@@ -120,9 +135,11 @@ export function makeContactColumns({
       header: "Geo",
       cell: ({ row }) =>
         row.original.latitude != null && row.original.longitude != null ? (
-          <span className="text-xs text-emerald-600">📍 sim</span>
+          <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+            <MapPin className="h-3.5 w-3.5" aria-hidden="true" /> sim
+          </span>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="text-xs text-muted-foreground">·</span>
         ),
     },
     {

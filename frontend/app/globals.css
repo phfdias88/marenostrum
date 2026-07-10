@@ -332,3 +332,42 @@
 .leaflet-tooltip.mn-tip::before {
   border-top-color: hsl(var(--border));
 }
+
+/* Chrome do Leaflet no tema da casa (popup, zoom +/- e atribuição).
+   O default do Leaflet é branco fixo — vaza feio no dark mode.
+   Prefixo `html` sobe a especificidade: sem ele, o leaflet.css (importado por
+   componente) empatava e vencia pela ordem dos chunks do Next. */
+html .leaflet-container {
+  background: hsl(var(--background));
+  font-family: inherit; /* herda a stack do app em vez da Helvetica do Leaflet */
+}
+html .leaflet-popup-content-wrapper,
+html .leaflet-popup-tip {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 24px -8px hsl(36 30% 4% / 0.5);
+}
+html .leaflet-popup-content-wrapper {
+  border-radius: 10px;
+}
+/* Botões +/- (e demais controles em barra) */
+html .leaflet-bar a {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+html .leaflet-bar a:hover,
+html .leaflet-bar a:focus {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+html .leaflet-control-attribution {
+  background: hsl(var(--card) / 0.7) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 10px;
+}
+html .leaflet-control-attribution a {
+  color: hsl(var(--muted-foreground)) !important;
+}

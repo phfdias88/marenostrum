@@ -197,6 +197,29 @@ export default function CandidateDetailPage() {
     ? trajectory.items.reduce((a, b) => (b.year > a.year ? b : a)).candidate_id
     : c.id;
 
+  // Sumário sticky: só entra chip de seção que existe/carregou — assim nenhum
+  // atalho aponta pra âncora morta (as seções abaixo da dobra são condicionais).
+  const navSections: { id: string; label: string }[] = [
+    { id: "mare-ia", label: "Maré IA" },
+    { id: "confronto", label: "Confronto" },
+    ...(trajectory && trajectory.items.length > 1
+      ? [{ id: "trajetoria", label: "Trajetória" }]
+      : []),
+    ...(opportunities &&
+    (opportunities.opportunities.length > 0 || opportunities.strongholds.length > 0)
+      ? [{ id: "radar", label: "Radar" }]
+      : []),
+    ...(path && path.scope !== "proporcional"
+      ? [{ id: "caminho", label: "Caminho da vitória" }]
+      : []),
+    ...(profile && profile.municipalities_covered > 0
+      ? [{ id: "perfil", label: "Perfil" }]
+      : []),
+    { id: "municipios", label: "Municípios" },
+    ...(bairros && bairros.items.length > 0 ? [{ id: "bairros", label: "Bairros" }] : []),
+    ...(zones && zones.items.length > 0 ? [{ id: "zonas", label: "Zonas" }] : []),
+  ];
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -261,6 +284,35 @@ export default function CandidateDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Sumário sticky — atalhos pras seções da página. Fica fora do
+            export (data-html2canvas-ignore) e cola no topo ao rolar. */}
+        <nav
+          data-html2canvas-ignore
+          aria-label="Seções da página"
+          // top-14/24 no md+: cola ABAIXO do header do dashboard (sticky top-0
+          // z-30, h-14 no lg+, +1 linha de nav de ícones no md). top-0 só no
+          // mobile, onde o header auto-esconde ao rolar — sem o offset o
+          // sumário ficava POR BAIXO do header, invisível e inclicável.
+          className="sticky top-0 md:top-24 lg:top-14 z-20 mt-4 bg-background/90 backdrop-blur border-b border-border"
+        >
+          <div className="flex items-center gap-2 overflow-x-auto mn-scroll py-2">
+            {navSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById(s.id)
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="shrink-0 rounded-full px-3 py-1 text-xs border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/60 transition-colors"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </nav>
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 mt-4">
@@ -328,11 +380,11 @@ export default function CandidateDetailPage() {
         )}
 
         {/* Votos por municipio */}
-        <div className="mt-5">
+        <div id="municipios" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
             Votos por município
           </p>
-          <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+          <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
             {data.results.slice(0, 100).map((r, i) => {
               const top = data.results[0]?.votes || 1;
               return (
@@ -371,11 +423,11 @@ export default function CandidateDetailPage() {
             Vem ANTES de zonas: bairro e' mais granular/util pra estrategia
             de campanha que zona eleitoral. */}
         {bairros && bairros.items.length > 0 && (
-          <div className="mt-5 mn-fade-in">
+          <div id="bairros" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Top 20 bairros com mais votos
             </p>
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
               {bairros.items.map((b, i) => {
                 const top = bairros.items[0]?.votes || 1;
                 const pct = (b.votes / top) * 100;
@@ -413,11 +465,11 @@ export default function CandidateDetailPage() {
 
         {/* Votos por zona eleitoral — vem DEPOIS dos bairros */}
         {zones && zones.items.length > 0 && (
-          <div className="mt-5 mn-fade-in">
+          <div id="zonas" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Votos por zona eleitoral
             </p>
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
               {zones.items.map((z, i) => {
                 const max = zones.items[0]?.votes || 1;
                 return (
@@ -433,12 +485,7 @@ export default function CandidateDetailPage() {
                         {numberFmt.format(z.votes)}
                       </span>
                     </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-primary"
-                        style={{ width: `${(z.votes / max) * 100}%` }}
-                      />
-                    </div>
+                    <VoteBar value={z.votes} max={max} rank={i + 1} className="mt-1" />
                   </li>
                 );
               })}
@@ -536,7 +583,7 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
 
   if (!report) {
     return (
-      <div className="mt-5" data-html2canvas-ignore>
+      <div id="mare-ia" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28" data-html2canvas-ignore>
         <button
           onClick={generate}
           disabled={loading}
@@ -562,7 +609,7 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
   }
 
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="mare-ia" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <Sparkles className="w-3.5 h-3.5 text-primary" /> Maré IA · Especialista em Vantagem Eleitoral
       </p>
@@ -672,7 +719,7 @@ function CompareSection({
   }
 
   return (
-    <div className="mt-5" data-html2canvas-ignore>
+    <div id="confronto" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28" data-html2canvas-ignore>
       {!open && !report ? (
         <>
           <button
@@ -703,7 +750,7 @@ function CompareSection({
                 className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:border-primary/60 outline-none"
               />
               {results.length > 0 && (
-                <ul className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-72 overflow-auto divide-y divide-border">
+                <ul className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-72 overflow-auto mn-scroll divide-y divide-border">
                   {results.map((c) => (
                     <li key={c.id}>
                       <button
@@ -947,7 +994,7 @@ function BairroComparison({
                     {numberFmt.format(r.b)}
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
-                    {r.elect ? numberFmt.format(r.elect) : "—"}
+                    {r.elect ? numberFmt.format(r.elect) : "s/d"}
                   </td>
                 </tr>
               ))}
@@ -1008,7 +1055,7 @@ function TerritorySection({
   const muni = report?.dados?.por_municipio ?? [];
   const bairros = report?.dados?.bairros_cidade_principal ?? [];
   const fmt = (n: number | null | undefined) =>
-    n == null ? "—" : n.toLocaleString("pt-BR");
+    n == null ? "s/d" : n.toLocaleString("pt-BR");
 
   return (
     <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
@@ -1078,7 +1125,7 @@ function TerritorySection({
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.eleitorado)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
-                        {m.cobertura_pct == null ? "—" : `${m.cobertura_pct}%`}
+                        {m.cobertura_pct == null ? "s/d" : `${m.cobertura_pct}%`}
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.votos_candidato)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
@@ -1226,7 +1273,7 @@ function ElectorateProfileSection({ data }: { data: TseElectorateProfile }) {
   const EDU_ORDER = ["Analfabeto", "Lê e escreve", "Fundamental", "Médio", "Superior"];
   const GENDER_ORDER = ["Feminino", "Masculino"];
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="perfil" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Perfil do território · de onde vem o seu voto
       </p>
@@ -1284,7 +1331,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
   const scopeLabel =
     data.scope === "nacional" ? "no Brasil" : data.scope === "estadual" ? "no estado" : "na cidade";
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="caminho" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <Target className="w-3.5 h-3.5 text-primary" /> Caminho da vitória
       </p>
@@ -1294,7 +1341,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
           <Trophy className="w-8 h-8 text-emerald-500 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-emerald-700">
-              Venceu a disputa {scopeLabel} 🎉
+              Venceu a disputa {scopeLabel}
             </p>
             {data.margin != null && (
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -1365,7 +1412,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
 function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunityResponse }) {
   const pctFmt = (n: number) => n.toFixed(1).replace(".", ",");
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="radar" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Radar de oportunidades · onde buscar voto
       </p>
@@ -1493,7 +1540,7 @@ function TrajectorySection({
     unknown: "bg-muted text-muted-foreground",
   };
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="trajetoria" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Trajetória eleitoral · {trajectory.items.length} candidaturas
       </p>
@@ -1523,7 +1570,7 @@ function TrajectorySection({
               <span
                 className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${outcomeClass[outcome]}`}
               >
-                {t.result_status ? OUTCOME_LABEL[outcome] : "—"}
+                {t.result_status ? OUTCOME_LABEL[outcome] : "s/d"}
               </span>
             </>
           );

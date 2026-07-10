@@ -8,8 +8,10 @@
  * Configurações). Sem isso, Agenda não tinha NENHUM caminho de navegação no
  * mobile e Demandas dependia de um KPI card do dashboard.
  *
- * Item ativo ganha cor primary e uma linha dourada superior. Safe-area inset
- * pra iPhone com notch/home bar. 5 slots é o limite do padrão iOS.
+ * Item ativo ganha cor primary, uma linha dourada superior e uma pill dourada
+ * atrás do ícone (sempre montadas, animadas via opacity/scale — transição suave
+ * ao trocar de aba). Safe-area inset pra iPhone com notch/home bar. 5 slots é
+ * o limite do padrão iOS.
  */
 import {
   BarChart3,
@@ -131,16 +133,31 @@ export function BottomNav({
                 <Link
                   href={href}
                   className={cn(
-                    "flex flex-col items-center gap-0.5 py-2 transition-colors min-h-[56px] relative",
+                    "flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] relative transition-all duration-200 active:scale-95",
                     active
                       ? "text-primary"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {active && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />
-                  )}
-                  <Icon className="h-5 w-5" />
+                  {/* Linha dourada superior — sempre montada pra animar na troca de aba */}
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary transition-all duration-200",
+                      active ? "opacity-100 scale-x-100" : "opacity-0 scale-x-50",
+                    )}
+                  />
+                  {/* Pill/glow dourado atrás do ícone ativo (padrão Material 3) */}
+                  <span className="relative grid place-items-center w-12 h-6">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute inset-0 rounded-full bg-primary/[0.12] transition-all duration-200",
+                        active ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                      )}
+                    />
+                    <Icon className="relative h-5 w-5" />
+                  </span>
                   <span className="text-[10px] font-medium leading-none">
                     {label}
                   </span>
@@ -155,16 +172,29 @@ export function BottomNav({
               aria-label="Mais opções"
               aria-expanded={moreOpen}
               className={cn(
-                "w-full flex flex-col items-center gap-0.5 py-2 transition-colors min-h-[56px] relative",
+                "w-full flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] relative transition-all duration-200 active:scale-95",
                 moreActive || moreOpen
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {moreActive && (
-                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary" />
-              )}
-              <MoreHorizontal className="h-5 w-5" />
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-primary transition-all duration-200",
+                  moreActive ? "opacity-100 scale-x-100" : "opacity-0 scale-x-50",
+                )}
+              />
+              <span className="relative grid place-items-center w-12 h-6">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 rounded-full bg-primary/[0.12] transition-all duration-200",
+                    moreActive || moreOpen ? "opacity-100 scale-100" : "opacity-0 scale-50",
+                  )}
+                />
+                <MoreHorizontal className="relative h-5 w-5" />
+              </span>
               <span className="text-[10px] font-medium leading-none">Mais</span>
             </button>
           </li>
@@ -205,7 +235,7 @@ export function BottomNav({
                       href={href}
                       onClick={() => setMoreOpen(false)}
                       className={cn(
-                        "flex items-center gap-3 px-5 py-3 min-h-[56px] transition-colors",
+                        "flex items-center gap-3 px-5 py-3 min-h-[56px] transition-colors active:bg-accent/70",
                         active
                           ? "text-primary bg-accent/40"
                           : "text-foreground hover:bg-accent/50",

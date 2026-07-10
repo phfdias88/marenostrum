@@ -15,7 +15,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -23,6 +22,28 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
 import type { AgendaEvent } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 const CATEGORIES = ["visita", "reunião", "comício", "evento", "agenda interna"];
 
@@ -48,6 +69,9 @@ export default function AgendaPage() {
   const [items, setItems] = useState<AgendaEvent[] | null>(null);
   const [editing, setEditing] = useState<AgendaEvent | null>(null);
   const [creating, setCreating] = useState(false);
+  // Exclusão pede confirmação (AlertDialog) — mesmo padrão de /contacts.
+  const [deleting, setDeleting] = useState<AgendaEvent | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -62,13 +86,18 @@ export default function AgendaPage() {
     load();
   }, [load]);
 
-  async function remove(id: string) {
+  async function handleConfirmDelete() {
+    if (!deleting) return;
+    setDeletingBusy(true);
     try {
-      await api(`/v1/agenda/${id}`, { method: "DELETE" });
+      await api(`/v1/agenda/${deleting.id}`, { method: "DELETE" });
       toast.success("Evento excluído.");
+      setDeleting(null);
       load();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Erro.");
+    } finally {
+      setDeletingBusy(false);
     }
   }
 
@@ -121,7 +150,7 @@ export default function AgendaPage() {
               title={`Próximos (${upcoming.length})`}
               events={upcoming}
               onEdit={setEditing}
-              onRemove={remove}
+              onRemove={setDeleting}
             />
           )}
           {past.length > 0 && (
@@ -129,7 +158,7 @@ export default function AgendaPage() {
               title={`Realizados (${past.length})`}
               events={past}
               onEdit={setEditing}
-              onRemove={remove}
+              onRemove={setDeleting}
               dim
             />
           )}
@@ -150,6 +179,35 @@ export default function AgendaPage() {
           }}
         />
       )}
+
+      {/* Confirmação de exclusão — mesmo padrão do CRM de contatos */}
+      <AlertDialog
+        open={!!deleting}
+        onOpenChange={(o) => !o && !deletingBusy && setDeleting(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir evento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita.{" "}
+              <strong className="text-foreground">{deleting?.title}</strong>{" "}
+              será removido permanentemente da agenda.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBusy}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deletingBusy}
+              className={cn(buttonVariants({ variant: "destructive" }))}
+            >
+              {deletingBusy ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -305,7 +363,8 @@ function Section({
   title: string;
   events: AgendaEvent[];
   onEdit: (e: AgendaEvent) => void;
-  onRemove: (id: string) => void;
+  // Recebe o evento inteiro: o dialog de confirmação mostra o título.
+  onRemove: (e: AgendaEvent) => void;
   dim?: boolean;
 }) {
   return (
@@ -369,7 +428,7 @@ function Section({
                     <Pencil className="w-3 h-3" /> Editar
                   </button>
                   <button
-                    onClick={() => onRemove(e.id)}
+                    onClick={() => onRemove(e)}
                     className="text-[11px] inline-flex items-center gap-1 text-muted-foreground hover:text-destructive"
                   >
                     <Trash2 className="w-3 h-3" /> Excluir
@@ -466,47 +525,53 @@ function EventDialog({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-start justify-center pt-10 px-4 overflow-y-auto"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-xl border bg-card shadow-2xl my-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="font-semibold">{isEdit ? "Editar evento" : "Novo evento"}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
-          <Field label="Título *">
-            <input
+    // Dialog do design system (ESC, focus-trap e animação na base). O pai só
+    // monta este componente quando aberto, então `open` aqui é sempre true;
+    // fechar via overlay/ESC/X cai no onOpenChange (bloqueado enquanto salva).
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Editar evento" : "Novo evento"}</DialogTitle>
+          <DialogDescription>
+            Compromisso com data, hora e local. Com endereço preenchido, a
+            lista ganha link direto pro mapa.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save();
+          }}
+          className="space-y-3"
+        >
+          <Field label="Título *" htmlFor="ev-title">
+            <Input
+              id="ev-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={160}
               placeholder="Ex: Visita ao bairro Centro"
-              className={inputCls}
               autoFocus
             />
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Data e hora *">
-              <input
+            <Field label="Data e hora *" htmlFor="ev-starts">
+              <Input
+                id="ev-starts"
                 type="datetime-local"
                 value={startsAt}
                 onChange={(e) => setStartsAt(e.target.value)}
-                className={inputCls}
               />
             </Field>
-            <Field label="Categoria">
+            <Field label="Categoria" htmlFor="ev-category">
               <select
+                id="ev-category"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className={inputCls}
+                className={selectCls}
               >
-                <option value="">—</option>
+                <option value="">Sem categoria</option>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -515,83 +580,94 @@ function EventDialog({
               </select>
             </Field>
           </div>
-          <Field label="Local (nome)">
-            <input
+          <Field label="Local (nome)" htmlFor="ev-location">
+            <Input
+              id="ev-location"
               value={locationName}
               onChange={(e) => setLocationName(e.target.value)}
               maxLength={160}
               placeholder="Praça da Matriz"
-              className={inputCls}
             />
           </Field>
-          <Field label="Endereço">
-            <input
+          <Field label="Endereço" htmlFor="ev-address">
+            <Input
+              id="ev-address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               maxLength={255}
               placeholder="Rua, número"
-              className={inputCls}
             />
           </Field>
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <Field label="Cidade">
-                <input
+              <Field label="Cidade" htmlFor="ev-city">
+                <Input
+                  id="ev-city"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   maxLength={100}
-                  className={inputCls}
                 />
               </Field>
             </div>
-            <Field label="UF">
-              <input
+            <Field label="UF" htmlFor="ev-state">
+              <Input
+                id="ev-state"
                 value={state}
                 onChange={(e) => setState(e.target.value)}
                 maxLength={2}
                 placeholder="MG"
-                className={inputCls}
               />
             </Field>
           </div>
-          <Field label="Observações">
+          <Field label="Observações" htmlFor="ev-description">
             <textarea
+              id="ev-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               maxLength={2000}
               rows={2}
-              className={`${inputCls} resize-y`}
+              className={textareaCls}
             />
           </Field>
-        </div>
-        <div className="flex items-center justify-end gap-2 p-4 border-t">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={save}
-            disabled={busy}
-            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-          >
-            {busy ? "Salvando..." : isEdit ? "Salvar" : "Criar evento"}
-          </button>
-        </div>
-      </div>
-    </div>
+
+          <DialogFooter className="pt-2">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Salvando..." : isEdit ? "Salvar" : "Criar evento"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-const inputCls =
-  "w-full mt-1 py-2 px-3 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
+// select/textarea nativos no mesmo visual do Input do design system
+const selectCls =
+  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
+const textareaCls =
+  "w-full py-2 px-3 rounded-md bg-background border border-input text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</label>
-      {children}
+      <Label
+        htmlFor={htmlFor}
+        className="text-xs uppercase tracking-wider text-muted-foreground"
+      >
+        {label}
+      </Label>
+      <div className="mt-1.5">{children}</div>
     </div>
   );
 }

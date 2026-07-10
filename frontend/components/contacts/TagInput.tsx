@@ -15,6 +15,9 @@
 import { X } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 
+import { hashColor } from "@/lib/color-hash";
+import { cn } from "@/lib/utils";
+
 const MAX_TAGS = 16;
 
 function normalizeTag(raw: string): string {
@@ -68,22 +71,31 @@ export function TagInput({ value, onChange, suggestions = [], placeholder }: Pro
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5 min-h-10 rounded-md border border-input bg-background px-2 py-1.5 focus-within:ring-2 focus-within:ring-primary/30">
-        {value.map((t) => (
-          <span
-            key={t}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-medium"
-          >
-            {t}
-            <button
-              type="button"
-              onClick={() => remove(t)}
-              className="hover:text-foreground"
-              aria-label={`Remover tag ${t}`}
+        {value.map((t) => {
+          // Cor determinística por tag — mesma cor na coluna Tags da tabela
+          const c = hashColor(t);
+          return (
+            <span
+              key={t}
+              className={cn(
+                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium",
+                c.bg,
+                c.text,
+                c.border,
+              )}
             >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
+              {t}
+              <button
+                type="button"
+                onClick={() => remove(t)}
+                className="hover:opacity-60 transition-opacity"
+                aria-label={`Remover tag ${t}`}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          );
+        })}
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

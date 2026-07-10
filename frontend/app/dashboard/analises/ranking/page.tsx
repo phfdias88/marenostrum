@@ -17,6 +17,7 @@ import { ResultBadge } from "@/components/tse/ResultBadge";
 import { StateFlag } from "@/components/tse/StateFlag";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { VoteBar } from "@/components/ui/VoteBar";
 import { YEAR_OPTIONS, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -176,44 +177,58 @@ export default function RankingPage() {
           />
         </div>
       ) : (
-        <ol className="rounded-lg border bg-card divide-y divide-border">
-          {data.items.map((r, i) => {
-            const pct = (r.total_votes / max) * 100;
-            const medal = i === 0 ? "text-amber-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-700" : "text-muted-foreground";
-            return (
-              <li key={r.candidate.id}>
-                <Link
-                  href={`/dashboard/analises/candidato/${r.candidate.id}`}
-                  className="p-3 flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                >
-                <span className={`w-7 text-center font-bold ${medal}`}>{i + 1}</span>
-                <CandidatePhoto
-                  candidateId={r.candidate.id}
-                  name={r.candidate.urn_name}
-                  partyNumber={r.candidate.party.number}
-                  size="sm"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate flex items-center gap-2">
-                    <span className="truncate">{r.candidate.urn_name}</span>
-                    <ResultBadge status={r.candidate.result_status} size="sm" />
-                  </p>
-                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    <StateFlag uf={r.candidate.state} size="sm" />
-                    {r.candidate.party.abbreviation} · {r.candidate.number}
-                  </p>
-                  <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-                <span className="font-mono font-bold tabular-nums shrink-0">
-                  {numberFmt.format(r.total_votes)}
-                </span>
-                </Link>
-              </li>
-            );
-          })}
-        </ol>
+        <>
+          {/* Pódio — top 3 em destaque com anel dourado gradiente e foto
+              maior; o resto do ranking segue na lista compacta abaixo. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            {data.items.slice(0, 3).map((r, i) => (
+              <PodiumCard key={r.candidate.id} item={r} pos={i + 1} max={max} />
+            ))}
+          </div>
+
+          {data.items.length > 3 && (
+            <ol className="rounded-lg border bg-card divide-y divide-border">
+              {data.items.slice(3).map((r, idx) => {
+                const i = idx + 3; // posição real (pódio ocupa 0..2)
+                return (
+                  <li key={r.candidate.id}>
+                    <Link
+                      href={`/dashboard/analises/candidato/${r.candidate.id}`}
+                      className="p-3 flex items-center gap-3 hover:bg-accent/50 transition-colors"
+                    >
+                    <span className="w-7 text-center font-bold text-muted-foreground">{i + 1}</span>
+                    <CandidatePhoto
+                      candidateId={r.candidate.id}
+                      name={r.candidate.urn_name}
+                      partyNumber={r.candidate.party.number}
+                      size="sm"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold truncate flex items-center gap-2">
+                        <span className="truncate">{r.candidate.urn_name}</span>
+                        <ResultBadge status={r.candidate.result_status} size="sm" />
+                      </p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <StateFlag uf={r.candidate.state} size="sm" />
+                        {r.candidate.party.abbreviation} · {r.candidate.number}
+                      </p>
+                      <VoteBar
+                        value={r.total_votes}
+                        max={max}
+                        rank={i + 1}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <span className="font-mono font-bold tabular-nums shrink-0">
+                      {numberFmt.format(r.total_votes)}
+                    </span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </>
       )}
       <p className="text-xs text-muted-foreground text-center pt-4">
         Fonte: TSE ·{" "}
@@ -222,6 +237,63 @@ export default function RankingPage() {
         </span>{" "}
         somados
       </p>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------- pódio
+
+/**
+ * Card de pódio (1º/2º/3º): anel dourado gradiente (wrapper de 1px com
+ * bg-gradient — o "fio" contorna o card), medalha em texto dourado e foto
+ * maior que a da lista. Entra com fade escalonado por posição.
+ */
+function PodiumCard({
+  item,
+  pos,
+  max,
+}: {
+  item: TseTopCandidatesResponse["items"][number];
+  pos: number;
+  max: number;
+}) {
+  const c = item.candidate;
+  // 1º lugar ganha fio mais forte; 2º/3º um dourado mais discreto.
+  const ring =
+    pos === 1
+      ? "bg-gradient-to-b from-primary via-primary/40 to-primary/10"
+      : "bg-gradient-to-b from-primary/60 via-primary/25 to-transparent";
+  return (
+    <div
+      className={`rounded-xl p-px ${ring} mn-fade-in`}
+      style={{ animationDelay: `${(pos - 1) * 80}ms` }}
+    >
+      <Link
+        href={`/dashboard/analises/candidato/${c.id}`}
+        className="h-full flex flex-col items-center gap-2 rounded-[11px] bg-card p-4 text-center hover:bg-accent/40 transition-colors"
+      >
+        <span className="text-primary font-bold text-sm tracking-wider">
+          {pos}º lugar
+        </span>
+        <CandidatePhoto
+          candidateId={c.id}
+          name={c.urn_name}
+          partyNumber={c.party.number}
+          size={pos === 1 ? "xl" : "lg"}
+        />
+        <div className="min-w-0 w-full">
+          <p className="font-bold truncate">{c.urn_name}</p>
+          <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
+            <StateFlag uf={c.state} size="sm" />
+            {c.party.abbreviation} · {c.number}
+          </p>
+        </div>
+        <ResultBadge status={c.result_status} size="sm" />
+        <p className="font-mono font-bold tabular-nums text-lg text-primary">
+          {numberFmt.format(item.total_votes)}
+        </p>
+        <VoteBar value={item.total_votes} max={max} rank={pos} className="w-full" />
+      </Link>
     </div>
   );
 }

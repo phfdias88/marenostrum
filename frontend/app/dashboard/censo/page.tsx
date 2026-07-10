@@ -7,7 +7,7 @@
  */
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Building2, Download, Layers, Loader2, MapPin, MapPinned, Search, Sparkles, Users } from "lucide-react";
+import { ArrowLeft, BookOpen, Building2, Download, Flame, Layers, Loader2, Lock, MapPin, MapPinned, Search, Sparkles, Trophy, Users } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { aggregateCensusData } from "@/lib/censusAggregate";
@@ -1036,14 +1036,17 @@ export default function CensoPage() {
           {view === "estado" ? `${UF_NOMES[uf] ?? uf} · ${ufGeo?.features.length ?? "…"} municípios` : String(muniProps?.nm_mun ?? "")}
         </span>
 
-        {/* Indicadores + CSV (visão estadual) */}
+        {/* Indicadores + CSV (visão estadual). No celular a fila de pills
+            quebrava em 3-4 linhas e empurrava o mapa pra baixo → abaixo de sm
+            vira uma faixa horizontal rolável (mn-scroll) com sangria até a
+            borda da página (-mx-4/px-4 casam com o px-4 do container). */}
         {view === "estado" && (
-          <div className="flex gap-1.5 ml-auto flex-wrap items-center">
+          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto mn-scroll w-[calc(100%+2rem)] -mx-4 px-4 pb-1 sm:w-auto sm:mx-0 sm:ml-auto sm:px-0 sm:pb-0 sm:flex-wrap sm:overflow-visible">
             {ufsDisponiveis.length > 1 && (
               <select
                 value={uf}
                 onChange={(e) => setUf(e.target.value)}
-                className="py-1.5 px-2 rounded-md border border-border bg-card text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+                className="shrink-0 py-1.5 px-2 rounded-md border border-border bg-card text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
                 title="Trocar estado"
               >
                 {ufsDisponiveis.map((u) => (
@@ -1056,7 +1059,7 @@ export default function CensoPage() {
                 key={i.key}
                 onClick={() => setIndicator(i.key)}
                 title={STATE_INDICATOR_HINTS[i.key]}
-                className={`py-1.5 px-2.5 rounded-md border text-xs transition-colors ${
+                className={`shrink-0 py-1.5 px-2.5 rounded-md border text-xs transition-colors ${
                   mapIndicator === i.key
                     ? "border-primary bg-primary/10 text-primary font-semibold"
                     : "border-border bg-card hover:border-primary/50"
@@ -1069,7 +1072,7 @@ export default function CensoPage() {
               onClick={exportCsvEstado}
               disabled={!ufGeo}
               title={`Baixar os ${ufGeo?.features.length ?? ""} municípios em CSV`}
-              className="py-1.5 px-2.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
+              className="shrink-0 py-1.5 px-2.5 rounded-md border border-border bg-card hover:border-primary/60 text-xs inline-flex items-center gap-1.5 disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" /> CSV
             </button>
@@ -1178,7 +1181,7 @@ export default function CensoPage() {
                   }`}
                 >
                   {v.label}
-                  {v.disabled ? " 🔒" : ""}
+                  {v.disabled && <Lock className="w-3.5 h-3.5 inline ml-1 text-primary/80" aria-hidden="true" />}
                 </button>
               ))}
             </div>
@@ -1224,7 +1227,7 @@ export default function CensoPage() {
             className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] hover:bg-primary/15 px-3 py-1.5 text-xs transition-colors"
             title="Clique para destacar no mapa"
           >
-            <span>🏆</span>
+            <Trophy className="w-3.5 h-3.5 inline text-primary/80" aria-hidden="true" />
             <span className="text-muted-foreground">{hasBairros ? "Bairro" : "Distrito"} mais populoso:</span>
             <span className="font-semibold">{prettyName(destaques.maisPopuloso.nome)}</span>
             <span className="text-primary font-bold tabular-nums">{numberFmt.format(destaques.maisPopuloso.pop)}</span>
@@ -1235,7 +1238,7 @@ export default function CensoPage() {
               className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] hover:bg-primary/15 px-3 py-1.5 text-xs transition-colors"
               title="Clique para destacar no mapa"
             >
-              <span>🔥</span>
+              <Flame className="w-3.5 h-3.5 inline text-primary/80" aria-hidden="true" />
               <span className="text-muted-foreground">Mais denso:</span>
               <span className="font-semibold">{prettyName(destaques.maisDenso.nome)}</span>
               <span className="text-primary font-bold tabular-nums">
@@ -1249,7 +1252,7 @@ export default function CensoPage() {
               className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] hover:bg-primary/15 px-3 py-1.5 text-xs transition-colors"
               title="Área prioritária para ação social — clique para destacar no mapa"
             >
-              <span>📚</span>
+              <BookOpen className="w-3.5 h-3.5 inline text-primary/80" aria-hidden="true" />
               <span className="text-muted-foreground">Menor alfabetização:</span>
               <span className="font-semibold">{prettyName(destaques.menorAlfab.nome)}</span>
               <span className="text-primary font-bold tabular-nums">
@@ -1259,7 +1262,7 @@ export default function CensoPage() {
           )}
           {destaques.pctUrbana != null && (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs">
-              <span>🏙️</span>
+              <Building2 className="w-3.5 h-3.5 inline text-primary/80" aria-hidden="true" />
               <span className="text-muted-foreground">População urbana:</span>
               <span className="font-bold tabular-nums">{destaques.pctUrbana}%</span>
             </span>
@@ -1761,58 +1764,133 @@ export default function CensoPage() {
             const fa = ufGeo.features.find((f) => String(f.properties.cd_mun) === cmpA)?.properties;
             const fb = ufGeo.features.find((f) => String(f.properties.cd_mun) === cmpB)?.properties;
             if (!fa || !fb) return null;
-            const rows: [string, number | null, number | null, (v: number) => string][] = [
-              ["População", Number(fa.populacao ?? 0), Number(fb.populacao ?? 0), (v) => numberFmt.format(v)],
-              ["Domicílios", Number(fa.domicilios ?? 0), Number(fb.domicilios ?? 0), (v) => numberFmt.format(v)],
-              ["Setores censitários", Number(fa.setores ?? 0), Number(fb.setores ?? 0), (v) => numberFmt.format(v)],
-              ["Moradores/domicílio", fa.media_moradores as number | null, fb.media_moradores as number | null, (v) => String(v).replace(".", ",")],
-              ["Alfabetização 15+ (%)", fa.taxa_alfabetizacao as number | null, fb.taxa_alfabetizacao as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              // Cor/raça DESDOBRADA nas 5 categorias individuais do Censo 2022
-              // (pedido do PO — mesma regra do painel de clique do bairro).
-              // O uf-overview devolve os pct_* por município desde o ef41945.
-              ["Cor ou raça · Branca (%)", fa.pct_branca as number | null, fb.pct_branca as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça · Preta (%)", fa.pct_preta as number | null, fb.pct_preta as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça · Parda (%)", fa.pct_parda as number | null, fb.pct_parda as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça · Amarela (%)", fa.pct_amarela as number | null, fb.pct_amarela as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Cor ou raça · Indígena (%)", fa.pct_indigena as number | null, fb.pct_indigena as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
-              ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
-              ["Bolsa Família (% domicílios)", fa.pct_bolsa_familia as number | null, fb.pct_bolsa_familia as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["CadÚnico (% domicílios)", fa.pct_cadunico as number | null, fb.pct_cadunico as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["PIB per capita (R$)", fa.pib_per_capita as number | null, fb.pib_per_capita as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
-              ["IDHM (2010)", fa.idhm as number | null, fb.idhm as number | null, (v) => v.toFixed(3).replace(".", ",")],
-              ["IDEB anos iniciais (2023)", fa.ideb_anos_iniciais as number | null, fb.ideb_anos_iniciais as number | null, (v) => v.toFixed(1).replace(".", ",")],
-              ["IDEB anos finais (2023)", fa.ideb_anos_finais as number | null, fb.ideb_anos_finais as number | null, (v) => v.toFixed(1).replace(".", ",")],
-              ["Esgoto adequado (% domic.)", fa.pct_esgoto_adequado as number | null, fb.pct_esgoto_adequado as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Água por rede (% domic.)", fa.pct_agua_rede as number | null, fb.pct_agua_rede as number | null, (v) => `${String(v).replace(".", ",")}%`],
-              ["Lixo coletado (% domic.)", fa.pct_lixo_coletado as number | null, fb.pct_lixo_coletado as number | null, (v) => `${String(v).replace(".", ",")}%`],
+            const pctFmt = (v: number) => `${String(v).replace(".", ",")}%`;
+            type CmpRow = [string, number | null, number | null, (v: number) => string];
+            // Indicadores agrupados por tema (antes era uma tabela plana única).
+            // Mesmos dados do uf-overview; muda só a apresentação: barras
+            // espelhadas a partir do centro, proporcionais ao max(A, B).
+            const grupos: { label: string; rows: CmpRow[] }[] = [
+              {
+                label: "Perfil",
+                rows: [
+                  ["População", Number(fa.populacao ?? 0), Number(fb.populacao ?? 0), (v) => numberFmt.format(v)],
+                  ["Domicílios", Number(fa.domicilios ?? 0), Number(fb.domicilios ?? 0), (v) => numberFmt.format(v)],
+                  ["Setores censitários", Number(fa.setores ?? 0), Number(fb.setores ?? 0), (v) => numberFmt.format(v)],
+                  ["Moradores/domicílio", fa.media_moradores as number | null, fb.media_moradores as number | null, (v) => String(v).replace(".", ",")],
+                  ["População urbana (%)", fa.pct_urbana as number | null, fb.pct_urbana as number | null, pctFmt],
+                  ["IDHM (2010)", fa.idhm as number | null, fb.idhm as number | null, (v) => v.toFixed(3).replace(".", ",")],
+                ],
+              },
+              {
+                // Cor/raça DESDOBRADA nas 5 categorias individuais do Censo 2022
+                // (pedido do PO — mesma regra do painel de clique do bairro).
+                // O uf-overview devolve os pct_* por município desde o ef41945.
+                label: "Cor ou raça",
+                rows: [
+                  ["Branca (%)", fa.pct_branca as number | null, fb.pct_branca as number | null, pctFmt],
+                  ["Preta (%)", fa.pct_preta as number | null, fb.pct_preta as number | null, pctFmt],
+                  ["Parda (%)", fa.pct_parda as number | null, fb.pct_parda as number | null, pctFmt],
+                  ["Amarela (%)", fa.pct_amarela as number | null, fb.pct_amarela as number | null, pctFmt],
+                  ["Indígena (%)", fa.pct_indigena as number | null, fb.pct_indigena as number | null, pctFmt],
+                ],
+              },
+              {
+                label: "Renda",
+                rows: [
+                  ["Renda média domiciliar (R$)", fa.renda_media as number | null, fb.renda_media as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+                  ["Renda mediana domiciliar (R$)", fa.renda_mediana as number | null, fb.renda_mediana as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+                  ["Bolsa Família (% domicílios)", fa.pct_bolsa_familia as number | null, fb.pct_bolsa_familia as number | null, pctFmt],
+                  ["CadÚnico (% domicílios)", fa.pct_cadunico as number | null, fb.pct_cadunico as number | null, pctFmt],
+                  ["PIB per capita (R$)", fa.pib_per_capita as number | null, fb.pib_per_capita as number | null, (v) => `R$ ${numberFmt.format(Math.round(v))}`],
+                ],
+              },
+              {
+                label: "Educação",
+                rows: [
+                  ["Alfabetização 15+ (%)", fa.taxa_alfabetizacao as number | null, fb.taxa_alfabetizacao as number | null, pctFmt],
+                  ["IDEB anos iniciais (2023)", fa.ideb_anos_iniciais as number | null, fb.ideb_anos_iniciais as number | null, (v) => v.toFixed(1).replace(".", ",")],
+                  ["IDEB anos finais (2023)", fa.ideb_anos_finais as number | null, fb.ideb_anos_finais as number | null, (v) => v.toFixed(1).replace(".", ",")],
+                ],
+              },
+              {
+                label: "Saneamento",
+                rows: [
+                  ["Esgoto adequado (% domic.)", fa.pct_esgoto_adequado as number | null, fb.pct_esgoto_adequado as number | null, pctFmt],
+                  ["Água por rede (% domic.)", fa.pct_agua_rede as number | null, fb.pct_agua_rede as number | null, pctFmt],
+                  ["Lixo coletado (% domic.)", fa.pct_lixo_coletado as number | null, fb.pct_lixo_coletado as number | null, pctFmt],
+                ],
+              },
             ];
             return (
-              <div className="mt-4 overflow-x-auto mn-fade-in">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left border-b border-border">
-                      <th className="py-2 pr-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Indicador</th>
-                      <th className="py-2 px-3 font-semibold">{String(fa.nm_mun)}</th>
-                      <th className="py-2 px-3 font-semibold">{String(fb.nm_mun)}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/60">
-                    {rows.map(([label, va, vb, fmt]) => {
-                      const aWins = va != null && vb != null && va > vb;
-                      const bWins = va != null && vb != null && vb > va;
-                      return (
-                        <tr key={label}>
-                          <td className="py-2 pr-3 text-muted-foreground">{label}</td>
-                          <td className={`py-2 px-3 tabular-nums ${aWins ? "text-primary font-bold" : ""}`}>{va != null ? fmt(va) : "—"}</td>
-                          <td className={`py-2 px-3 tabular-nums ${bWins ? "text-primary font-bold" : ""}`}>{vb != null ? fmt(vb) : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <p className="text-[11px] text-muted-foreground mt-2">Em dourado: o maior valor de cada linha. Fontes · População e perfil: Censo IBGE 2022 · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) · IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.</p>
+              <div className="mt-4 mn-fade-in">
+                {/* Cabeçalho A × B (os nomes saíram do thead da tabela antiga) */}
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
+                  <span className="font-semibold text-sm truncate">{String(fa.nm_mun)}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">comparativo</span>
+                  <span className="font-semibold text-sm truncate text-right">{String(fb.nm_mun)}</span>
+                </div>
+                {grupos.map((g) => (
+                  <div key={g.label} className="mt-4 first:mt-3">
+                    <p className="uppercase text-[11px] tracking-wider text-muted-foreground mb-2">{g.label}</p>
+                    <div className="space-y-2.5">
+                      {g.rows.map(([label, va, vb, fmtV]) => {
+                        const aWins = va != null && vb != null && va > vb;
+                        const bWins = va != null && vb != null && vb > va;
+                        const max = Math.max(va ?? 0, vb ?? 0);
+                        // Largura proporcional ao maior dos dois (piso de 2% pra
+                        // um valor pequeno não sumir por completo). Null → 0.
+                        const wA = va != null && max > 0 ? Math.max(2, (va / max) * 100) : 0;
+                        const wB = vb != null && max > 0 ? Math.max(2, (vb / max) * 100) : 0;
+                        // Delta % do vencedor sobre o perdedor (chip discreto).
+                        const lo = Math.min(va ?? 0, vb ?? 0);
+                        const delta = (aWins || bWins) && lo > 0 ? Math.round(((max - lo) / lo) * 100) : null;
+                        const chip = delta != null && delta > 0 ? (
+                          <span className="inline-block mt-0.5 text-[10px] leading-none px-1 py-0.5 rounded bg-primary/10 text-primary tabular-nums">
+                            +{delta}%
+                          </span>
+                        ) : null;
+                        return (
+                          <div key={label}>
+                            <p className="text-center text-[11px] text-muted-foreground">{label}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <div className="w-20 sm:w-24 shrink-0 text-right">
+                                <span className={`block text-xs tabular-nums ${va == null ? "text-muted-foreground" : aWins ? "font-semibold" : ""}`}>
+                                  {va != null ? fmtV(va) : "s/ dado"}
+                                </span>
+                                {aWins && chip}
+                              </div>
+                              {/* Barras espelhadas a partir do centro: A cresce
+                                  pra esquerda, B pra direita; o vencedor leva o
+                                  gradiente dourado, o outro fica neutro. */}
+                              <div className="flex-1 min-w-0 flex items-center">
+                                <div className="flex-1 flex justify-end">
+                                  <div
+                                    className={`h-2 rounded-l-full ${aWins ? "bg-gradient-to-l from-primary/60 to-primary" : "bg-muted/50"}`}
+                                    style={{ width: `${wA}%` }}
+                                  />
+                                </div>
+                                <div className="w-px h-3 bg-border shrink-0" />
+                                <div className="flex-1">
+                                  <div
+                                    className={`h-2 rounded-r-full ${bWins ? "bg-gradient-to-r from-primary/60 to-primary" : "bg-muted/50"}`}
+                                    style={{ width: `${wB}%` }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="w-20 sm:w-24 shrink-0 text-left">
+                                <span className={`block text-xs tabular-nums ${vb == null ? "text-muted-foreground" : bWins ? "font-semibold" : ""}`}>
+                                  {vb != null ? fmtV(vb) : "s/ dado"}
+                                </span>
+                                {bWins && chip}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[11px] text-muted-foreground mt-4 pt-3 border-t border-border">Barra dourada: o maior valor de cada indicador. Fontes · População e perfil: Censo IBGE 2022 · Renda: base 2010 · PIB: IBGE 2023 · IDHM: Atlas/PNUD (2010) · IDEB: INEP 2023 · Bolsa Família/CadÚnico: MDS.</p>
               </div>
             );
           })()}
@@ -1934,6 +2012,38 @@ function DetalheIndicadores({
   const asPct = (x: DNum) => (x == null ? "—" : `${String(x).replace(".", ",")}%`);
   const asAbs = (x: DNum) => (x == null ? "—" : fmt.format(Math.round(Number(x))));
   const cell = (o: { pct: DNum; n: DNum }) => (mode === "abs" ? asAbs(o.n) : asPct(o.pct));
+  const pctOf = (x: DNum) => (x == null ? null : Number(x));
+  // Sexo/idade como lista — mesmo tratamento visual da composição de cor/raça.
+  const sexoRows = [
+    { label: "Mulheres", ...v.mulheres },
+    { label: "60 anos ou mais", ...v.idoso },
+  ];
+  // Dominante do grupo = maior % (rótulo em destaque pra leitura rápida).
+  const racaMax = Math.max(0, ...v.raca.map((r) => pctOf(r.pct) ?? 0));
+  const sexoMax = Math.max(0, ...sexoRows.map((r) => pctOf(r.pct) ?? 0));
+  // Linha de categoria + mini-barra proporcional ao %. A barra SEMPRE lê o pct,
+  // mesmo no modo nº: a composição visual não muda com o toggle, só o rótulo.
+  // Sem dado (null) → sem barra.
+  const compRow = (r: { label: string; pct: DNum; n: DNum }, max: number) => {
+    const p = pctOf(r.pct);
+    const dominante = p != null && p > 0 && p >= max;
+    return (
+      <div key={r.label}>
+        <div className="flex items-center justify-between gap-2">
+          <span className={dominante ? "font-semibold" : "text-muted-foreground"}>{r.label}</span>
+          <span className="font-medium text-right tabular-nums">{cell(r)}</span>
+        </div>
+        {p != null && (
+          <div className="mt-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary"
+              style={{ width: `${Math.min(100, Math.max(0, p))}%` }}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
   return (
     <div className="mt-3 space-y-2 text-sm">
       <Row label="Densidade" value={v.dens == null ? "—" : `${fmt.format(Math.round(Number(v.dens)))} hab/km²`} />
@@ -1967,27 +2077,15 @@ function DetalheIndicadores({
 
         <div>
           <p className="text-muted-foreground mb-1">Cor ou raça</p>
-          <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
-            {v.raca.map((r) => (
-              <div key={r.label} className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">{r.label}</span>
-                <span className="font-medium text-right tabular-nums">{cell(r)}</span>
-              </div>
-            ))}
+          <div className="space-y-2 pl-2.5 border-l-2 border-primary/20">
+            {v.raca.map((r) => compRow(r, racaMax))}
           </div>
         </div>
 
         <div>
           <p className="text-muted-foreground mb-1">Sexo e idade</p>
-          <div className="space-y-1.5 pl-2.5 border-l-2 border-primary/20">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Mulheres</span>
-              <span className="font-medium text-right tabular-nums">{cell(v.mulheres)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">60 anos ou mais</span>
-              <span className="font-medium text-right tabular-nums">{cell(v.idoso)}</span>
-            </div>
+          <div className="space-y-2 pl-2.5 border-l-2 border-primary/20">
+            {sexoRows.map((r) => compRow(r, sexoMax))}
           </div>
         </div>
       </div>

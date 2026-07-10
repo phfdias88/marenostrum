@@ -29,6 +29,7 @@ import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import { ExportShare } from "@/components/tse/ExportShare";
+import { VoteBar } from "@/components/ui/VoteBar";
 
 const MAX_COMPARE = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -133,12 +134,11 @@ export default function CompararAnalysisPage() {
         </div>
       ) : (
         <>
+          {/* Grid responsivo: 1 coluna no celular, 2 no tablet e auto-fit
+              (mín. 230px por card) no desktop — sem coluna espremida. */}
           <div
             ref={cardRef}
-            className={`grid gap-4 mb-6`}
-            style={{
-              gridTemplateColumns: `repeat(${Math.min(pool.length + 1, MAX_COMPARE + 1)}, minmax(0, 1fr))`,
-            }}
+            className="grid gap-4 mb-6 grid-cols-1 sm:grid-cols-2 lg:[grid-template-columns:repeat(auto-fit,minmax(230px,1fr))]"
           >
             {pool.map((p) => (
               <CompareCard
@@ -195,7 +195,6 @@ function CompareCard({
   onRemove: () => void;
 }) {
   const c = result.candidate;
-  const pct = (result.total_votes / maxVotes) * 100;
   return (
     <div
       className={`rounded-xl border bg-card p-4 relative ${
@@ -264,12 +263,7 @@ function CompareCard({
         <p className="text-2xl font-bold text-primary mt-0.5">
           {numberFmt.format(result.total_votes)}
         </p>
-        <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full bg-primary transition-all"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        <VoteBar value={result.total_votes} max={maxVotes} className="mt-2" />
         <p className="text-xs text-muted-foreground mt-2">
           {numberFmt.format(result.municipalities_with_votes)} município(s)
         </p>
@@ -677,7 +671,7 @@ function ComparisonReport({ pool }: { pool: TseCandidateResults[] }) {
           <p className="font-bold mt-0.5 tabular-nums">{numberFmt.format(diffAbs)}</p>
           <p className="text-xs text-muted-foreground mt-1">
             {last.total_votes === 0
-              ? "—"
+              ? "s/d"
               : (diffPct >= 1000 ? "+1000%" : diffPct.toFixed(1) + "%") + " vs último"}
           </p>
         </div>

@@ -8,12 +8,22 @@
  * Não envia nada pelo servidor — abre o WhatsApp Web/app do usuário (mesma
  * abordagem segura do widget de aniversariantes).
  */
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import type { Contact, MessageTemplate } from "@/lib/types";
+import { Button as UiButton } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 /** Só dígitos do telefone (mín. 10 = DDD + número) — pra url wa.me. */
 export function waDigits(phone: string | null): string | null {
@@ -58,13 +68,18 @@ export function WhatsAppSender({ contact }: { contact: Contact }) {
       <Button onClick={() => setOpen(true)}>
         <MessageCircle className="w-4 h-4" /> WhatsApp
       </Button>
-      {open && (
-        <PickerDialog
-          contact={contact}
-          phone={phone}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {/* Dialog do design system (ESC, focus-trap e animação de graça).
+          Conteúdo montado só quando aberto: o estado do picker (template
+          selecionado, texto editado) zera a cada abertura. */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        {open && (
+          <PickerDialog
+            contact={contact}
+            phone={phone}
+            onClose={() => setOpen(false)}
+          />
+        )}
+      </Dialog>
     </>
   );
 }
@@ -125,82 +140,82 @@ function PickerDialog({
     onClose();
   }
 
+  // DialogContent do design system: overlay, X, ESC e focus-trap na base.
   return (
-    <div
-      className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-start justify-center pt-12 px-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-xl border bg-card shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-4 border-b">
-          <h3 className="font-semibold inline-flex items-center gap-2">
-            <MessageCircle className="w-5 h-5 text-emerald-600" /> WhatsApp para{" "}
-            {contact.full_name.split(" ")[0]}
-          </h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-4 space-y-3">
-          {templates === null ? (
-            <p className="text-sm text-muted-foreground">Carregando templates…</p>
-          ) : templates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum template ainda. Você pode escrever a mensagem abaixo ou criar
-              modelos em{" "}
-              <a href="/dashboard/templates" className="text-primary hover:underline">
-                Templates
-              </a>
-              .
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => pick(t)}
-                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                    selectedId === t.id
-                      ? "border-primary bg-primary/15 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t.title}
-                </button>
-              ))}
-            </div>
-          )}
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="inline-flex items-center gap-2">
+          <MessageCircle className="w-5 h-5 text-emerald-600" aria-hidden="true" />
+          WhatsApp para {contact.full_name.split(" ")[0]}
+        </DialogTitle>
+        <DialogDescription>
+          Escolha um template ou escreva a mensagem. O envio abre no seu
+          WhatsApp, nada sai pelo servidor.
+        </DialogDescription>
+      </DialogHeader>
 
-          <div>
-            <label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Mensagem (editável)
-            </label>
-            <textarea
-              value={custom}
-              onChange={(e) => setCustom(e.target.value)}
-              rows={5}
-              placeholder="Escreva ou escolha um template acima…"
-              className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
-            />
+      <div className="space-y-3">
+        {templates === null ? (
+          <p className="text-sm text-muted-foreground">Carregando templates…</p>
+        ) : templates.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum template ainda. Você pode escrever a mensagem abaixo ou criar
+            modelos em{" "}
+            <a href="/dashboard/templates" className="text-primary hover:underline">
+              Templates
+            </a>
+            .
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {templates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => pick(t)}
+                className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                  selectedId === t.id
+                    ? "border-primary bg-primary/15 text-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t.title}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="flex items-center justify-end gap-2 p-4 border-t">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground"
+        )}
+
+        <div>
+          <Label
+            htmlFor="wa-sender-message"
+            className="text-xs uppercase tracking-wider text-muted-foreground"
           >
-            Cancelar
-          </button>
-          <button
-            onClick={send}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-          >
-            <MessageCircle className="w-4 h-4" /> Abrir no WhatsApp
-          </button>
+            Mensagem (editável)
+          </Label>
+          <textarea
+            id="wa-sender-message"
+            value={custom}
+            onChange={(e) => setCustom(e.target.value)}
+            rows={5}
+            placeholder="Escreva ou escolha um template acima…"
+            className="w-full mt-1.5 py-2 px-3 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-y"
+          />
         </div>
       </div>
-    </div>
+
+      <DialogFooter>
+        <UiButton type="button" variant="ghost" onClick={onClose}>
+          Cancelar
+        </UiButton>
+        {/* Verde WhatsApp de propósito (identidade do canal), não o dourado */}
+        <UiButton
+          type="button"
+          onClick={send}
+          className="bg-emerald-600 text-white hover:bg-emerald-700"
+        >
+          <MessageCircle /> Abrir no WhatsApp
+        </UiButton>
+      </DialogFooter>
+    </DialogContent>
   );
 }

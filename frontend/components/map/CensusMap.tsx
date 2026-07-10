@@ -6,7 +6,7 @@
  * e destaque do selecionado. Client-only (Leaflet usa window) — importar via
  * next/dynamic({ssr:false}).
  */
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import L from "leaflet";
 import { GeoJSON, MapContainer, Pane, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -163,6 +163,9 @@ export function CensusMap({
   const layerReg = useRef<Map<string, L.Path>>(new Map());
   const geoRef = useRef<L.GeoJSON | null>(null);
   const fmt = FMT[indicator];
+  // Legenda no mobile: compacta (barra de gradiente) por padrão; o toque
+  // expande a lista completa de faixas. No desktop a lista fica sempre aberta.
+  const [legendOpen, setLegendOpen] = useState(false);
   // key NÃO inclui o indicador: trocar de indicador repinta os polígonos
   // in-place (setStyle) em vez de recriar o layer inteiro (caro no Rio).
   const key = `${String(data.features[0]?.properties?.cd_setor ?? data.features[0]?.properties?.cd_mun ?? "")}-${data.features.length}-${dataVersion ?? ""}`;
@@ -337,30 +340,66 @@ export function CensusMap({
         )}
       </MapContainer>
 
-      {/* Legenda */}
-      <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-black/75 backdrop-blur-md px-3.5 py-2.5 border border-amber-200/15 shadow-2xl shadow-black/50 text-[11px] text-white ring-1 ring-white/5">
-        <p className="font-semibold mb-2 tracking-wide text-amber-100/90">{LABEL[indicator]}</p>
-        <ul className="space-y-1">
-          {RAMP.map((c, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span
-                className="inline-block w-4 h-3.5 rounded ring-1 ring-white/15"
-                style={{ background: c, boxShadow: `0 0 6px ${c}55` }}
-              />
-              <span className="tabular-nums text-white/85">
-                {i === RAMP.length - 1
-                  ? `≥ ${fmt(breaks[i])}`
-                  : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`}
-              </span>
-            </li>
-          ))}
-          {hasNoData && (
-            <li className="flex items-center gap-2 pt-1 mt-1 border-t border-white/10">
-              <span className="inline-block w-4 h-3.5 rounded ring-1 ring-white/15" style={{ background: NO_DATA }} />
-              <span className="text-white/70">sem dado / não residencial</span>
-            </li>
-          )}
-        </ul>
+      {/* Legenda — tokens do tema (bg-card/border/foreground) pra funcionar no
+          claro E no escuro; antes era bg-black/75 com texto branco fixo, que
+          destoava no tema claro. */}
+      <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-card/85 backdrop-blur-md px-3.5 py-2.5 border border-border shadow-xl shadow-black/20 text-[11px] text-foreground">
+        {(() => {
+          const legendList = (
+            <ul className="space-y-1">
+              {RAMP.map((c, i) => (
+                <li key={i} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-4 h-3.5 rounded ring-1 ring-border"
+                    style={{ background: c, boxShadow: `0 0 6px ${c}55` }}
+                  />
+                  <span className="tabular-nums text-foreground/85">
+                    {i === RAMP.length - 1
+                      ? `≥ ${fmt(breaks[i])}`
+                      : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`}
+                  </span>
+                </li>
+              ))}
+              {hasNoData && (
+                <li className="flex items-center gap-2 pt-1 mt-1 border-t border-border">
+                  <span className="inline-block w-4 h-3.5 rounded ring-1 ring-border" style={{ background: NO_DATA }} />
+                  <span className="text-muted-foreground">sem dado / não residencial</span>
+                </li>
+              )}
+            </ul>
+          );
+          return (
+            <>
+              {/* Mobile (< sm): versão compacta — barra única com o gradiente
+                  do RAMP e min/max nas pontas; o toque expande a lista. */}
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setLegendOpen((o) => !o)}
+                  aria-expanded={legendOpen}
+                  aria-label={legendOpen ? "Recolher a legenda de cores" : "Expandir a legenda de cores"}
+                  className="block w-44 min-h-[40px] text-left"
+                >
+                  <span className="font-semibold tracking-wide block truncate">{LABEL[indicator]}</span>
+                  <span
+                    className="block h-2 rounded mt-1.5"
+                    style={{ background: `linear-gradient(to right, ${RAMP.join(", ")})` }}
+                  />
+                  <span className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+                    <span>{fmt(breaks[0])}</span>
+                    <span>≥ {fmt(breaks[RAMP.length - 1])}</span>
+                  </span>
+                </button>
+                {legendOpen && <div className="mt-2">{legendList}</div>}
+              </div>
+              {/* Desktop (≥ sm): lista completa, sempre visível. */}
+              <div className="hidden sm:block">
+                <p className="font-semibold mb-2 tracking-wide">{LABEL[indicator]}</p>
+                {legendList}
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

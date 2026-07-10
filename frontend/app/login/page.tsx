@@ -2,9 +2,11 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import { saveAuth, type AuthData } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 
 // Suspense wrapper exigido pelo Next 14 quando o filho usa useSearchParams.
 // Sem isso, `next build` falha em prerender.
@@ -70,8 +72,8 @@ function LoginForm() {
       <div className="relative w-full max-w-sm">
         {/* Marca — logo horizontal oficial, variante por tema (texto branco
             no dark, grafite no light; o M dourado é o mesmo). */}
-        <div className="flex flex-col items-center mb-6 sm:mb-8">
-          <div className="dark:bg-[hsl(36,7%,12%)] rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
+        <div className="flex flex-col items-center mb-6 sm:mb-8 mn-fade-in">
+          <div className="dark:bg-card rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo-wordmark.png"
@@ -87,9 +89,12 @@ function LoginForm() {
           </div>
         </div>
 
+        {/* mn-glass da casa (vidro fosco + glow gold); entrada escalonada
+            depois da marca pra dar sensacao de "camadas" no load. */}
         <form
           onSubmit={onSubmit}
-          className="bg-card/85 backdrop-blur rounded-2xl shadow-xl border border-border p-5 sm:p-8 space-y-4 sm:space-y-5"
+          className="mn-glass rounded-2xl p-5 sm:p-8 space-y-4 sm:space-y-5 mn-fade-in"
+          style={{ animationDelay: "0.1s" }}
         >
           <Field
             label="Email"
@@ -115,13 +120,22 @@ function LoginForm() {
             </p>
           )}
 
-          <button
+          {/* Button do sistema (variante default premium) no lugar do
+              gradiente hardcoded — mantem o CTA consistente com o app. */}
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gradient-to-r from-primary to-amber-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold min-h-[48px] py-3 transition shadow-lg shadow-primary/20"
+            className="w-full min-h-[48px] rounded-lg text-base font-semibold"
           >
-            {loading ? "Entrando..." : "Entrar"}
-          </button>
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden="true" />
+                Entrando...
+              </>
+            ) : (
+              "Entrar"
+            )}
+          </Button>
         </form>
       </div>
     </main>
@@ -140,16 +154,41 @@ function Field({
   onChange: (v: string) => void;
   type?: string;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  // Toggle mostrar/ocultar só quando o campo é de senha. O botão fica
+  // sobreposto à direita, com área de toque de 44px (recomendação iOS).
+  const [show, setShow] = useState(false);
+  const isPassword = type === "password";
+  const effectiveType = isPassword && show ? "text" : type;
+
   return (
     <label className="block">
       <span className="text-sm font-medium text-foreground">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1.5 w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
-        {...rest}
-      />
+      <div className="relative mt-1.5">
+        <input
+          type={effectiveType}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={
+            "w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition" +
+            (isPassword ? " pr-12" : "")
+          }
+          {...rest}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShow((s) => !s)}
+            aria-label={show ? "Ocultar senha" : "Mostrar senha"}
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {show ? (
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
+        )}
+      </div>
     </label>
   );
 }

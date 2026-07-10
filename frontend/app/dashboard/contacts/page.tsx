@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
 import { ImportContactsDialog } from "@/components/contacts/ImportContactsDialog";
+import { OrphanLeadsCard } from "@/components/contacts/OrphanLeadsCard";
 import { makeContactColumns } from "@/components/contacts/columns";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -227,6 +228,11 @@ export default function ContactsPage() {
           </div>
         )}
       </div>
+
+      {/* Leads do WhatsApp sem contato no CRM. Some sozinho se não houver
+          órfãos (retorna null) — sem wrapper pra não deixar div vazia
+          ocupando o space-y da section. O fade-in fica no root do card. */}
+      <OrphanLeadsCard onChanged={refresh} />
 
       <DataTable
         columns={columns}
