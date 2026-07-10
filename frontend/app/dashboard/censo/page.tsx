@@ -2074,7 +2074,7 @@ function DetalheIndicadores({
       <Row label="Densidade" value={v.dens == null ? "—" : `${fmt.format(Math.round(Number(v.dens)))} hab/km²`} />
       <Row label="Moradores/domicílio" value={v.media == null ? "—" : String(v.media).replace(".", ",")} />
       <Row label="Alfabetização 15+" value={v.alfab == null ? "—" : `${String(v.alfab).replace(".", ",")}%`} />
-      <Row label="Área" value={v.area == null ? "—" : `${Number(v.area).toFixed(3)} km²`} />
+      <Row label="Área" value={v.area == null ? "—" : `${Number(v.area).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} km²`} />
 
       <div className="pt-2 mt-1 border-t border-border/60 space-y-2">
         <div className="flex items-center justify-between">
