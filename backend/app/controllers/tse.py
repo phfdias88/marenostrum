@@ -19,6 +19,7 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import ORJSONResponse
 
 from app.models.user import User
 from sqlalchemy import and_, case, func, or_, select, text
