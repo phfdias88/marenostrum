@@ -49,6 +49,7 @@ import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
+import { exportCandidateXlsx } from "@/lib/exportCandidateXlsx";
 import { CandidateDetailSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -246,6 +247,9 @@ export default function CandidateDetailPage() {
           <ExportShare
             targetRef={cardRef}
             filename={`candidato-${c.urn_name}`.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
+            // Dados brutos em Excel (Resumo · Municípios · Bairros · Locais) —
+            // o serviço busca bairro/local completos e monta o workbook.
+            onExportData={() => exportCandidateXlsx(data)}
           />
         </div>
       </div>

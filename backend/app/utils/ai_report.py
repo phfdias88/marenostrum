@@ -71,7 +71,10 @@ def _gather_facts(db: Session, candidate: Candidate) -> dict:
             (MunicipalityElectorate.municipality_id == Municipality.id)
             & (MunicipalityElectorate.year == latest_elect.c.y),
         )
-        .where(VoteResult.candidate_id == candidate.id)
+        # votes > 0: o import munzona cria linha ZERADA por município — sem o
+        # filtro, len(rows) contava o estado inteiro (92 no RJ) e a Maré IA
+        # dizia que o candidato "pontuou em 92 municípios" tendo votos em 61.
+        .where(VoteResult.candidate_id == candidate.id, VoteResult.votes > 0)
         .order_by(VoteResult.votes.desc())
     ).all()
 
@@ -271,17 +274,19 @@ def _head_to_head(db: Session, a: Candidate, b: Candidate) -> dict:
     EXATOS no código e injeta no confronto — antes a IA não tinha o eleitorado
     no JSON e chutava a porcentagem (ex.: 97% no lugar de 96%).
     """
+    # votes > 0 nos dois lados: linhas zeradas do import inflavam o conjunto
+    # "disputado" (municipios_disputados virava o estado inteiro).
     va = dict(
         db.execute(
             select(VoteResult.municipality_id, VoteResult.votes).where(
-                VoteResult.candidate_id == a.id
+                VoteResult.candidate_id == a.id, VoteResult.votes > 0
             )
         ).all()
     )
     vb = dict(
         db.execute(
             select(VoteResult.municipality_id, VoteResult.votes).where(
-                VoteResult.candidate_id == b.id
+                VoteResult.candidate_id == b.id, VoteResult.votes > 0
             )
         ).all()
     )

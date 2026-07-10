@@ -8,20 +8,53 @@
  *   Em HTTP caímos no fallback execCommand('copy') via textarea.
  * - html-to-image quebra facil tentando embutir fontes externas → skipFonts:true.
  */
-import { Download, Link2, Loader2 } from "lucide-react";
+import {
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  ImageIcon,
+  Link2,
+  Loader2,
+} from "lucide-react";
 import { useState, type RefObject } from "react";
 import { toast } from "sonner";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export function ExportShare({
   targetRef,
   filename = "analise-marenostrum",
   shareUrl,
+  onExportData,
 }: {
   targetRef: RefObject<HTMLElement>;
   filename?: string;
   shareUrl?: string;
+  /** Exportação de DADOS (Excel/CSV). Quando presente, o botão vira um
+   *  dropdown com "Imagem" + "Dados" — a página fornece o serviço. */
+  onExportData?: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
+  const [busyData, setBusyData] = useState(false);
+
+  async function exportData() {
+    if (!onExportData || busyData) return;
+    setBusyData(true);
+    try {
+      await onExportData();
+      toast.success("Planilha exportada!");
+    } catch (err) {
+      console.error("[export] dados falhou:", err);
+      toast.error("Falha ao exportar os dados. Tente novamente.");
+    } finally {
+      setBusyData(false);
+    }
+  }
 
   async function exportPng() {
     if (!targetRef.current) return;
@@ -95,22 +128,56 @@ export function ExportShare({
     }
   }
 
+  const exporting = busy || busyData;
+
   return (
     <div className="flex items-center gap-1.5 sm:gap-2">
-      <button
-        onClick={exportPng}
-        disabled={busy}
-        className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors disabled:opacity-50"
-        title="Exportar como imagem"
-        aria-label="Exportar como imagem"
-      >
-        {busy ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
-        ) : (
-          <Download className="w-4 h-4" />
-        )}
-        <span className="hidden sm:inline">Exportar</span>
-      </button>
+      {onExportData ? (
+        // Dropdown: imagem (função existente) + dados brutos (Excel).
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              disabled={exporting}
+              className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors disabled:opacity-50"
+              title="Exportar"
+              aria-label="Exportar"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Exportar</span>
+              <ChevronDown className="w-3 h-3 opacity-60" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onSelect={() => void exportPng()}>
+              <ImageIcon className="w-4 h-4 mr-2 text-muted-foreground" />
+              Exportar como imagem
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void exportData()}>
+              <FileSpreadsheet className="w-4 h-4 mr-2 text-muted-foreground" />
+              Exportar dados (Excel)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <button
+          onClick={exportPng}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors disabled:opacity-50"
+          title="Exportar como imagem"
+          aria-label="Exportar como imagem"
+        >
+          {busy ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
+          <span className="hidden sm:inline">Exportar</span>
+        </button>
+      )}
       <button
         onClick={share}
         className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-md border border-border bg-card hover:border-primary/60 text-sm transition-colors"

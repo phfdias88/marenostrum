@@ -2470,6 +2470,67 @@ def candidate_by_neighborhood(
     )
 
 
+@router.get(
+    "/candidates/{candidate_id}/by-place",
+    summary="Votos do candidato agregados por LOCAL de votação",
+    description="""\
+Agrega os votos por seção do candidato no nível de LOCAL de votação (escola).
+Alimenta a exportação de dados brutos (aba "Votos por local" do Excel).
+
+Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 Brasil);
+sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
+a um município.
+""",
+)
+def candidate_by_place(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    municipality_id: UUID | None = Query(None),
+    db: Session = Depends(get_db),
+) -> Response:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+
+    stmt = (
+        select(
+            TseVotingPlace.name,
+            TseVotingPlace.address,
+            TseVotingPlace.neighborhood,
+            TseVotingPlace.electors_total,
+            Municipality.name.label("municipality_name"),
+            Municipality.state.label("municipality_state"),
+            func.sum(TseSectionVote.votes).label("votes"),
+        )
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+        .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
+    )
+    if municipality_id is not None:
+        stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
+    # group by PK do local: as demais colunas do local são funcionalmente
+    # dependentes (Postgres aceita) — evita duplicar local homônimo.
+    stmt = stmt.group_by(
+        TseVotingPlace.id, Municipality.name, Municipality.state
+    ).order_by(func.sum(TseSectionVote.votes).desc())
+
+    rows = db.execute(stmt).all()
+    return ORJSONResponse(
+        content=[
+            {
+                "place": r.name,
+                "address": r.address,
+                "neighborhood": r.neighborhood,
+                "electors_total": r.electors_total,
+                "municipality_name": r.municipality_name,
+                "municipality_state": r.municipality_state,
+                "votes": int(r.votes),
+            }
+            for r in rows
+        ],
+    )
+
+
 # ============================================================ NEIGHBORHOOD RANKING
 
 
@@ -2804,7 +2865,10 @@ def candidate_dossier_pdf(
             Municipality.longitude,
         )
         .join(Municipality, Municipality.id == VoteResult.municipality_id)
-        .where(VoteResult.candidate_id == candidate_id)
+        # votes > 0: o import munzona cria linha ZERADA por município. Sem o
+        # filtro, o dossiê dizia "92 municípios" (estado inteiro) pra quem
+        # pontuou em 61 — e o mini-mapa pintava bolha em cidade com 0 voto.
+        .where(VoteResult.candidate_id == candidate_id, VoteResult.votes > 0)
         .order_by(VoteResult.votes.desc())
     ).all()
     municipality_results = [(n, s, int(v)) for n, s, v, _, _ in muni_rows]
