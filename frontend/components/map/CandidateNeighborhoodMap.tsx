@@ -7,6 +7,7 @@
  * o endpoint /candidates/{id}/by-neighborhood com filtro por municipio.
  * Cada bolha = centroide do bairro, raio = sqrt(votos/max) * 35.
  */
+import { AlertTriangle, Landmark, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import {
@@ -48,14 +49,28 @@ function nbLabel(r: { neighborhood: string; municipality_name?: string | null })
  *  nonce: clicar de novo na MESMA barra re-dispara o voo. */
 export type MapFocus = { lat: number; lng: number; zoom: number; n: number };
 
+/** Toggle da camada de locais na barra de controle DO MAPA. O ESTADO vive na
+ *  página (separação de responsabilidades); aqui só a UI do botão. */
+export type PlacesControl = {
+  active: boolean;
+  disabled: boolean;
+  loading?: boolean;
+  /** Fetch dos locais falhou — o botão mostra o alerta (religar tenta de novo). */
+  error?: boolean;
+  onToggle: () => void;
+};
+
 export default function CandidateNeighborhoodMap({
   data,
   votingPlaces,
+  placesControl,
   focus,
 }: {
   data: TseCandidateByNeighborhoodResponse;
   /** Camada opcional de locais de votação (marcadores discretos). */
   votingPlaces?: VotingPlacePoint[];
+  /** Botão "Locais de votação" na barra de controle do mapa (opcional). */
+  placesControl?: PlacesControl;
   /** Voa até o ponto (sincronia gráfico → mapa). */
   focus?: MapFocus | null;
 }) {
@@ -144,6 +159,42 @@ export default function CandidateNeighborhoodMap({
           />
           <FlyTo focus={focus} />
         </MapContainer>
+
+        {/* Barra de controle do mapa (top-right, mesmo padrão do toggle
+            Bolhas/Heatmap do mapa de municípios). Só a UI: o estado da camada
+            vive na página, desacoplado dos filtros de bairro. */}
+        {placesControl && (
+          <div className="absolute top-3 right-3 z-[400] flex bg-card/80 backdrop-blur border border-border rounded-lg p-1 text-xs">
+            <button
+              onClick={placesControl.onToggle}
+              disabled={placesControl.disabled}
+              title={
+                placesControl.disabled
+                  ? "Filtre até um único município para ver os locais de votação"
+                  : placesControl.error
+                    ? "Falha ao carregar os locais. Desligue e ligue para tentar de novo."
+                    : placesControl.active
+                      ? "Ocultar locais de votação"
+                      : "Mostrar todos os locais de votação do município"
+              }
+              className={
+                "px-2.5 py-1 rounded inline-flex items-center gap-1 transition-colors disabled:opacity-45 disabled:cursor-not-allowed " +
+                (placesControl.active
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              {placesControl.loading ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : placesControl.error ? (
+                <AlertTriangle className="w-3 h-3 text-amber-500" />
+              ) : (
+                <Landmark className="w-3 h-3" />
+              )}{" "}
+              Locais de votação
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="px-3 py-2 text-xs text-muted-foreground bg-card border-t border-border flex items-center justify-between gap-2 flex-wrap">

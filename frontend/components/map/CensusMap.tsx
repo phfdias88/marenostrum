@@ -199,6 +199,12 @@ export function CensusMap({
     }
     return (
       `<div style="font-weight:700;margin-bottom:2px">${p.nm_mun || ""}</div>` +
+      // Distrito no tooltip da CAMADA BASE (malha dissolvida por bairro): os
+      // contornos viraram decoração (pointer-events none) e este é o único
+      // lugar onde o distrito consegue aparecer no hover.
+      (p.nm_dist
+        ? `<div style="opacity:.75;font-size:10px;margin-bottom:2px">Distrito: ${p.nm_dist}</div>`
+        : "") +
       `<div style="opacity:.9">${LABEL[indicator]}: ${v != null ? fmt(v) : "sem dado"}</div>`
     );
   };
@@ -246,8 +252,14 @@ export function CensusMap({
             distrito (fillOpacity 0, bordas grossas) sem que os setores os
             escondam. É a infraestrutura de MapPanes pedida. */}
         <Pane name="mn-setores" style={{ zIndex: 410 }} />
-        <Pane name="mn-bairros" style={{ zIndex: 420 }} />
-        <Pane name="mn-distritos" style={{ zIndex: 430 }} />
+        {/* pointerEvents:none nas panes de CONTORNO: elas ficam ACIMA da
+            camada clicável e, com preferCanvas, o canvas da pane superior
+            intercepta o clique — inclusive VAZIO (depois de desligar o toggle
+            de contornos o canvas órfão continuava engolindo cliques e o
+            usuário não conseguia mais selecionar bairro). Contorno é
+            decoração: o clique deve SEMPRE cair na camada base. */}
+        <Pane name="mn-bairros" style={{ zIndex: 420, pointerEvents: "none" }} />
+        <Pane name="mn-distritos" style={{ zIndex: 430, pointerEvents: "none" }} />
         <FitBounds data={data} />
         <FocusController
           focusIds={focusIds}
@@ -310,32 +322,29 @@ export function CensusMap({
         />
 
         {/* Contorno de BAIRROS (setores dissolvidos) — pane mn-bairros (zIndex
-            420), acima dos setores; sem preenchimento, borda destacada. */}
+            420), acima dos setores; sem preenchimento, borda destacada.
+            interactive={false}: contorno NUNCA captura clique/hover (o clique
+            pertence à camada base, que já mostra o nome no tooltip). Sem isso,
+            o fill transparente interceptava o clique do bairro. */}
         {bairroContours && bairroContours.features.length > 0 && (
           <GeoJSON
             key={`bairro-${bairroContours.features.length}-${String(bairroContours.features[0]?.properties?.nome ?? "")}`}
             data={bairroContours as unknown as GeoJSON.GeoJsonObject}
             pane="mn-bairros"
-            style={{ fillOpacity: 0, weight: 1.6, color: "#8fcddb", opacity: 0.85 }}
-            onEachFeature={(f, layer) => {
-              const nome = (f.properties as { nome?: string } | null)?.nome;
-              if (nome) layer.bindTooltip(String(nome), { sticky: true, className: "mn-tip" });
-            }}
+            interactive={false}
+            style={{ fillOpacity: 0, weight: 1.6, color: "#8fcddb", opacity: 0.85, interactive: false }}
           />
         )}
 
         {/* Contorno de DISTRITOS — pane mn-distritos (zIndex 430), no topo;
-            borda mais grossa e tracejada pra distinguir dos bairros. */}
+            borda mais grossa e tracejada. Também interactive={false}. */}
         {distritoContours && distritoContours.features.length > 0 && (
           <GeoJSON
             key={`distrito-${distritoContours.features.length}-${String(distritoContours.features[0]?.properties?.nome ?? "")}`}
             data={distritoContours as unknown as GeoJSON.GeoJsonObject}
             pane="mn-distritos"
-            style={{ fillOpacity: 0, weight: 3, color: "#3f9cb5", opacity: 0.95, dashArray: "6 3" }}
-            onEachFeature={(f, layer) => {
-              const nome = (f.properties as { nome?: string } | null)?.nome;
-              if (nome) layer.bindTooltip("Distrito: " + String(nome), { sticky: true, className: "mn-tip" });
-            }}
+            interactive={false}
+            style={{ fillOpacity: 0, weight: 3, color: "#3f9cb5", opacity: 0.95, dashArray: "6 3", interactive: false }}
           />
         )}
       </MapContainer>

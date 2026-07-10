@@ -29,14 +29,17 @@ import {
   X,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import type {
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
 } from "@/lib/types";
-import type { VotingPlacePoint } from "@/components/map/CandidateNeighborhoodMap";
+import type {
+  PlacesControl,
+  VotingPlacePoint,
+} from "@/components/map/CandidateNeighborhoodMap";
 import type { VotesBarItem } from "@/components/tse/VotesBarChart";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -212,56 +215,16 @@ export function CandidateMapModal({ results, onClose }: Props) {
     return matches.length === 1 ? matches[0].municipality : null;
   }, [results, filteredMuniResults, fMuni]);
 
-  // ---- Camada de LOCAIS DE VOTAÇÃO (modo bairro, município em foco) ----
+  // ---- Camada de LOCAIS DE VOTAÇÃO (modo bairro) ----
+  // Visibilidade DESACOPLADA dos filtros (pedido do PO): o usuário liga/desliga
+  // a camada num toggle no próprio mapa; os filtros só definem QUAL município.
+  const [showPlaces, setShowPlaces] = useState(true);
   const [places, setPlaces] = useState<VotingPlacePoint[] | null>(null);
   const [placesError, setPlacesError] = useState(false);
-  // O texto do filtro de local pertence ao município em foco — mudou/perdeu
-  // o foco, limpa (senão a busca antiga vira filtro fantasma no novo município).
-  const focusMuniId = focusMuni?.id ?? null;
-  useEffect(() => {
-    setFLocal("");
-  }, [focusMuniId]);
-  useEffect(() => {
-    if (mode !== "bairro" || !focusMuni) {
-      setPlaces(null);
-      setPlacesError(false);
-      return;
-    }
-    let cancelled = false;
-    // Limpa os locais do município ANTERIOR já na troca de foco A→B — senão o
-    // narrowing do fLocal roda 1 render com locais da cidade errada.
-    setPlaces(null);
-    setPlacesError(false);
-    // year do candidato: os locais são year-aware (2018/2020/2022/2024).
-    api<VotingPlacePoint[]>(
-      `/v1/tse/voting-places/map?municipality_id=${focusMuni.id}&year=${c.election.year}`,
-    )
-      .then((d) => {
-        if (cancelled) return;
-        // Herda o município no ponto → tooltip "Local (Município)" desambigua
-        // escolas homônimas (requisito do PO).
-        setPlaces(d.map((p) => ({ ...p, municipality: focusMuni.name })));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPlaces(null);
-          setPlacesError(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, focusMuni, c.election.year]);
 
-  const filteredPlaces = useMemo(() => {
-    if (!places) return undefined;
-    if (!fLocal.trim()) return places;
-    const n = norm(fLocal);
-    return places.filter((p) => norm(p.name).includes(n));
-  }, [places, fLocal]);
-
-  // ---- Visão BAIRRO filtrada (município + bairro + local) ----
-  const filteredNbItems = useMemo(() => {
+  // Itens de bairro filtrados por MUNICÍPIO + BAIRRO (SEM o passo de local —
+  // esse passo depende dos locais, que dependem do município derivado DAQUI).
+  const nbItemsPreLocal = useMemo(() => {
     let items = neighborhood?.items ?? [];
     if (fMuni.trim()) {
       const n = norm(fMuni);
@@ -276,23 +239,103 @@ export function CandidateMapModal({ results, onClose }: Props) {
         return tokens.every((t) => composite.includes(t));
       });
     }
-    // Filtro de LOCAL: restringe aos bairros que têm local casando (o dado de
-    // locais é do município em foco — bairros de outros municípios saem).
-    if (fLocal.trim() && filteredPlaces) {
+    return items;
+  }, [neighborhood, fMuni, fBairro]);
+
+  // Município EFETIVO da camada de locais: o foco do filtro de município OU o
+  // ÚNICO município presente nos bairros filtrados — filtrar um bairro
+  // ("Centro (Mesquita)") já libera os locais, independente do filtro de
+  // município (pedido do PO: locais não dependem de bairro selecionado).
+  const placesMuni = useMemo(() => {
+    if (focusMuni) return { id: focusMuni.id, name: focusMuni.name };
+    const ids = new Set(
+      nbItemsPreLocal.map((i) => i.municipality_id ?? "").filter(Boolean),
+    );
+    if (ids.size !== 1) return null;
+    const it = nbItemsPreLocal.find((i) => i.municipality_id);
+    return it?.municipality_id && it.municipality_name
+      ? { id: it.municipality_id, name: it.municipality_name }
+      : null;
+  }, [focusMuni, nbItemsPreLocal]);
+  // Strings estáveis pros deps de efeito (o objeto placesMuni muda de
+  // identidade a cada render de filtro — usá-lo em deps refaria o fetch).
+  const placesMuniId = placesMuni?.id ?? null;
+  const placesMuniName = placesMuni?.name ?? null;
+
+  // O texto do filtro de local pertence ao município em foco: limpa SÓ quando
+  // o foco troca pra OUTRO município. placesMuniId=null é estado TRANSITÓRIO
+  // de digitação (fBairro no meio do caminho) — apagar aí descartava o texto
+  // do usuário sem necessidade.
+  const lastPlacesMuniRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (placesMuniId === null) return;
+    if (
+      lastPlacesMuniRef.current !== null &&
+      lastPlacesMuniRef.current !== placesMuniId
+    ) {
+      setFLocal("");
+    }
+    lastPlacesMuniRef.current = placesMuniId;
+  }, [placesMuniId]);
+
+  // Fetch com CACHE por município (ref): desligar/religar a camada NÃO
+  // re-baixa os até ~3000 locais (VPS 1 vCPU) — igual à página de Bairros.
+  // Estado transitório (id null) também preserva o cache.
+  const lastFetchedMuniRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== "bairro" || !placesMuniId || !showPlaces) return;
+    if (lastFetchedMuniRef.current === placesMuniId) return; // cache válido
+    let cancelled = false;
+    // Troca A→B: zera antes do fetch (senão o narrowing do fLocal roda 1
+    // render com locais da cidade errada).
+    setPlaces(null);
+    setPlacesError(false);
+    // year do candidato: os locais são year-aware (2018/2020/2022/2024).
+    api<VotingPlacePoint[]>(
+      `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=${c.election.year}`,
+    )
+      .then((d) => {
+        if (cancelled) return;
+        lastFetchedMuniRef.current = placesMuniId;
+        // Herda o município no ponto → tooltip "Local (Município)" desambigua
+        // escolas homônimas (requisito do PO).
+        setPlaces(d.map((p) => ({ ...p, municipality: placesMuniName })));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlaces(null);
+          setPlacesError(true);
+          lastFetchedMuniRef.current = null; // religar a camada tenta de novo
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, placesMuniId, placesMuniName, showPlaces, c.election.year]);
+
+  const filteredPlaces = useMemo(() => {
+    if (!places) return undefined;
+    if (!fLocal.trim()) return places;
+    const n = norm(fLocal);
+    return places.filter((p) => norm(p.name).includes(n));
+  }, [places, fLocal]);
+
+  // ---- Visão BAIRRO filtrada (município + bairro + local) ----
+  const filteredNbItems = useMemo(() => {
+    let items = nbItemsPreLocal;
+    // Filtro de LOCAL: restringe aos bairros que têm local casando. Exige
+    // placesMuniId (itens de UM município) — no estado transitório de digitação
+    // o cache de locais pode ser de outro município e narraria errado.
+    if (fLocal.trim() && filteredPlaces && placesMuniId) {
       const nbSet = new Set(
         // Espelha o COALESCE do backend: local sem bairro entra no bucket
         // "(Sem bairro)" — senão esse grupo nunca casa no narrowing.
         filteredPlaces.map((p) => norm(p.neighborhood?.trim() || "(Sem bairro)")),
       );
-      const focusName = focusMuni ? norm(focusMuni.name) : null;
-      items = items.filter(
-        (i) =>
-          nbSet.has(norm(i.neighborhood)) &&
-          (focusName === null || norm(i.municipality_name ?? "") === focusName),
-      );
+      items = items.filter((i) => nbSet.has(norm(i.neighborhood)));
     }
     return items;
-  }, [neighborhood, fMuni, fBairro, fLocal, filteredPlaces, focusMuni]);
+  }, [nbItemsPreLocal, fLocal, filteredPlaces]);
 
   const filteredNbData = useMemo<TseCandidateByNeighborhoodResponse | null>(
     () => (neighborhood ? { ...neighborhood, items: filteredNbItems } : null),
@@ -402,15 +445,40 @@ export function CandidateMapModal({ results, onClose }: Props) {
     };
   }, [selKey, mode, filteredMuniResults, filteredNbItems, neighborhood, results]);
 
-  const localDisabled = mode !== "bairro" || !focusMuni || places === null;
+  // Local só é filtrável com a camada LIGADA e locais carregados — antes
+  // disso a busca seria silenciosamente inerte.
+  const localDisabled =
+    mode !== "bairro" || !placesMuniId || !showPlaces || places === null;
   const localPlaceholder =
-    mode !== "bairro" || !focusMuni
-      ? "Local de votação (foque 1 município)…"
-      : places === null
-        ? placesError
-          ? "Locais de votação indisponíveis"
-          : "Carregando locais de votação…"
-        : `Buscar local de votação em ${focusMuni.name}…`;
+    mode !== "bairro" || !placesMuniId
+      ? "Local de votação (filtre 1 município)…"
+      : !showPlaces
+        ? "Ative os locais de votação no mapa…"
+        : places === null
+          ? placesError
+            ? "Locais de votação indisponíveis"
+            : "Carregando locais de votação…"
+          : `Buscar local de votação em ${placesMuniName}…`;
+
+  // Toggle da camada de locais — renderizado DENTRO do mapa (barra de
+  // controle), estado aqui na página. useCallback/useMemo: identidade estável
+  // pra não re-renderizar o mapa a cada tecla dos filtros.
+  const togglePlaces = useCallback(() => {
+    // Desligar a camada MATA o filtro de local — senão o texto fica visível
+    // porém inerte e o gráfico/total expandem contradizendo o input.
+    setFLocal("");
+    setShowPlaces((v) => !v);
+  }, []);
+  const placesControl = useMemo(
+    () => ({
+      active: showPlaces && !!placesMuniId && !placesError,
+      disabled: mode !== "bairro" || !placesMuniId,
+      loading: showPlaces && !!placesMuniId && places === null && !placesError,
+      error: showPlaces && !!placesMuniId && placesError,
+      onToggle: togglePlaces,
+    }),
+    [showPlaces, placesMuniId, places, placesError, togglePlaces, mode],
+  );
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 grid place-items-center p-2 sm:p-4">
@@ -541,7 +609,8 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 }
                 uf={c.state}
                 year={c.election.year}
-                votingPlaces={filteredPlaces}
+                votingPlaces={showPlaces ? filteredPlaces : undefined}
+                placesControl={placesControl}
                 focus={focusPt}
                 onRetry={() => {
                   setNeighborhood(null);
@@ -725,6 +794,7 @@ function BairroView({
   uf,
   year,
   votingPlaces,
+  placesControl,
   focus,
   onRetry,
 }: {
@@ -736,6 +806,8 @@ function BairroView({
   uf: string;
   year: number;
   votingPlaces?: VotingPlacePoint[];
+  /** Toggle da camada de locais na barra do mapa. */
+  placesControl?: PlacesControl;
   /** Voo gráfico→mapa (clique na barra). */
   focus?: MapFocus | null;
   onRetry: () => void;
@@ -800,6 +872,7 @@ function BairroView({
     <CandidateNeighborhoodMap
       data={data}
       votingPlaces={votingPlaces}
+      placesControl={placesControl}
       focus={focus}
     />
   );

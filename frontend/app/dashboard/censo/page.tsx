@@ -854,17 +854,42 @@ export default function CensoPage() {
   // travava o browser). `nome` vira nm_mun p/ o tooltip do CensusMap.
   const dissolvedData = useMemo<FC | null>(() => {
     if (view !== "municipio" || effMalha === "setor" || !malhaGeo) return null;
+    // Bairro → distrito(s), a partir dos setores já em memória. Os contornos
+    // viraram decoração (pointer-events none, fix do clique roubado), então o
+    // DISTRITO precisa aparecer no tooltip da própria camada base.
+    const distByBairro = new Map<string, Set<string>>();
+    if (effMalha === "bairro" && setores) {
+      for (const f of setores.features) {
+        const p = f.properties;
+        const key = String(p.nm_bairro || p.nm_dist || "—");
+        const d = String(p.nm_dist ?? "").trim();
+        if (!d) continue;
+        let set = distByBairro.get(key);
+        if (!set) distByBairro.set(key, (set = new Set()));
+        set.add(d);
+      }
+    }
     return {
       type: "FeatureCollection",
       features: malhaGeo.features.map((f) => {
         const nome = String((f.properties as Record<string, unknown> | null)?.nome ?? "—");
+        const dists = distByBairro.get(nome);
         return {
           ...f,
-          properties: { ...f.properties, ...(areaAggByName.get(nome) ?? {}), nm_mun: nome },
+          properties: {
+            ...f.properties,
+            ...(areaAggByName.get(nome) ?? {}),
+            nm_mun: nome,
+            // Só quando agrega informação (evita "Centro · Distrito: Centro").
+            nm_dist:
+              dists && dists.size > 0 && !(dists.size === 1 && dists.has(nome))
+                ? [...dists].join(" · ")
+                : null,
+          },
         };
       }),
     };
-  }, [view, effMalha, malhaGeo, areaAggByName]);
+  }, [view, effMalha, malhaGeo, areaAggByName, setores]);
 
   // O que vai pro mapa: malha dissolvida (bairro/distrito) ou setor cru. Enquanto
   // a malha carrega, shownData=null → a UI mostra loading (sem freeze); se falhar,

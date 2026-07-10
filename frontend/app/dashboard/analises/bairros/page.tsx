@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import type {
@@ -443,6 +443,21 @@ function NeighborhoodResult({
       .finally(() => setPlacesLoading(false));
   }, [showPlaces, places, muni.id]);
 
+  // Toggle da camada de locais NA BARRA DO MAPA (pedido do PO) — o checkbox
+  // do painel retrátil continua funcionando (mesmo estado), mas o painel
+  // fechado escondia o único acesso à camada. Identidades estáveis
+  // (useCallback/useMemo) pra não re-renderizar o mapa à toa.
+  const togglePlaces = useCallback(() => setShowPlaces((v) => !v), []);
+  const placesControl = useMemo(
+    () => ({
+      active: showPlaces,
+      disabled: false,
+      loading: placesLoading,
+      onToggle: togglePlaces,
+    }),
+    [showPlaces, placesLoading, togglePlaces],
+  );
+
   // Cobertura CRM × votos: contatos do tenant por bairro DESTA cidade (join
   // por nome normalizado). 403 (usuário sem Mapa da Campanha) ou erro →
   // simplesmente não mostra o badge (fetch paralelo, não bloqueia nada).
@@ -602,6 +617,7 @@ function NeighborhoodResult({
               <CandidateNeighborhoodMap
                 data={data}
                 votingPlaces={showPlaces ? places ?? undefined : undefined}
+                placesControl={placesControl}
               />
             </div>
           </div>
