@@ -630,6 +630,68 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
         </div>
       </div>
 
+      {/* GRÁFICOS NATIVOS (dados determinísticos do backend) — a IA não
+          decide reduto nem formata visual: quem desenha é o React, daqui. */}
+      {report.dados && report.dados.seus_redutos.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <div className="rounded-lg border bg-card p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">
+              Seus redutos · top {report.dados.seus_redutos.length} em votos (TSE)
+            </p>
+            <ul className="space-y-2.5">
+              {report.dados.seus_redutos.map((m, i) => (
+                <li key={m.municipio}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="truncate">
+                      <span className="text-[10px] font-bold text-primary mr-1">{i + 1}º</span>
+                      {m.municipio}
+                    </span>
+                    <span className="tabular-nums font-mono text-xs shrink-0">
+                      {numberFmt.format(m.votos)}
+                      {m.penetracao_pct != null && (
+                        <span className="text-muted-foreground"> · {String(m.penetracao_pct).replace(".", ",")}%</span>
+                      )}
+                    </span>
+                  </div>
+                  <VoteBar value={m.votos} max={report.dados!.seus_redutos[0]?.votos ?? 1} rank={i + 1} />
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-lg border bg-card p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">
+              Onde crescer · maior eleitorado, menor penetração (TSE)
+            </p>
+            <ul className="space-y-2.5">
+              {report.dados.onde_crescer_dados.map((m) => (
+                <li key={m.municipio}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="truncate">{m.municipio}</span>
+                    <span className="tabular-nums font-mono text-xs shrink-0 text-muted-foreground">
+                      {m.eleitores_nao_conquistados != null
+                        ? `${numberFmt.format(m.eleitores_nao_conquistados)} eleitores livres`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500/50 to-emerald-500"
+                      style={{
+                        width: `${Math.min(100, ((m.eleitores_nao_conquistados ?? 0) / Math.max(1, report.dados!.onde_crescer_dados[0]?.eleitores_nao_conquistados ?? 1)) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                    {numberFmt.format(m.votos)} votos de {m.eleitorado != null ? numberFmt.format(m.eleitorado) : "?"} eleitores
+                    {m.penetracao_pct != null && ` (${String(m.penetracao_pct).replace(".", ",")}%)`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <AiBlock
           title="Pontos fortes"

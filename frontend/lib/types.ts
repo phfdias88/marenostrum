@@ -440,6 +440,16 @@ export type TseAiTerritory = {
   } | null;
 };
 
+/** Item das listas DETERMINÍSTICAS do dossiê (calculadas no backend). */
+export type TseAiMuniItem = {
+  municipio: string;
+  votos: number;
+  eleitorado: number | null;
+  penetracao_pct: number | null;
+  /** Só em onde_crescer_dados: eleitorado − votos. */
+  eleitores_nao_conquistados?: number;
+};
+
 /** Relatório estratégico gerado por IA (Gemini) sobre o candidato. */
 export type TseAiReport = {
   diagnostico: string;
@@ -449,6 +459,11 @@ export type TseAiReport = {
   onde_crescer: string[];
   narrativas: string[];
   acoes_prioritarias: string[];
+  /** Dados EXATOS pro front desenhar gráficos nativos (a IA é só texto). */
+  dados?: {
+    seus_redutos: TseAiMuniItem[];
+    onde_crescer_dados: TseAiMuniItem[];
+  } | null;
 };
 
 /** Evolução do partido por eleição (2014–2024). */

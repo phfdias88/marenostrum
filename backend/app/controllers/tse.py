@@ -889,12 +889,19 @@ def candidate_ai_report(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> AiReport:
-    from app.utils.ai_report import AiReportError, generate_report
+    from app.utils.ai_report import (
+        AiReportError,
+        candidate_deterministic_lists,
+        generate_report,
+    )
 
     try:
         report = generate_report(db, candidate_id)
     except AiReportError as e:
         raise _ConflictError(str(e))
+    # Listas determinísticas SEMPRE frescas (não passam pelo cache da IA):
+    # o front desenha os gráficos daqui; o texto da IA é só narrativa.
+    report = {**report, "dados": candidate_deterministic_lists(db, candidate_id)}
     return AiReport(**report)
 
 

@@ -291,9 +291,19 @@ export function CandidateMapModal({ results, onClose }: Props) {
     setPlaces(null);
     setPlacesError(false);
     // year do candidato: os locais são year-aware (2018/2020/2022/2024).
+    // FALLBACK: ano sem locais importados (ex.: 2014/2016) devolvia lista
+    // VAZIA e a camada "não aparecia" — cai pra base 2024 (a mais completa;
+    // escolas mudam pouco, serve de referência geográfica).
     api<VotingPlacePoint[]>(
       `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=${c.election.year}`,
     )
+      .then((d) =>
+        d.length === 0 && c.election.year !== 2024
+          ? api<VotingPlacePoint[]>(
+              `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=2024`,
+            )
+          : d,
+      )
       .then((d) => {
         if (cancelled) return;
         lastFetchedMuniRef.current = placesMuniId;

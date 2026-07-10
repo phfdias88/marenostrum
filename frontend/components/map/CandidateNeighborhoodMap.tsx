@@ -13,6 +13,7 @@ import L from "leaflet";
 import {
   CircleMarker,
   MapContainer,
+  Pane,
   Popup,
   Tooltip,
   useMap,
@@ -92,6 +93,12 @@ export default function CandidateNeighborhoodMap({
           className="h-full w-full"
         >
           <ThemedTileLayer />
+
+          {/* Pane DEDICADA pros locais de votação, ACIMA do overlayPane (400)
+              onde vivem as bolhas de bairro: garante que os pontos azuis
+              nunca fiquem escondidos SOB uma bolha grande — z-index explícito
+              em vez de depender da ordem de montagem das camadas canvas. */}
+          <Pane name="mn-places" style={{ zIndex: 640 }} />
 
           {withCoords.map((r) => {
             const pct = r.votes / maxVotes;
@@ -285,7 +292,11 @@ function PlacesLayer({ places }: { places: VotingPlacePoint[] }) {
     if (places.length === 0) return;
     const group = L.layerGroup();
     for (const vp of places) {
+      // Coordenada precisa ser um número VÁLIDO — lat/lng null/NaN derrubam
+      // o L.circleMarker e a camada inteira "não aparece".
+      if (!Number.isFinite(vp.lat) || !Number.isFinite(vp.lng)) continue;
       const m = L.circleMarker([vp.lat, vp.lng], {
+        pane: "mn-places",
         radius: 3.5,
         color: "#1d4ed8",
         fillColor: "#3b82f6",

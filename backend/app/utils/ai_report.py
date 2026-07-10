@@ -48,35 +48,9 @@ def _gather_facts(db: Session, candidate: Candidate) -> dict:
     party = db.get(Party, candidate.party_id)
     election = db.get(Election, candidate.election_id)
 
-    # Votos por município (top 15) + eleitorado pra penetração
-    latest_elect = (
-        select(
-            MunicipalityElectorate.municipality_id.label("mid"),
-            func.max(MunicipalityElectorate.year).label("y"),
-        )
-        .group_by(MunicipalityElectorate.municipality_id)
-        .subquery()
-    )
-    rows = db.execute(
-        select(
-            Municipality.name,
-            Municipality.state,
-            VoteResult.votes,
-            MunicipalityElectorate.total,
-        )
-        .join(VoteResult, VoteResult.municipality_id == Municipality.id)
-        .outerjoin(latest_elect, latest_elect.c.mid == Municipality.id)
-        .outerjoin(
-            MunicipalityElectorate,
-            (MunicipalityElectorate.municipality_id == Municipality.id)
-            & (MunicipalityElectorate.year == latest_elect.c.y),
-        )
-        # votes > 0: o import munzona cria linha ZERADA por município — sem o
-        # filtro, len(rows) contava o estado inteiro (92 no RJ) e a Maré IA
-        # dizia que o candidato "pontuou em 92 municípios" tendo votos em 61.
-        .where(VoteResult.candidate_id == candidate.id, VoteResult.votes > 0)
-        .order_by(VoteResult.votes.desc())
-    ).all()
+    # Votos por município (com eleitorado pra penetração) — query compartilhada
+    # com as listas determinísticas do endpoint (candidate_deterministic_lists).
+    rows = _fetch_muni_rows(db, candidate)
 
     top = []
     total_votes = 0
@@ -108,6 +82,10 @@ def _gather_facts(db: Session, candidate: Candidate) -> dict:
         {"ano": int(y), "cargo": o, "resultado": r} for y, o, r in traj_rows
     ]
 
+    # SEPARAÇÃO DE RESPONSABILIDADES: quem decide reduto/oportunidade é o
+    # CÓDIGO (determinístico); a IA só comenta as listas prontas.
+    seus_redutos, onde_crescer_dados = _deterministic_lists(rows)
+
     return {
         "nome": candidate.urn_name,
         "nome_civil": candidate.name,
@@ -120,7 +98,87 @@ def _gather_facts(db: Session, candidate: Candidate) -> dict:
         "top_municipios": top,
         "trajetoria": trajetoria,
         "municipios_com_voto": len(rows),
+        "seus_redutos": seus_redutos,
+        "onde_crescer_dados": onde_crescer_dados,
     }
+
+
+def _fetch_muni_rows(db: Session, candidate: Candidate):
+    """Votos por município do candidato (desc) com eleitorado mais recente.
+
+    votes > 0: o import munzona cria linha ZERADA por município — sem o
+    filtro, len(rows) contava o estado inteiro (92 no RJ) e a Maré IA dizia
+    que o candidato "pontuou em 92 municípios" tendo votos em 61.
+    """
+    latest_elect = (
+        select(
+            MunicipalityElectorate.municipality_id.label("mid"),
+            func.max(MunicipalityElectorate.year).label("y"),
+        )
+        .group_by(MunicipalityElectorate.municipality_id)
+        .subquery()
+    )
+    return db.execute(
+        select(
+            Municipality.name,
+            Municipality.state,
+            VoteResult.votes,
+            MunicipalityElectorate.total,
+        )
+        .join(VoteResult, VoteResult.municipality_id == Municipality.id)
+        .outerjoin(latest_elect, latest_elect.c.mid == Municipality.id)
+        .outerjoin(
+            MunicipalityElectorate,
+            (MunicipalityElectorate.municipality_id == Municipality.id)
+            & (MunicipalityElectorate.year == latest_elect.c.y),
+        )
+        .where(VoteResult.candidate_id == candidate.id, VoteResult.votes > 0)
+        .order_by(VoteResult.votes.desc())
+    ).all()
+
+
+def _deterministic_lists(rows) -> tuple[list[dict], list[dict]]:
+    """Listas EXATAS calculadas em código (a IA não decide, só comenta):
+
+    - seus_redutos: top 5 por VOTO ABSOLUTO (rows já vêm ordenadas desc) —
+      garante que Rio/Nova Iguaçu/São Gonçalo entrem quando são os maiores.
+    - onde_crescer_dados: top 5 por ELEITORES NÃO CONQUISTADOS
+      (eleitorado − votos): maior eleitorado com menor penetração primeiro.
+    """
+    def item(name, state, votes, elect):
+        v = int(votes or 0)
+        e = int(elect or 0)
+        return {
+            "municipio": f"{name}/{state}",
+            "votos": v,
+            "eleitorado": e or None,
+            "penetracao_pct": round(v / e * 100, 1) if e else None,
+        }
+
+    seus_redutos = [item(*r) for r in rows[:5]]
+
+    pool = sorted(
+        (r for r in rows if r[3]),
+        key=lambda r: int(r[3]) - int(r[2] or 0),
+        reverse=True,
+    )
+    onde_crescer = []
+    for name, state, votes, elect in pool[:5]:
+        it = item(name, state, votes, elect)
+        it["eleitores_nao_conquistados"] = int(elect) - int(votes or 0)
+        onde_crescer.append(it)
+    return seus_redutos, onde_crescer
+
+
+def candidate_deterministic_lists(db: Session, candidate_id: UUID) -> dict:
+    """Mesmas listas injetadas no prompt, expostas pro FRONTEND renderizar
+    NATIVO (barras/listas React) — a resposta da IA vira só texto."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        return {"seus_redutos": [], "onde_crescer_dados": []}
+    rows = _fetch_muni_rows(db, candidate)
+    seus_redutos, onde_crescer_dados = _deterministic_lists(rows)
+    return {"seus_redutos": seus_redutos, "onde_crescer_dados": onde_crescer_dados}
 
 
 _PROMPT = """Você é um consultor político sênior especializado em eleições \
@@ -130,6 +188,16 @@ Brasil.
 
 DADOS DO CANDIDATO (TSE):
 {facts}
+
+REGRAS DE DADOS (OBRIGATÓRIAS):
+- Os campos "seus_redutos" e "onde_crescer_dados" foram CALCULADOS pelo \
+sistema a partir do TSE. Utilize ESTRITAMENTE esses dados: não invente, não \
+omita e não substitua municípios; não recalcule números.
+- Ao citar redutos (em "diagnostico" ou "pontos_fortes"), cite exatamente os \
+municípios de "seus_redutos", nessa ordem de importância.
+- Em "onde_crescer", comente exatamente os municípios de \
+"onde_crescer_dados" (pode explicar o porquê e sugerir abordagens), sem \
+acrescentar outros.
 
 Responda APENAS com um JSON válido (sem markdown, sem ```), nesta estrutura \
 exata:

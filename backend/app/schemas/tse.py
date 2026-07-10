@@ -351,6 +351,10 @@ class AiReport(BaseModel):
     onde_crescer: list[str]
     narrativas: list[str]
     acoes_prioritarias: list[str]
+    # Listas DETERMINÍSTICAS calculadas em código (seus_redutos +
+    # onde_crescer_dados): o frontend desenha os gráficos NATIVOS daqui;
+    # o texto da IA acima é só narrativa. Sempre fresco (fora do cache).
+    dados: dict | None = None
 
 
 class AiCompareReport(BaseModel):
