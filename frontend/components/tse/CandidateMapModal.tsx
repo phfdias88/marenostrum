@@ -492,8 +492,11 @@ export function CandidateMapModal({ results, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 grid place-items-center p-2 sm:p-4">
-      <div className="bg-card border border-border rounded-xl w-full max-w-7xl h-[92vh] sm:h-[88vh] flex flex-col overflow-hidden">
-        <header className="flex items-start justify-between p-3 sm:p-4 border-b border-border gap-3">
+      <div className="bg-card border border-border rounded-xl w-full max-w-7xl h-[92dvh] sm:h-[88vh] flex flex-col overflow-hidden">
+        {/* Mobile: título + X na 1ª linha e controles (Município/Bairro + tema)
+            numa linha própria (w-full força o wrap) — na mesma linha eles
+            esmagavam o título numa coluna de ~80px. Desktop: tudo numa linha. */}
+        <header className="flex flex-wrap items-start p-3 sm:p-4 border-b border-border gap-x-3 gap-y-2">
           {/* Foto oficial do TSE dá cara de dossiê ao cabeçalho (fallback:
               iniciais na cor do partido). Escondida em telas muito estreitas. */}
           <CandidatePhoto
@@ -503,7 +506,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
             size="md"
             className="hidden sm:block ring-2 ring-primary/25 rounded-full"
           />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 order-1">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Distribuição de votos · {c.office_name} · {c.state}
             </p>
@@ -527,7 +530,15 @@ export function CandidateMapModal({ results, onClose }: Props) {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            className="order-2 sm:order-4 text-muted-foreground hover:text-foreground p-2 hover:bg-accent rounded-md"
+            aria-label="Fechar"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-2 flex-wrap order-3 w-full sm:w-auto sm:order-2 sm:ml-auto">
             {/* Toggle */}
             <div className="flex gap-1 bg-background border border-border rounded-md p-0.5">
               <ModeBtn
@@ -544,13 +555,6 @@ export function CandidateMapModal({ results, onClose }: Props) {
               />
             </div>
             <MapLayoutSelector />
-            <button
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground p-2 hover:bg-accent rounded-md"
-              aria-label="Fechar"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
         </header>
 
