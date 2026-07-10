@@ -2853,7 +2853,11 @@ def candidate_dossier_pdf(
                     media_type="application/pdf",
                     headers={
                         "Content-Disposition": f'inline; filename="{fname}"',
-                        "Cache-Control": "public, max-age=86400",
+                        # no-store: endpoint autenticado e conteúdo mutável — o
+                        # "public, max-age=86400" fazia o BROWSER segurar o PDF
+                        # antigo por 24h depois de um fix (o cache de perf é o
+                        # de disco acima, não o HTTP).
+                        "Cache-Control": "private, no-store",
                         "X-Cache": "HIT",
                     },
                 )
@@ -3038,7 +3042,7 @@ def candidate_dossier_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{fname}"',
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "private, no-store",
             "X-Cache": "MISS",
         },
     )

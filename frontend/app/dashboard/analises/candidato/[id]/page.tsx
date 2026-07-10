@@ -1679,6 +1679,9 @@ function DossierDownload({ candidateId, urnName }: { candidateId: string; urnNam
       const token = getToken();
       const res = await fetch(`${base}/v1/tse/candidates/${candidateId}/dossier.pdf`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        // no-store: sem isso o browser reusa por 24h um PDF baixado antes de
+        // um fix no servidor (o cache rápido fica no disco da API).
+        cache: "no-store",
       });
       if (!res.ok) throw new Error(`http ${res.status}`);
       const blob = await res.blob();
