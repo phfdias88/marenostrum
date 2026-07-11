@@ -15,7 +15,7 @@
  * É pesado (Recharts) → importe com next/dynamic({ ssr: false }) onde usar.
  */
 import { Search } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -76,12 +76,17 @@ function RankedTick({
   payload,
   maxChars,
   sub,
-}: TickProps & { maxChars: number; sub?: string }) {
+  compact = false,
+}: TickProps & { maxChars: number; sub?: string; compact?: boolean }) {
   const raw = String(payload?.value ?? "");
   const label = truncate(raw, maxChars, !sub);
-  // Linha 2 é menor (9.5px) → cabem mais caracteres na mesma largura.
+  // Linha 2 é menor → cabem mais caracteres na mesma largura.
   const subTxt = sub ? truncate(sub, Math.floor(maxChars * 1.35), false) : null;
   const top3 = index < 3;
+  // compact = viewport estreito (mobile): fontes 1px menores pra sobrar
+  // largura de barra sem perder o rótulo em 2 linhas.
+  const fsMain = compact ? 11 : 12;
+  const fsSub = compact ? 8.5 : 9.5;
   return (
     <g transform={`translate(${x},${y})`}>
       <text
@@ -89,10 +94,10 @@ function RankedTick({
         y={0}
         dy={subTxt ? -1.5 : 4}
         textAnchor="end"
-        fontSize={12}
+        fontSize={fsMain}
       >
         <tspan
-          fontSize={9.5}
+          fontSize={fsSub}
           fontWeight={700}
           fill={top3 ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"}
           opacity={top3 ? 1 : 0.65}
@@ -109,7 +114,7 @@ function RankedTick({
           y={0}
           dy={11.5}
           textAnchor="end"
-          fontSize={9.5}
+          fontSize={fsSub}
           fill="hsl(var(--muted-foreground))"
           opacity={0.9}
         >
@@ -150,6 +155,17 @@ export function VotesBarChart({
   selectedKey?: string | null;
 }) {
   const [q, setQ] = useState("");
+  // Viewport estreito (mobile): a coluna de nomes de 168px comeria ~45% da
+  // tela — clampa o eixo e encolhe fontes/margens pra sobrar barra.
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const upd = () => setIsNarrow(mq.matches);
+    upd();
+    mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
+  const axisW = isNarrow ? Math.min(yAxisWidth, 136) : yAxisWidth;
   // id do gradiente SVG (único por instância; useId traz ":" que quebra url()).
   const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
   // Total do CONJUNTO recebido (contexto do filtro) — usado no "% do filtro".
@@ -195,7 +211,12 @@ export function VotesBarChart({
             <BarChart
               data={filtered}
               layout="vertical"
-              margin={{ left: 4, right: showValues ? 52 : 16, top: 4, bottom: 4 }}
+              margin={{
+                left: isNarrow ? 0 : 4,
+                right: showValues ? (isNarrow ? 40 : 52) : 16,
+                top: 4,
+                bottom: 4,
+              }}
               barCategoryGap={7}
             >
               {/* Degradê de RELEVO ao longo da barra: base mais ESCURA → ponta
@@ -242,7 +263,7 @@ export function VotesBarChart({
               <YAxis
                 type="category"
                 dataKey="label"
-                width={yAxisWidth}
+                width={axisW}
                 stroke="hsl(var(--muted-foreground))"
                 fontSize={11}
                 tickLine={false}
@@ -255,8 +276,12 @@ export function VotesBarChart({
                   return (
                     <RankedTick
                       {...tp}
-                      maxChars={Math.max(10, Math.floor((yAxisWidth - 26) / 7))}
+                      maxChars={Math.max(
+                        10,
+                        Math.floor((axisW - 24) / (isNarrow ? 6.4 : 7)),
+                      )}
                       sub={filtered[tp.index ?? 0]?.sublabel}
+                      compact={isNarrow}
                     />
                   );
                 }}
