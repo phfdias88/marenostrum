@@ -278,50 +278,75 @@ export function CandidateMapModal({ results, onClose }: Props) {
     lastPlacesMuniRef.current = placesMuniId;
   }, [placesMuniId]);
 
-  // Fetch com CACHE por município (ref): desligar/religar a camada NÃO
-  // re-baixa os até ~3000 locais (VPS 1 vCPU) — igual à página de Bairros.
-  // Estado transitório (id null) também preserva o cache.
-  const lastFetchedMuniRef = useRef<string | null>(null);
+  // Total real no servidor (o cap de 5000 corta candidatos estaduais) —
+  // alimenta o "X de Y locais" no rodapé do mapa.
+  const [placesTotal, setPlacesTotal] = useState<number | null>(null);
+
+  // Fetch com CACHE por chave (ref): desligar/religar a camada NÃO re-baixa
+  // os locais (VPS 1 vCPU). Chave = município focado OU "__all__" (candidato
+  // inteiro, clusterizado). Estado transitório (id null durante digitação)
+  // preserva o cache da visão estadual.
+  const lastFetchedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (mode !== "bairro" || !placesMuniId || !showPlaces) return;
-    if (lastFetchedMuniRef.current === placesMuniId) return; // cache válido
+    if (mode !== "bairro" || !showPlaces) return;
+    const key = placesMuniId ?? "__all__";
+    if (lastFetchedKeyRef.current === key) return; // cache válido
     let cancelled = false;
     // Troca A→B: zera antes do fetch (senão o narrowing do fLocal roda 1
     // render com locais da cidade errada).
     setPlaces(null);
+    setPlacesTotal(null);
     setPlacesError(false);
-    // year do candidato: os locais são year-aware (2018/2020/2022/2024).
-    // FALLBACK: ano sem locais importados (ex.: 2014/2016) devolvia lista
-    // VAZIA e a camada "não aparecia" — cai pra base 2024 (a mais completa;
-    // escolas mudam pouco, serve de referência geográfica).
-    api<VotingPlacePoint[]>(
-      `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=${c.election.year}`,
+    type PlacesApiResponse = {
+      items: (VotingPlacePoint & { municipality_name?: string })[];
+      meta: { total: number; returned: number; invalid_coords: number; capped: boolean };
+    };
+    // /voting-locations: coordenada saneada NO SERVIDOR + votos do candidato
+    // por local. Sem município focado vem o candidato inteiro (cap 5000 por
+    // votos desc — o cluster no mapa absorve o volume).
+    api<PlacesApiResponse>(
+      `/v1/tse/voting-locations?candidate_id=${c.id}` +
+        (placesMuniId ? `&municipality_id=${placesMuniId}` : ""),
     )
-      .then((d) =>
-        d.length === 0 && c.election.year !== 2024
-          ? api<VotingPlacePoint[]>(
-              `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=2024`,
-            )
-          : d,
-      )
+      .then(async (d) => {
+        // FALLBACK: eleição sem votação por seção (ex.: 2014/2016) devolve
+        // vazio — com um município focado, cai pra base geográfica 2024
+        // (escolas mudam pouco; sem votos, mas o mapa não fica "sem camada").
+        if (d.items.length === 0 && placesMuniId) {
+          const fb = await api<VotingPlacePoint[]>(
+            `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=2024`,
+          );
+          return {
+            items: fb.map((p) => ({ ...p, municipality_name: placesMuniName ?? undefined })),
+            meta: { total: fb.length, returned: fb.length, invalid_coords: 0, capped: false },
+          } satisfies PlacesApiResponse;
+        }
+        return d;
+      })
       .then((d) => {
         if (cancelled) return;
-        lastFetchedMuniRef.current = placesMuniId;
-        // Herda o município no ponto → tooltip "Local (Município)" desambigua
+        lastFetchedKeyRef.current = key;
+        // municipality no ponto → tooltip "Local (Município)" desambigua
         // escolas homônimas (requisito do PO).
-        setPlaces(d.map((p) => ({ ...p, municipality: placesMuniName })));
+        setPlaces(
+          d.items.map((p) => ({
+            ...p,
+            municipality: p.municipality ?? p.municipality_name ?? placesMuniName,
+          })),
+        );
+        setPlacesTotal(d.meta.total - d.meta.invalid_coords);
       })
       .catch(() => {
         if (!cancelled) {
           setPlaces(null);
           setPlacesError(true);
-          lastFetchedMuniRef.current = null; // religar a camada tenta de novo
+          lastFetchedKeyRef.current = null; // religar a camada tenta de novo
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [mode, placesMuniId, placesMuniName, showPlaces, c.election.year]);
+  }, [mode, placesMuniId, placesMuniName, showPlaces, c.id]);
 
   const filteredPlaces = useMemo(() => {
     if (!places) return undefined;
@@ -479,15 +504,17 @@ export function CandidateMapModal({ results, onClose }: Props) {
     setFLocal("");
     setShowPlaces((v) => !v);
   }, []);
+  // Sem exigir município focado (spec do PO): o candidato inteiro vem
+  // clusterizado do /voting-locations — o toggle só depende do modo bairro.
   const placesControl = useMemo(
     () => ({
-      active: showPlaces && !!placesMuniId && !placesError,
-      disabled: mode !== "bairro" || !placesMuniId,
-      loading: showPlaces && !!placesMuniId && places === null && !placesError,
-      error: showPlaces && !!placesMuniId && placesError,
+      active: showPlaces && !placesError,
+      disabled: mode !== "bairro",
+      loading: showPlaces && places === null && !placesError,
+      error: showPlaces && placesError,
       onToggle: togglePlaces,
     }),
-    [showPlaces, placesMuniId, places, placesError, togglePlaces, mode],
+    [showPlaces, places, placesError, togglePlaces, mode],
   );
 
   return (
@@ -624,6 +651,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 uf={c.state}
                 year={c.election.year}
                 votingPlaces={showPlaces ? filteredPlaces : undefined}
+                placesTotal={placesTotal}
                 placesControl={placesControl}
                 focus={focusPt}
                 onRetry={() => {
@@ -808,6 +836,7 @@ function BairroView({
   uf,
   year,
   votingPlaces,
+  placesTotal,
   placesControl,
   focus,
   onRetry,
@@ -820,6 +849,8 @@ function BairroView({
   uf: string;
   year: number;
   votingPlaces?: VotingPlacePoint[];
+  /** Total real de locais no servidor (cap de 5000 → "X de Y" no rodapé). */
+  placesTotal?: number | null;
   /** Toggle da camada de locais na barra do mapa. */
   placesControl?: PlacesControl;
   /** Voo gráfico→mapa (clique na barra). */
@@ -886,6 +917,7 @@ function BairroView({
     <CandidateNeighborhoodMap
       data={data}
       votingPlaces={votingPlaces}
+      placesTotal={placesTotal}
       placesControl={placesControl}
       focus={focus}
     />

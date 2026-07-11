@@ -19,6 +19,10 @@ import {
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+// Clustering dos locais de votação (milhares de pinos sem travar o mobile).
+// Só o CSS base do plugin — os ícones de cluster são custom (.mn-cluster).
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
 
 import type { TseCandidateByNeighborhoodResponse } from "@/lib/types";
 import { ThemedTileLayer } from "./ThemedTileLayer";
@@ -35,6 +39,10 @@ export type VotingPlacePoint = {
   electors: number | null;
   /** Município do local — desambigua escolas homônimas ("Nome (Município)"). */
   municipality?: string | null;
+  /** Endereço (novo endpoint /voting-locations). */
+  address?: string | null;
+  /** Votos do candidato NESTE local (só na consulta por candidato). */
+  votes?: number | null;
 };
 
 // Rótulo composto "Bairro (Município)" — regra de exibição do PO: deputado
@@ -64,12 +72,15 @@ export type PlacesControl = {
 export default function CandidateNeighborhoodMap({
   data,
   votingPlaces,
+  placesTotal,
   placesControl,
   focus,
 }: {
   data: TseCandidateByNeighborhoodResponse;
   /** Camada opcional de locais de votação (marcadores discretos). */
   votingPlaces?: VotingPlacePoint[];
+  /** Total REAL de locais no servidor (quando o cap de 5000 cortou a lista). */
+  placesTotal?: number | null;
   /** Botão "Locais de votação" na barra de controle do mapa (opcional). */
   placesControl?: PlacesControl;
   /** Voa até o ponto (sincronia gráfico → mapa). */
@@ -177,12 +188,12 @@ export default function CandidateNeighborhoodMap({
               disabled={placesControl.disabled}
               title={
                 placesControl.disabled
-                  ? "Filtre até um único município para ver os locais de votação"
+                  ? "Disponível na visão por bairro"
                   : placesControl.error
                     ? "Falha ao carregar os locais. Desligue e ligue para tentar de novo."
                     : placesControl.active
                       ? "Ocultar locais de votação"
-                      : "Mostrar todos os locais de votação do município"
+                      : "Mostrar os locais de votação (agrupados por proximidade)"
               }
               className={
                 "px-2.5 py-1 rounded inline-flex items-center gap-1 transition-colors disabled:opacity-45 disabled:cursor-not-allowed " +
@@ -215,7 +226,9 @@ export default function CandidateNeighborhoodMap({
           {votingPlaces && votingPlaces.length > 0 && (
             <span className="ml-2 inline-flex items-center gap-1 text-blue-500">
               · <span className="w-2 h-2 rounded-full bg-blue-500" />
-              {numberFmt.format(votingPlaces.length)} locais de votação
+              {placesTotal != null && placesTotal > votingPlaces.length
+                ? `${numberFmt.format(votingPlaces.length)} de ${numberFmt.format(placesTotal)} locais (maiores votações)`
+                : `${numberFmt.format(votingPlaces.length)} locais de votação`}
             </span>
           )}
         </span>
@@ -284,20 +297,40 @@ function esc(s: string): string {
 }
 
 // Locais como UMA camada imperativa (mesmo padrão do BubblesLayer do
-// CandidateVoteMap): canvas, sem mount React por marcador. Rótulos mantêm a
-// desambiguação "Nome (Município)".
+// CandidateVoteMap): sem mount React por marcador. Com CLUSTERING
+// (leaflet.markercluster): um deputado estadual tem MILHARES de locais com
+// voto — plotar tudo solto travava o mobile; agrupado, o Leaflet só
+// renderiza o que está no viewport/zoom. chunkedLoading fatia a inserção
+// em frames (não bloqueia o main thread na carga).
 function PlacesLayer({ places }: { places: VotingPlacePoint[] }) {
   const map = useMap();
   useEffect(() => {
     if (places.length === 0) return;
-    const group = L.layerGroup();
+    const group = L.markerClusterGroup({
+      chunkedLoading: true,
+      maxClusterRadius: 60,
+      // No zoom de rua o usuário quer VER as escolas, não bolhas de contagem.
+      disableClusteringAtZoom: 16,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: (cluster) => {
+        const n = cluster.getChildCount();
+        const size = n >= 100 ? "lg" : n >= 25 ? "md" : "sm";
+        return L.divIcon({
+          html: `<span>${n >= 1000 ? `${Math.round(n / 1000)}k` : n}</span>`,
+          className: `mn-cluster mn-cluster-${size}`,
+          iconSize: L.point(0, 0), // o tamanho real vem do CSS
+        });
+      },
+    });
     for (const vp of places) {
       // Coordenada precisa ser um número VÁLIDO — lat/lng null/NaN derrubam
-      // o L.circleMarker e a camada inteira "não aparece".
+      // o L.circleMarker e a camada inteira "não aparece". (O backend já
+      // saneia; isto é o cinto de segurança pra fontes antigas.)
       if (!Number.isFinite(vp.lat) || !Number.isFinite(vp.lng)) continue;
       const m = L.circleMarker([vp.lat, vp.lng], {
         pane: "mn-places",
-        radius: 3.5,
+        radius: 4,
         color: "#1d4ed8",
         fillColor: "#3b82f6",
         fillOpacity: 0.9,
@@ -305,23 +338,31 @@ function PlacesLayer({ places }: { places: VotingPlacePoint[] }) {
       });
       const muni = vp.municipality ? ` (${esc(vp.municipality)})` : "";
       const nb = vp.neighborhood ? ` · ${esc(vp.neighborhood)}` : "";
-      m.bindTooltip(`📍 ${esc(vp.name)}${muni}${nb}`, {
+      const votos =
+        vp.votes != null ? ` · ${numberFmt.format(vp.votes)} votos` : "";
+      m.bindTooltip(`${esc(vp.name)}${muni}${nb}${votos}`, {
         direction: "top",
-        offset: [0, -2],
+        offset: [0, -4],
         className: "mn-tip",
         opacity: 1,
       });
       m.bindPopup(
         `<div class="text-sm"><p class="font-semibold">${esc(vp.name)}${muni}</p>` +
+          (vp.votes != null
+            ? `<p class="mn-popup-votes">${numberFmt.format(vp.votes)} votos do candidato aqui</p>`
+            : "") +
           (vp.neighborhood
             ? `<p class="text-xs text-muted-foreground">${esc(vp.neighborhood)}</p>`
             : "") +
+          (vp.address
+            ? `<p class="text-xs text-muted-foreground">${esc(vp.address)}</p>`
+            : "") +
           (vp.electors != null && vp.electors > 0
-            ? `<p class="text-xs text-muted-foreground">${numberFmt.format(vp.electors)} eleitores</p>`
+            ? `<p class="text-xs text-muted-foreground">${numberFmt.format(vp.electors)} eleitores aptos</p>`
             : "") +
           "</div>",
       );
-      m.addTo(group);
+      group.addLayer(m);
     }
     group.addTo(map);
     return () => {

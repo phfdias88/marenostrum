@@ -514,3 +514,35 @@ class CandidateTrajectoryResponse(BaseModel):
     name: str
     current_id: UUID
     items: list[TrajectoryItem]
+
+
+class VotingLocationItem(BaseModel):
+    """Local de votação com coordenada SANEADA (camada WebGIS).
+
+    `votes` só existe quando a consulta é por candidato (soma dos votos de
+    seção do candidato naquele local); por município puro vem None.
+    """
+    id: UUID
+    name: str
+    address: str | None = None
+    neighborhood: str | None = None
+    municipality_name: str
+    municipality_state: str
+    lat: float
+    lng: float
+    electors: int | None = None
+    votes: int | None = None
+    geo_source: str | None = None  # tse | centroid | nominatim | viacep
+
+
+class VotingLocationsMeta(BaseModel):
+    """Transparência do saneamento e do cap: o front mostra 'X de Y locais'."""
+    total: int              # locais que casaram o filtro (antes de cap/saneamento)
+    returned: int           # locais efetivamente devolvidos
+    invalid_coords: int     # descartados por coordenada nula/fora do Brasil
+    capped: bool            # true quando `total - invalid_coords > returned`
+
+
+class VotingLocationsResponse(BaseModel):
+    items: list[VotingLocationItem]
+    meta: VotingLocationsMeta

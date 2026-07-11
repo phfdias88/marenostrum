@@ -371,3 +371,40 @@ html .leaflet-control-attribution {
 html .leaflet-control-attribution a {
   color: hsl(var(--muted-foreground)) !important;
 }
+
+/* Clusters de LOCAIS DE VOTAÇÃO (leaflet.markercluster, ícone custom).
+   Prefixo `html` vence o CSS do plugin (mesmo gotcha do chrome do Leaflet).
+   Azul dos pinos + anel: contagem legível sobre satélite e sobre o tile
+   claro/escuro. Tamanho cresce com a contagem (sm/md/lg). */
+html .mn-cluster {
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: hsl(217 91% 60% / 0.28);
+  border: 0;
+}
+html .mn-cluster span {
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
+  border: 2px solid rgb(255 255 255 / 0.85);
+}
+html .mn-cluster-sm { width: 34px; height: 34px; }
+html .mn-cluster-sm span { width: 26px; height: 26px; font-size: 11px; }
+html .mn-cluster-md { width: 44px; height: 44px; }
+html .mn-cluster-md span { width: 34px; height: 34px; font-size: 12px; }
+html .mn-cluster-lg { width: 54px; height: 54px; }
+html .mn-cluster-lg span { width: 42px; height: 42px; font-size: 13px; }
+
+/* Linha de votos no popup do local (destaque dourado do tema). */
+html .leaflet-popup-content .mn-popup-votes {
+  color: hsl(var(--primary));
+  font-weight: 700;
+  font-size: 0.9rem;
+}

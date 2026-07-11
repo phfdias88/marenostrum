@@ -88,6 +88,9 @@ from app.schemas.tse import (
     TopCandidateInMunicipality,
     TopCandidatesResponse,
     VoteResultByMunicipality,
+    VotingLocationItem,
+    VotingLocationsMeta,
+    VotingLocationsResponse,
     WinnerMapPoint,
     WinnersMapResponse,
 )
@@ -3142,6 +3145,149 @@ def tse_voting_places_map(
         }
         for p in rows
     ]
+
+
+# Bounding-box do Brasil: coordenada nula, zerada, trocada ou sentinela
+# (99.999…) do TSE cai fora daqui — saneamento no SERVIDOR, o front nunca
+# recebe ponto que derrubaria o L.marker.
+_BR_LAT = (-34.0, 6.0)
+_BR_LNG = (-74.0, -34.0)
+
+
+def _valid_coords_clause():
+    return and_(
+        TseVotingPlace.latitude.is_not(None),
+        TseVotingPlace.longitude.is_not(None),
+        TseVotingPlace.latitude.between(*_BR_LAT),
+        TseVotingPlace.longitude.between(*_BR_LNG),
+    )
+
+
+@router.get(
+    "/voting-locations",
+    response_model=VotingLocationsResponse,
+    summary="Locais de votação saneados p/ o WebGIS (por candidato e/ou município)",
+    description="""\
+Camada de LOCAIS DE VOTAÇÃO do mapa, unificando os dois recortes:
+
+- **`candidate_id`**: todos os locais onde o candidato recebeu voto de seção
+  (`votes` = soma no local). Cobertura = a da votação por seção
+  (2018/2020/2022 RJ · 2024 Brasil).
+- **`municipality_id`** (sem candidato): todos os locais do município no
+  `year` (default 2024), com eleitorado e sem `votes`.
+- Os dois juntos restringem o candidato a um município.
+
+**Saneamento no servidor**: locais com lat/lng nula ou fora da bounding-box do
+Brasil são REMOVIDOS antes da resposta e contabilizados em
+`meta.invalid_coords` (o TSE traz sentinelas tipo 99.999 e coordenadas
+zeradas). `meta.total`/`meta.capped` dão transparência ao cap de `limit`
+(ordenado por votos ou eleitorado desc — os locais mais relevantes primeiro).
+""",
+)
+def tse_voting_locations(
+    ctx: CurrentTenant,
+    candidate_id: UUID | None = Query(None, description="Candidato (votos por local)"),
+    municipality_id: UUID | None = Query(None, description="Restringe a um município"),
+    year: int = Query(2024, ge=1994, le=2030, description="Ano da base de locais (só sem candidato)"),
+    limit: int = Query(5000, ge=1, le=8000),
+    db: Session = Depends(get_db),
+) -> VotingLocationsResponse:
+    if candidate_id is None and municipality_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe candidate_id e/ou municipality_id.",
+        )
+
+    valid = _valid_coords_clause()
+
+    if candidate_id is not None:
+        if db.get(Candidate, candidate_id) is None:
+            raise NotFoundError("Candidato nao encontrado")
+        # Locais COM VOTO do candidato (seção × local). O ano é implícito:
+        # os voting_place_id das seções já pertencem à eleição do candidato.
+        base = (
+            select(
+                TseVotingPlace.id.label("place_id"),
+                func.sum(TseSectionVote.votes).label("votes"),
+            )
+            .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+            .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
+            .group_by(TseVotingPlace.id)
+        )
+        if municipality_id is not None:
+            base = base.where(TseVotingPlace.municipality_id == municipality_id)
+        sub = base.subquery()
+
+        total, invalid = db.execute(
+            select(
+                func.count(),
+                func.count().filter(~valid),
+            )
+            .select_from(sub)
+            .join(TseVotingPlace, TseVotingPlace.id == sub.c.place_id)
+        ).one()
+
+        rows = db.execute(
+            select(TseVotingPlace, Municipality, sub.c.votes)
+            .select_from(sub)
+            .join(TseVotingPlace, TseVotingPlace.id == sub.c.place_id)
+            .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+            .where(valid)
+            .order_by(sub.c.votes.desc())
+            .limit(limit)
+        ).all()
+        items = [
+            _voting_location_item(p, m, votes=int(v))
+            for p, m, v in rows
+        ]
+    else:
+        base_where = [
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+        ]
+        total, invalid = db.execute(
+            select(
+                func.count(),
+                func.count().filter(~valid),
+            ).where(*base_where)
+        ).one()
+
+        rows = db.execute(
+            select(TseVotingPlace, Municipality)
+            .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+            .where(*base_where, valid)
+            .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+            .limit(limit)
+        ).all()
+        items = [_voting_location_item(p, m, votes=None) for p, m in rows]
+
+    return VotingLocationsResponse(
+        items=items,
+        meta=VotingLocationsMeta(
+            total=int(total),
+            returned=len(items),
+            invalid_coords=int(invalid),
+            capped=(int(total) - int(invalid)) > len(items),
+        ),
+    )
+
+
+def _voting_location_item(
+    p: TseVotingPlace, m: Municipality, votes: int | None
+) -> VotingLocationItem:
+    return VotingLocationItem(
+        id=p.id,
+        name=p.name,
+        address=p.address,
+        neighborhood=p.neighborhood,
+        municipality_name=m.name,
+        municipality_state=m.state,
+        lat=float(p.latitude),
+        lng=float(p.longitude),
+        electors=p.electors_total,
+        votes=votes,
+        geo_source=p.geo_source,
+    )
 
 
 @router.get(
