@@ -254,6 +254,52 @@ export default function CandidateNeighborhoodMap({
   );
 }
 
+/** Visão LOCAIS do modal: mapa SÓ de locais de votação clusterizados (sem
+ *  bolhas de bairro), com rodapé de contagem. Reusa PlacesLayer/AutoFit/FlyTo. */
+export function VotingPlacesMap({
+  places,
+  total,
+  focus,
+}: {
+  places: VotingPlacePoint[];
+  /** Total real no servidor (cap de 5000 → "X de Y"). */
+  total?: number | null;
+  focus?: MapFocus | null;
+}) {
+  const pts = useMemo(
+    () => places.map((p) => [p.lat, p.lng] as [number, number]),
+    [places],
+  );
+  return (
+    <div className="h-full w-full flex flex-col">
+      <div className="flex-1 relative">
+        <MapContainer
+          center={DEFAULT_CENTER}
+          zoom={4}
+          scrollWheelZoom
+          preferCanvas
+          className="h-full w-full"
+        >
+          <ThemedTileLayer />
+          <Pane name="mn-places" style={{ zIndex: 640 }} />
+          {places.length > 0 && <PlacesLayer places={places} />}
+          <AutoFit points={pts} />
+          <FlyTo focus={focus} />
+        </MapContainer>
+      </div>
+      <div className="px-3 py-2 text-xs text-muted-foreground bg-card border-t border-border flex items-center gap-2 flex-wrap">
+        <span className="inline-flex items-center gap-1 text-blue-500">
+          <span className="w-2 h-2 rounded-full bg-blue-500" />
+          {total != null && total > places.length
+            ? `${numberFmt.format(places.length)} de ${numberFmt.format(total)} locais (maiores votações)`
+            : `${numberFmt.format(places.length)} ${places.length === 1 ? "local de votação" : "locais de votação"}`}
+        </span>
+        <span>· agrupados por proximidade; aproxime para ver cada escola</span>
+      </div>
+    </div>
+  );
+}
+
 function AutoFit({ points }: { points: [number, number][] }) {
   const map = useMap();
   // Assinatura por VALOR: os filtros do modal re-renderizam o mapa com um

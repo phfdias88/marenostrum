@@ -61,6 +61,15 @@ const CandidateNeighborhoodMap = dynamic(
   },
 );
 
+// Visão LOCAIS: mapa só de escolas clusterizadas (sem bolhas de bairro).
+const VotingPlacesMap = dynamic(
+  () =>
+    import("@/components/map/CandidateNeighborhoodMap").then(
+      (m) => m.VotingPlacesMap,
+    ),
+  { ssr: false, loading: () => <MapPlaceholder /> },
+);
+
 // Recharts é pesado → só no client (recomendação do próprio componente).
 const VotesBarChart = dynamic(
   () => import("@/components/tse/VotesBarChart").then((m) => m.VotesBarChart),
@@ -99,7 +108,7 @@ type Props = {
   onClose: () => void;
 };
 
-type Mode = "municipio" | "bairro";
+type Mode = "municipio" | "bairro" | "locais";
 
 export function CandidateMapModal({ results, onClose }: Props) {
   const c = results.candidate;
@@ -290,8 +299,13 @@ export function CandidateMapModal({ results, onClose }: Props) {
   // inteiro, clusterizado). Estado transitório (id null durante digitação)
   // preserva o cache da visão estadual.
   const lastFetchedKeyRef = useRef<string | null>(null);
+  // Nonce de retry: religar depois de erro precisa re-disparar o efeito
+  // (nenhuma outra dep muda no clique de "Tentar novamente").
+  const [placesRetry, setPlacesRetry] = useState(0);
   useEffect(() => {
-    if (mode !== "bairro" || !showPlaces) return;
+    // Busca no modo LOCAIS (visão própria) ou no modo bairro com a camada
+    // opcional ligada pelo chip do mapa.
+    if (!(mode === "locais" || (mode === "bairro" && showPlaces))) return;
     const key = placesMuniId ?? "__all__";
     if (lastFetchedKeyRef.current === key) return; // cache válido
     let cancelled = false;
@@ -349,7 +363,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [mode, placesMuniId, placesMuniName, showPlaces, c.id]);
+  }, [mode, placesMuniId, placesMuniName, showPlaces, c.id, placesRetry]);
 
   const filteredPlaces = useMemo(() => {
     if (!places) return undefined;
@@ -357,6 +371,34 @@ export function CandidateMapModal({ results, onClose }: Props) {
     const n = norm(fLocal);
     return places.filter((p) => norm(p.name).includes(n));
   }, [places, fLocal]);
+
+  // ---- Visão LOCAIS: lista própria, filtrada pelos 3 campos ----
+  // (município e bairro filtram client-side sobre os locais já baixados; o
+  // filtro de município TAMBÉM refina o fetch via placesMuniId quando foca
+  // uma cidade — aí vem a lista completa dela do servidor.)
+  const locaisViewItems = useMemo(() => {
+    if (mode !== "locais" || !places) return [];
+    let list = places;
+    if (fMuni.trim()) {
+      const n = norm(fMuni);
+      list = list.filter((p) => norm(p.municipality ?? "").includes(n));
+    }
+    if (fBairro.trim()) {
+      const tokens = norm(fBairro).split(/\s+/);
+      list = list.filter((p) => {
+        const comp = norm(`${p.neighborhood ?? ""} (${p.municipality ?? ""})`);
+        return tokens.every((t) => comp.includes(t));
+      });
+    }
+    if (fLocal.trim()) {
+      const n = norm(fLocal);
+      list = list.filter((p) => norm(p.name).includes(n));
+    }
+    return list;
+  }, [mode, places, fMuni, fBairro, fLocal]);
+  // O gráfico corta em 300 barras (5.000 linhas de DOM travam o aside);
+  // o MAPA continua plotando todos.
+  const LOCAIS_CHART_MAX = 300;
 
   // ---- Visão BAIRRO filtrada (município + bairro + local) ----
   const filteredNbItems = useMemo(() => {
@@ -395,6 +437,21 @@ export function CandidateMapModal({ results, onClose }: Props) {
         value: r.votes,
       }));
     }
+    if (mode === "locais") {
+      // já vem do servidor ordenado por votos desc
+      return locaisViewItems.slice(0, LOCAIS_CHART_MAX).map((p) => ({
+        key: p.id,
+        label: titleCase(p.name),
+        sublabel:
+          [
+            p.neighborhood ? titleCase(p.neighborhood) : null,
+            !singleMuni && p.municipality ? titleCase(p.municipality) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined,
+        value: p.votes ?? 0,
+      }));
+    }
     return filteredNbItems.map((i) => ({
       key: `${i.municipality_id ?? ""}-${i.neighborhood}`,
       // Relação composta no EIXO — "Centro (Juiz de Fora)" (requisito do PO)
@@ -408,7 +465,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
         : undefined,
       value: i.votes,
     }));
-  }, [mode, filteredMuniResults, filteredNbItems, singleMuni]);
+  }, [mode, filteredMuniResults, filteredNbItems, locaisViewItems, singleMuni]);
 
   // Clique na barra → destaca + voa até o alvo no mapa. No mobile (gráfico
   // abaixo do mapa) ainda rola a tela de volta pro mapa.
@@ -422,6 +479,9 @@ export function CandidateMapModal({ results, onClose }: Props) {
       if (r?.municipality.latitude != null && r.municipality.longitude != null) {
         pt = { lat: r.municipality.latitude, lng: r.municipality.longitude, zoom: 11 };
       }
+    } else if (mode === "locais") {
+      const p = locaisViewItems.find((x) => x.id === item.key);
+      if (p) pt = { lat: p.lat, lng: p.lng, zoom: 16 };
     } else {
       const it = filteredNbItems.find(
         (x) => `${x.municipality_id ?? ""}-${x.neighborhood}` === item.key,
@@ -457,6 +517,27 @@ export function CandidateMapModal({ results, onClose }: Props) {
         extra: null as string | null,
       };
     }
+    if (mode === "locais") {
+      const p = locaisViewItems.find((x) => x.id === selKey);
+      if (!p) return null;
+      const parts: string[] = [];
+      if (p.neighborhood) parts.push(titleCase(p.neighborhood));
+      if (p.address) parts.push(titleCase(p.address));
+      if (p.electors != null && p.electors > 0)
+        parts.push(`${numberFmt.format(p.electors)} eleitores aptos`);
+      return {
+        title:
+          p.municipality && !singleMuni
+            ? `${titleCase(p.name)} (${titleCase(p.municipality)})`
+            : titleCase(p.name),
+        votes: p.votes ?? 0,
+        share:
+          results.total_votes > 0 && p.votes != null
+            ? (p.votes / results.total_votes) * 100
+            : null,
+        extra: parts.join(" · ") || null,
+      };
+    }
     const it = filteredNbItems.find(
       (x) => `${x.municipality_id ?? ""}-${x.neighborhood}` === selKey,
     );
@@ -481,22 +562,30 @@ export function CandidateMapModal({ results, onClose }: Props) {
           : null,
       extra: parts.join(" · "),
     };
-  }, [selKey, mode, filteredMuniResults, filteredNbItems, neighborhood, results]);
+  }, [selKey, mode, filteredMuniResults, filteredNbItems, locaisViewItems, singleMuni, neighborhood, results]);
 
-  // Local só é filtrável com a camada LIGADA e locais carregados — antes
-  // disso a busca seria silenciosamente inerte.
+  // Local só é filtrável com locais carregados — antes disso a busca seria
+  // silenciosamente inerte. No modo LOCAIS o campo é sempre a busca principal.
   const localDisabled =
-    mode !== "bairro" || !placesMuniId || !showPlaces || places === null;
+    mode === "locais"
+      ? places === null
+      : mode !== "bairro" || !placesMuniId || !showPlaces || places === null;
   const localPlaceholder =
-    mode !== "bairro" || !placesMuniId
-      ? "Local de votação (filtre 1 município)…"
-      : !showPlaces
-        ? "Ative os locais de votação no mapa…"
-        : places === null
-          ? placesError
-            ? "Locais de votação indisponíveis"
-            : "Carregando locais de votação…"
-          : `Buscar local de votação em ${placesMuniName}…`;
+    mode === "locais"
+      ? places === null
+        ? placesError
+          ? "Locais de votação indisponíveis"
+          : "Carregando locais de votação…"
+        : "Buscar local de votação…"
+      : mode !== "bairro" || !placesMuniId
+        ? "Local de votação (filtre 1 município)…"
+        : !showPlaces
+          ? "Ative os locais de votação no mapa…"
+          : places === null
+            ? placesError
+              ? "Locais de votação indisponíveis"
+              : "Carregando locais de votação…"
+            : `Buscar local de votação em ${placesMuniName}…`;
 
   // Toggle da camada de locais — renderizado DENTRO do mapa (barra de
   // controle), estado aqui na página. useCallback/useMemo: identidade estável
@@ -506,6 +595,12 @@ export function CandidateMapModal({ results, onClose }: Props) {
     // porém inerte e o gráfico/total expandem contradizendo o input.
     setFLocal("");
     setShowPlaces((v) => !v);
+  }, []);
+  const retryPlaces = useCallback(() => {
+    lastFetchedKeyRef.current = null;
+    setPlaces(null);
+    setPlacesError(false);
+    setPlacesRetry((n) => n + 1);
   }, []);
   // Sem exigir município focado (spec do PO): o candidato inteiro vem
   // clusterizado do /voting-locations — o toggle só depende do modo bairro.
@@ -569,11 +664,10 @@ export function CandidateMapModal({ results, onClose }: Props) {
           </button>
 
           <div className="flex items-center gap-2 flex-wrap order-3 w-full sm:w-auto sm:order-2 sm:ml-auto">
-            {/* Toggle — "Locais" é o 3º segmento (pedido do dono: mesmo peso
-                visual de Município/Bairro). Município/Bairro são VISÕES
-                exclusivas; Locais é uma CAMADA sobre a visão de bairro:
-                acionar fora dela troca pra bairro E liga os pinos; dentro
-                dela, liga/desliga. */}
+            {/* Toggle — 3 VISÕES exclusivas (pedido do dono: cada segmento
+                setado individualmente). "Locais" tem mapa e ranking próprios
+                (votos por escola); a camada opcional sobre a visão de bairro
+                continua existindo pelo chip dentro do mapa. */}
             <div className="flex gap-1 bg-background border border-border rounded-md p-0.5">
               <ModeBtn
                 active={mode === "municipio"}
@@ -588,15 +682,8 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 label="Bairro"
               />
               <ModeBtn
-                active={mode === "bairro" && showPlaces && !placesError}
-                onClick={() => {
-                  if (mode !== "bairro") {
-                    pick("bairro");
-                    setShowPlaces(true);
-                  } else {
-                    togglePlaces();
-                  }
-                }}
+                active={mode === "locais"}
+                onClick={() => pick("locais")}
                 icon={<Landmark className="w-3.5 h-3.5" />}
                 label="Locais"
               />
@@ -691,6 +778,60 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 }}
               />
             )}
+            {/* Visão LOCAIS: mapa clusterizado próprio (sem bolhas de bairro). */}
+            {mode === "locais" &&
+              (places === null ? (
+                <div className="h-full grid place-items-center text-muted-foreground">
+                  {placesError ? (
+                    <div className="text-center">
+                      <p className="text-sm text-red-400">
+                        Não foi possível carregar os locais de votação.
+                      </p>
+                      <button
+                        onClick={retryPlaces}
+                        className="mt-3 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+                      >
+                        Tentar novamente
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Carregando locais de votação…
+                    </div>
+                  )}
+                </div>
+              ) : places.length === 0 ? (
+                <div className="h-full grid place-items-center p-8 text-center">
+                  <div className="max-w-md">
+                    <Landmark className="mx-auto w-10 h-10 text-muted-foreground" />
+                    <p className="text-lg font-semibold mt-3">
+                      Locais de votação indisponíveis
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Ainda não há votação por seção para esta eleição
+                      (<strong>{c.state} · {c.election.year}</strong>) — os
+                      locais com votos do candidato dependem desses dados.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <VotingPlacesMap
+                    places={locaisViewItems}
+                    total={placesTotal}
+                    focus={focusPt}
+                  />
+                  {locaisViewItems.length === 0 && (
+                    <div className="absolute inset-0 z-[500] grid place-items-center bg-background/60 pointer-events-none">
+                      <p className="text-sm text-muted-foreground max-w-sm px-4 text-center">
+                        Nenhum local casa com os filtros atuais. Limpe ou
+                        ajuste a busca acima.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ))}
           </div>
 
           <aside className="lg:w-[400px] xl:w-[440px] shrink-0 border-t lg:border-t-0 lg:border-l border-border overflow-y-auto mn-scroll p-3 sm:p-4 bg-background/30">
@@ -700,25 +841,44 @@ export function CandidateMapModal({ results, onClose }: Props) {
               <p className="text-sm uppercase tracking-widest text-muted-foreground">
                 {mode === "municipio"
                   ? "Votos por município"
-                  : singleMuni
-                    ? `Votos por bairro · ${titleCase(results.results[0].municipality.name)}`
-                    : "Votos por bairro (município)"}
+                  : mode === "locais"
+                    ? "Votos por local de votação"
+                    : singleMuni
+                      ? `Votos por bairro · ${titleCase(results.results[0].municipality.name)}`
+                      : "Votos por bairro (município)"}
               </p>
               <p className="mt-1 text-3xl xl:text-4xl font-bold text-primary tabular-nums tracking-tight leading-none">
-                {numberFmt.format(chartItems.reduce((s, i) => s + i.value, 0))}
+                {/* No modo locais soma a LISTA INTEIRA (o gráfico corta em 300). */}
+                {numberFmt.format(
+                  mode === "locais"
+                    ? locaisViewItems.reduce((s, p) => s + (p.votes ?? 0), 0)
+                    : chartItems.reduce((s, i) => s + i.value, 0),
+                )}
               </p>
               <p className="mt-1 text-sm text-muted-foreground">
                 votos no filtro
               </p>
               <span className="mt-2 text-[11px] px-2.5 py-0.5 rounded-full border border-primary/20 bg-primary/5 text-muted-foreground tabular-nums">
-                {numberFmt.format(chartItems.length)}{" "}
-                {mode === "municipio"
-                  ? chartItems.length === 1
-                    ? "município"
-                    : "municípios"
-                  : chartItems.length === 1
-                    ? "bairro"
-                    : "bairros"}
+                {mode === "locais" ? (
+                  <>
+                    {numberFmt.format(locaisViewItems.length)}{" "}
+                    {locaisViewItems.length === 1 ? "local" : "locais"}
+                    {locaisViewItems.length > LOCAIS_CHART_MAX
+                      ? ` · gráfico com os ${LOCAIS_CHART_MAX} maiores`
+                      : ""}
+                  </>
+                ) : (
+                  <>
+                    {numberFmt.format(chartItems.length)}{" "}
+                    {mode === "municipio"
+                      ? chartItems.length === 1
+                        ? "município"
+                        : "municípios"
+                      : chartItems.length === 1
+                        ? "bairro"
+                        : "bairros"}
+                  </>
+                )}
               </span>
               <p className="text-[11px] text-muted-foreground mt-2 flex items-center justify-center gap-1.5">
                 <MousePointerClick className="w-3.5 h-3.5 text-primary/70" />
@@ -768,13 +928,19 @@ export function CandidateMapModal({ results, onClose }: Props) {
               onItemClick={onBarClick}
               selectedKey={selKey}
               topN={30}
-              yAxisWidth={mode === "bairro" && !singleMuni ? 168 : 128}
+              yAxisWidth={
+                mode === "locais" || (mode === "bairro" && !singleMuni) ? 168 : 128
+              }
               emptyText={
-                mode === "bairro" && nbLoading
-                  ? "Carregando bairros…"
-                  : mode === "bairro" && nbError
-                    ? "Erro ao carregar os bairros. Use “Tentar novamente” no mapa."
-                    : "Nada encontrado para esse filtro."
+                mode === "locais" && places === null
+                  ? placesError
+                    ? "Erro ao carregar os locais. Use “Tentar novamente” no mapa."
+                    : "Carregando locais de votação…"
+                  : mode === "bairro" && nbLoading
+                    ? "Carregando bairros…"
+                    : mode === "bairro" && nbError
+                      ? "Erro ao carregar os bairros. Use “Tentar novamente” no mapa."
+                      : "Nada encontrado para esse filtro."
               }
             />
           </aside>
