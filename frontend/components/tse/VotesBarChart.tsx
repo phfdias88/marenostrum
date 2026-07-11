@@ -338,7 +338,7 @@ export function VotesBarChart({
                     formatter={(v: unknown) => compactFmt.format(Number(v))}
                     className="fill-foreground"
                     fontSize={11}
-                    fontWeight={600}
+                    fontWeight={700}
                   />
                 )}
               </Bar>
