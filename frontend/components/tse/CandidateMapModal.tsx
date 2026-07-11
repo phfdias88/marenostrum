@@ -100,6 +100,22 @@ function titleCase(s: string): string {
     .join(" ");
 }
 
+/** Abreviação padrão de locais de votação: o prefixo genérico ("Escola
+ *  Municipal…") repetido em toda linha comia a largura do eixo e escondia
+ *  justamente o nome que distingue. Convenção corrente: E.M., E.E., CIEP. */
+function shortPlaceName(name: string): string {
+  return titleCase(name)
+    .replace(/^Centro Integrado De Educa[cç][aã]o P[uú]blica\s*[-·]?\s*/i, "CIEP ")
+    .replace(/^Escola Municipal(?:izada)?\s+/i, "E.M. ")
+    .replace(/^Escola Estadual\s+/i, "E.E. ")
+    .replace(/^Col[eé]gio Estadual\s+/i, "C.E. ")
+    .replace(/^Col[eé]gio Municipal\s+/i, "C.M. ")
+    .replace(/^Centro Educacional\s+/i, "C. Educ. ")
+    .replace(/^Centro De Educa[cç][aã]o\s+/i, "C. Educ. ")
+    .replace(/^Ci[eé]p\s*[-·]?\s*/i, "CIEP ")
+    .trim();
+}
+
 /** Ponto pro mapa voar ao clicar numa barra — `n` re-dispara no mesmo alvo. */
 type MapFocus = { lat: number; lng: number; zoom: number; n: number };
 
@@ -441,7 +457,9 @@ export function CandidateMapModal({ results, onClose }: Props) {
       // já vem do servidor ordenado por votos desc
       return locaisViewItems.slice(0, LOCAIS_CHART_MAX).map((p) => ({
         key: p.id,
-        label: titleCase(p.name),
+        // Abreviação padrão (E.M., E.E., CIEP): o prefixo genérico repetido
+        // comia a largura e escondia justamente o nome que distingue.
+        label: shortPlaceName(p.name),
         sublabel:
           [
             p.neighborhood ? titleCase(p.neighborhood) : null,
@@ -454,15 +472,14 @@ export function CandidateMapModal({ results, onClose }: Props) {
     }
     return filteredNbItems.map((i) => ({
       key: `${i.municipality_id ?? ""}-${i.neighborhood}`,
-      // Relação composta no EIXO — "Centro (Juiz de Fora)" (requisito do PO)
-      // — exceto candidato de 1 município (sufixo vira ruído repetido).
-      label:
+      // Nome LIMPO no eixo; o município (desambiguador de homônimo, requisito
+      // do PO) vai pra 2ª linha do tick via sublabel — antes o "(Município)"
+      // roubava a linha e truncava o próprio bairro.
+      label: titleCase(i.neighborhood),
+      sublabel:
         i.municipality_name && !singleMuni
-          ? `${titleCase(i.neighborhood)} (${titleCase(i.municipality_name)})`
-          : titleCase(i.neighborhood),
-      sublabel: i.municipality_name
-        ? `${titleCase(i.municipality_name)}/${i.municipality_state ?? ""}`
-        : undefined,
+          ? `${titleCase(i.municipality_name)}/${i.municipality_state ?? ""}`
+          : undefined,
       value: i.votes,
     }));
   }, [mode, filteredMuniResults, filteredNbItems, locaisViewItems, singleMuni]);

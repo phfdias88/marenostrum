@@ -42,9 +42,27 @@ const compactFmt = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 1,
 });
 
+// Truncagem: corta com reticências; SEM sublinha, preserva o sufixo
+// "(Município)" (desambiguador de homônimos em labels compostos legados).
+function truncate(raw: string, maxChars: number, preserveSuffix: boolean): string {
+  if (raw.length <= maxChars) return raw;
+  if (preserveSuffix) {
+    const m = raw.match(/^(.*?)\s*(\([^()]*\))$/);
+    if (m) {
+      const suffix = " " + m[2];
+      const keep = Math.max(4, maxChars - suffix.length - 1);
+      return m[1].slice(0, keep) + "…" + suffix;
+    }
+  }
+  return raw.slice(0, maxChars - 1) + "…";
+}
+
 // Tick do eixo Y com RANKING: "1º Bangu". O rank é TEXTO (top-3 em ouro) — a
 // cor da BARRA segue a entidade, nunca o rank (regra de dataviz: filtro que
 // muda posições não pode "repintar" quem sobrou).
+// Com `sub` vira DUAS linhas: nome em cima (inteiro, sem disputar espaço com
+// o contexto) e município/bairro embaixo, menor e apagado — fim do
+// "Camp… (Rio de Janeiro)" que escondia justamente o nome do bairro.
 type TickProps = {
   x?: number;
   y?: number;
@@ -57,36 +75,47 @@ function RankedTick({
   index = 0,
   payload,
   maxChars,
-}: TickProps & { maxChars: number }) {
+  sub,
+}: TickProps & { maxChars: number; sub?: string }) {
   const raw = String(payload?.value ?? "");
-  let label = raw;
-  if (raw.length > maxChars) {
-    // Preserva o sufixo "(Município)" — desambiguador de homônimos.
-    const m = raw.match(/^(.*?)\s*(\([^()]*\))$/);
-    if (m) {
-      const suffix = " " + m[2];
-      const keep = Math.max(4, maxChars - suffix.length - 1);
-      label = m[1].slice(0, keep) + "…" + suffix;
-    } else {
-      label = raw.slice(0, maxChars - 1) + "…";
-    }
-  }
+  const label = truncate(raw, maxChars, !sub);
+  // Linha 2 é menor (9.5px) → cabem mais caracteres na mesma largura.
+  const subTxt = sub ? truncate(sub, Math.floor(maxChars * 1.35), false) : null;
   const top3 = index < 3;
   return (
     <g transform={`translate(${x},${y})`}>
-      <text x={0} y={0} dy={3.5} textAnchor="end" fontSize={11}>
+      <text
+        x={0}
+        y={0}
+        dy={subTxt ? -1.5 : 4}
+        textAnchor="end"
+        fontSize={12}
+      >
         <tspan
-          fontSize={9}
+          fontSize={9.5}
           fontWeight={700}
           fill={top3 ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))"}
           opacity={top3 ? 1 : 0.65}
         >
           {index + 1}º
         </tspan>
-        <tspan dx={4} fill="hsl(var(--foreground))" opacity={0.92}>
+        <tspan dx={4} fill="hsl(var(--foreground))" opacity={0.95} fontWeight={600}>
           {label}
         </tspan>
       </text>
+      {subTxt && (
+        <text
+          x={0}
+          y={0}
+          dy={11.5}
+          textAnchor="end"
+          fontSize={9.5}
+          fill="hsl(var(--muted-foreground))"
+          opacity={0.9}
+        >
+          {subTxt}
+        </text>
+      )}
     </g>
   );
 }
@@ -138,9 +167,11 @@ export function VotesBarChart({
     return base.slice(0, topN);
   }, [items, q, topN]);
 
-  // Altura proporcional ao nº de barras (~30px por linha: respiro entre as
-  // barras deixa o painel menos denso — polish pedido pelo PO), com piso.
-  const height = Math.max(200, filtered.length * 30 + 36);
+  // Altura proporcional ao nº de barras, com piso. Tick de 2 linhas (nome +
+  // contexto) pede ~40px por linha; sem sublabel, 30px bastam.
+  const hasSub = useMemo(() => filtered.some((i) => i.sublabel), [filtered]);
+  const rowH = hasSub ? 40 : 30;
+  const height = Math.max(200, filtered.length * rowH + 36);
 
   return (
     <div>
@@ -217,14 +248,18 @@ export function VotesBarChart({
                 tickLine={false}
                 axisLine={false}
                 interval={0}
-                // Tick custom: "1º Bangu" (rank + nome; truncagem proporcional
-                // à largura, preservando o sufixo "(Município)").
-                tick={(p: unknown) => (
-                  <RankedTick
-                    {...(p as TickProps)}
-                    maxChars={Math.max(10, Math.floor(yAxisWidth / 7) - 3)}
-                  />
-                )}
+                // Tick custom: "1º Bangu" + linha 2 com o contexto (município/
+                // bairro) — o nome não disputa mais espaço com o sufixo.
+                tick={(p: unknown) => {
+                  const tp = p as TickProps;
+                  return (
+                    <RankedTick
+                      {...tp}
+                      maxChars={Math.max(10, Math.floor((yAxisWidth - 26) / 7))}
+                      sub={filtered[tp.index ?? 0]?.sublabel}
+                    />
+                  );
+                }}
               />
               <Tooltip
                 cursor={{ fill: "hsl(var(--muted-foreground))", fillOpacity: 0.08 }}
@@ -253,6 +288,16 @@ export function VotesBarChart({
               <Bar
                 dataKey="value"
                 radius={[0, 6, 6, 0]}
+                // Espessura FIXA com tick de 2 linhas: a banda de 40px vira
+                // barra de 18px + respiro (sem isso a barra engorda junto).
+                barSize={hasSub ? 18 : undefined}
+                // Trilho discreto atrás da barra: dá régua visual do 100% e
+                // descola as barras curtas do fundo.
+                background={{
+                  fill: "hsl(var(--muted-foreground))",
+                  fillOpacity: 0.06,
+                  radius: 6,
+                }}
                 isAnimationActive={false}
                 cursor={onItemClick ? "pointer" : undefined}
                 onClick={
@@ -291,8 +336,9 @@ export function VotesBarChart({
                     dataKey="value"
                     position="right"
                     formatter={(v: unknown) => compactFmt.format(Number(v))}
-                    className="fill-muted-foreground"
-                    fontSize={10}
+                    className="fill-foreground"
+                    fontSize={11}
+                    fontWeight={600}
                   />
                 )}
               </Bar>
