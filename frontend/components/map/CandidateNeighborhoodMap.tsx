@@ -196,20 +196,23 @@ export default function CandidateNeighborhoodMap({
                       : "Mostrar os locais de votação (agrupados por proximidade)"
               }
               className={
-                "px-2.5 py-1 rounded inline-flex items-center gap-1 transition-colors disabled:opacity-45 disabled:cursor-not-allowed " +
+                // Desligado NÃO é cinza-fantasma: chip com borda e texto vivos,
+                // rótulo vira verbo ("Exibir…") — senão o usuário não percebe
+                // que é um botão e acha que a feature "não aparece" (aconteceu).
+                "px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 border transition-colors disabled:opacity-45 disabled:cursor-not-allowed " +
                 (placesControl.active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground")
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-foreground border-border hover:border-primary/60")
               }
             >
               {placesControl.loading ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : placesControl.error ? (
-                <AlertTriangle className="w-3 h-3 text-amber-500" />
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
               ) : (
-                <Landmark className="w-3 h-3" />
+                <Landmark className="w-3.5 h-3.5" />
               )}{" "}
-              Locais de votação
+              {placesControl.active ? "Locais de votação" : "Exibir locais de votação"}
             </button>
           </div>
         )}

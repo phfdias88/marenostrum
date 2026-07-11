@@ -600,18 +600,30 @@ export function CandidateMapModal({ results, onClose }: Props) {
             placeholder="Buscar bairro (município)…"
             title="Filtra os bairros. A busca casa também com o município do bairro."
           />
-          <FilterInput
-            icon={<Landmark className="w-3.5 h-3.5" />}
-            value={fLocal}
-            onChange={setFLocal}
-            placeholder={localPlaceholder}
-            disabled={localDisabled}
-            title={
-              localDisabled
-                ? "Os locais de votação são por município: use o modo Bairro e filtre um único município (ou candidato de 1 cidade)."
-                : undefined
-            }
-          />
+          {/* Camada desligada: o placeholder pede "ative..." — então CLICAR no
+              campo LIGA a camada (feedback real, não instrução morta). O toque
+              no chip do mapa desligava sem querer e o usuário ficava preso. */}
+          <div
+            onClick={() => {
+              if (mode === "bairro" && !showPlaces) setShowPlaces(true);
+            }}
+            className={mode === "bairro" && !showPlaces ? "cursor-pointer" : undefined}
+          >
+            <FilterInput
+              icon={<Landmark className="w-3.5 h-3.5" />}
+              value={fLocal}
+              onChange={setFLocal}
+              placeholder={localPlaceholder}
+              disabled={localDisabled}
+              title={
+                mode === "bairro" && !showPlaces
+                  ? "Clique para ativar a camada de locais de votação no mapa"
+                  : localDisabled
+                    ? "Os locais de votação são por município: use o modo Bairro e filtre um único município (ou candidato de 1 cidade)."
+                    : undefined
+              }
+            />
+          </div>
         </div>
 
         {/* SPLIT-SCREEN: mapa + gráfico (lado a lado no desktop, empilhados no
