@@ -566,7 +566,11 @@ export function CandidateMapModal({ results, onClose }: Props) {
           </button>
 
           <div className="flex items-center gap-2 flex-wrap order-3 w-full sm:w-auto sm:order-2 sm:ml-auto">
-            {/* Toggle */}
+            {/* Toggle — "Locais" é o 3º segmento (pedido do dono: mesmo peso
+                visual de Município/Bairro). Município/Bairro são VISÕES
+                exclusivas; Locais é uma CAMADA sobre a visão de bairro:
+                acionar fora dela troca pra bairro E liga os pinos; dentro
+                dela, liga/desliga. */}
             <div className="flex gap-1 bg-background border border-border rounded-md p-0.5">
               <ModeBtn
                 active={mode === "municipio"}
@@ -579,6 +583,19 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 onClick={() => pick("bairro")}
                 icon={<Building2 className="w-3.5 h-3.5" />}
                 label="Bairro"
+              />
+              <ModeBtn
+                active={mode === "bairro" && showPlaces && !placesError}
+                onClick={() => {
+                  if (mode !== "bairro") {
+                    pick("bairro");
+                    setShowPlaces(true);
+                  } else {
+                    togglePlaces();
+                  }
+                }}
+                icon={<Landmark className="w-3.5 h-3.5" />}
+                label="Locais"
               />
             </div>
             <MapLayoutSelector />
