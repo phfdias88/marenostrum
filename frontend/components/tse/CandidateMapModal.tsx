@@ -218,7 +218,10 @@ export function CandidateMapModal({ results, onClose }: Props) {
   // ---- Camada de LOCAIS DE VOTAÇÃO (modo bairro) ----
   // Visibilidade DESACOPLADA dos filtros (pedido do PO): o usuário liga/desliga
   // a camada num toggle no próprio mapa; os filtros só definem QUAL município.
-  const [showPlaces, setShowPlaces] = useState(true);
+  // DESLIGADA por padrão (pedido do dono): "Bairro" mostra só os bairros;
+  // os pinos de locais só entram quando o usuário aciona o segmento "Locais".
+  // Bônus: sem fetch de locais até alguém pedir (economia no VPS/mobile).
+  const [showPlaces, setShowPlaces] = useState(false);
   const [places, setPlaces] = useState<VotingPlacePoint[] | null>(null);
   const [placesError, setPlacesError] = useState(false);
 
