@@ -395,12 +395,47 @@ html .mn-cluster span {
   box-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
   border: 2px solid rgb(255 255 255 / 0.85);
 }
-html .mn-cluster-sm { width: 34px; height: 34px; }
-html .mn-cluster-sm span { width: 26px; height: 26px; font-size: 11px; }
-html .mn-cluster-md { width: 44px; height: 44px; }
-html .mn-cluster-md span { width: 34px; height: 34px; font-size: 12px; }
-html .mn-cluster-lg { width: 54px; height: 54px; }
-html .mn-cluster-lg span { width: 42px; height: 42px; font-size: 13px; }
+html .mn-cluster-sm { width: 38px; height: 38px; }
+html .mn-cluster-sm span { min-width: 28px; height: 28px; padding: 0 4px; font-size: 11px; }
+html .mn-cluster-md { width: 48px; height: 48px; }
+html .mn-cluster-md span { min-width: 38px; height: 38px; padding: 0 5px; font-size: 12px; }
+html .mn-cluster-lg { width: 60px; height: 60px; }
+html .mn-cluster-lg span { min-width: 48px; height: 48px; padding: 0 6px; font-size: 13px; }
+
+/* Faixas por FATIA DE VOTOS (pedido do PO): mesma semântica da legenda de
+   bolhas — poucos (emerald) → médios (amber) → muitos (orange) → reduto
+   (red). Sem faixa = azul (camada por contagem, sem votos). */
+html .mn-cluster-emerald { background: rgb(16 185 129 / 0.26); }
+html .mn-cluster-emerald span { background: #10b981; }
+html .mn-cluster-amber { background: rgb(245 158 11 / 0.26); }
+html .mn-cluster-amber span { background: #f59e0b; }
+html .mn-cluster-orange { background: rgb(249 115 22 / 0.26); }
+html .mn-cluster-orange span { background: #f97316; }
+html .mn-cluster-red { background: rgb(220 38 38 / 0.28); }
+html .mn-cluster-red span { background: #dc2626; }
+
+/* Pino INDIVIDUAL (zoom de rua): pílula com os votos daquela escola. */
+html .mn-pin {
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+}
+html .mn-pin span {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border: 1.5px solid rgb(255 255 255 / 0.85);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+html .mn-pin-emerald span { background: #10b981; }
+html .mn-pin-amber span { background: #f59e0b; }
+html .mn-pin-orange span { background: #f97316; }
+html .mn-pin-red span { background: #dc2626; }
 
 /* Linha de votos no popup do local (destaque dourado do tema). */
 html .leaflet-popup-content .mn-popup-votes {

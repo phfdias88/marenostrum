@@ -28,7 +28,29 @@ import type { TseCandidateByNeighborhoodResponse } from "@/lib/types";
 import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
+// "12,3 mil" nos ícones de cluster — número cheio fica no title/tooltip.
+const compactFmt = new Intl.NumberFormat("pt-BR", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 const DEFAULT_CENTER: [number, number] = [-14.5, -52.0];
+
+// Faixa de cor pela FATIA do total de votos da camada (mesma semântica da
+// legenda de bolhas: poucos → top). Share, não valor absoluto: funciona
+// igual pra vereador (dezenas de votos) e deputado (milhares).
+function voteBand(share: number): "emerald" | "amber" | "orange" | "red" {
+  return share >= 0.35
+    ? "red"
+    : share >= 0.15
+      ? "orange"
+      : share >= 0.05
+        ? "amber"
+        : "emerald";
+}
+
+function fmtVotes(v: number): string {
+  return v >= 1000 ? compactFmt.format(v) : numberFmt.format(v);
+}
 
 export type VotingPlacePoint = {
   id: string;
@@ -287,14 +309,29 @@ export function VotingPlacesMap({
           <FlyTo focus={focus} />
         </MapContainer>
       </div>
-      <div className="px-3 py-2 text-xs text-muted-foreground bg-card border-t border-border flex items-center gap-2 flex-wrap">
-        <span className="inline-flex items-center gap-1 text-blue-500">
-          <span className="w-2 h-2 rounded-full bg-blue-500" />
+      <div className="px-3 py-2 text-xs text-muted-foreground bg-card border-t border-border flex items-center justify-between gap-2 flex-wrap">
+        <span>
           {total != null && total > places.length
             ? `${numberFmt.format(places.length)} de ${numberFmt.format(total)} locais (maiores votações)`
             : `${numberFmt.format(places.length)} ${places.length === 1 ? "local de votação" : "locais de votação"}`}
+          <span className="ml-1">
+            · o número no grupo é a SOMA de votos da área
+          </span>
         </span>
-        <span>· agrupados por proximidade; aproxime para ver cada escola</span>
+        <span className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-full bg-emerald-500" /> poucos
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-full bg-amber-500" /> médios
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-full bg-orange-500" /> muitos
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-3 h-3 rounded-full bg-red-600" /> reduto
+          </span>
+        </span>
       </div>
     </div>
   );
@@ -355,36 +392,72 @@ function PlacesLayer({ places }: { places: VotingPlacePoint[] }) {
   const map = useMap();
   useEffect(() => {
     if (places.length === 0) return;
+    // Total da camada: os clusters mostram a SOMA DE VOTOS da área (pedido do
+    // PO — o candidato quer força eleitoral, não contagem de escolas) e a cor
+    // segue a FATIA desse total. Camada sem votos (página de Bairros, fallback
+    // geográfico 2024) mantém a contagem de locais em azul.
+    const totalVotes = places.reduce((s, p) => s + (p.votes ?? 0), 0);
+    const hasVotes = totalVotes > 0;
     const group = L.markerClusterGroup({
       chunkedLoading: true,
       maxClusterRadius: 60,
-      // No zoom de rua o usuário quer VER as escolas, não bolhas de contagem.
+      // No zoom de rua o usuário quer VER as escolas, não bolhas agregadas.
       disableClusteringAtZoom: 16,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
       iconCreateFunction: (cluster) => {
         const n = cluster.getChildCount();
-        const size = n >= 100 ? "lg" : n >= 25 ? "md" : "sm";
+        if (!hasVotes) {
+          const size = n >= 100 ? "lg" : n >= 25 ? "md" : "sm";
+          return L.divIcon({
+            html: `<span>${n >= 1000 ? `${Math.round(n / 1000)}k` : n}</span>`,
+            className: `mn-cluster mn-cluster-${size}`,
+            iconSize: L.point(0, 0), // o tamanho real vem do CSS
+          });
+        }
+        // Soma dos votos dos filhos (null/undefined contam 0).
+        const sum = cluster
+          .getAllChildMarkers()
+          .reduce(
+            (s, m) => s + ((m.options as { mnVotes?: number }).mnVotes ?? 0),
+            0,
+          );
+        const share = sum / totalVotes;
+        const band = voteBand(share);
+        const size = share >= 0.15 ? "lg" : share >= 0.05 ? "md" : "sm";
         return L.divIcon({
-          html: `<span>${n >= 1000 ? `${Math.round(n / 1000)}k` : n}</span>`,
-          className: `mn-cluster mn-cluster-${size}`,
-          iconSize: L.point(0, 0), // o tamanho real vem do CSS
+          html: `<span title="${numberFmt.format(sum)} votos em ${n} ${n === 1 ? "local" : "locais"}">${fmtVotes(sum)}</span>`,
+          className: `mn-cluster mn-cluster-${size} mn-cluster-${band}`,
+          iconSize: L.point(0, 0),
         });
       },
     });
     for (const vp of places) {
       // Coordenada precisa ser um número VÁLIDO — lat/lng null/NaN derrubam
-      // o L.circleMarker e a camada inteira "não aparece". (O backend já
-      // saneia; isto é o cinto de segurança pra fontes antigas.)
+      // o marcador e a camada inteira "não aparece". (O backend já saneia;
+      // isto é o cinto de segurança pra fontes antigas.)
       if (!Number.isFinite(vp.lat) || !Number.isFinite(vp.lng)) continue;
-      const m = L.circleMarker([vp.lat, vp.lng], {
-        pane: "mn-places",
-        radius: 4,
-        color: "#1d4ed8",
-        fillColor: "#3b82f6",
-        fillOpacity: 0.9,
-        weight: 1,
-      });
+      const v = vp.votes ?? 0;
+      // Com votos: pílula rotulada com os votos DAQUELA escola (requisito do
+      // PO pro zoom final), na cor da fatia. Sem votos: ponto azul discreto.
+      const m = hasVotes
+        ? L.marker([vp.lat, vp.lng], {
+            pane: "mn-places",
+            icon: L.divIcon({
+              html: `<span>${fmtVotes(v)}</span>`,
+              className: `mn-pin mn-pin-${voteBand(totalVotes > 0 ? v / totalVotes : 0)}`,
+              iconSize: L.point(0, 0),
+            }),
+            ...({ mnVotes: v } as object),
+          })
+        : L.circleMarker([vp.lat, vp.lng], {
+            pane: "mn-places",
+            radius: 4,
+            color: "#1d4ed8",
+            fillColor: "#3b82f6",
+            fillOpacity: 0.9,
+            weight: 1,
+          });
       const muni = vp.municipality ? ` (${esc(vp.municipality)})` : "";
       const nb = vp.neighborhood ? ` · ${esc(vp.neighborhood)}` : "";
       const votos =
