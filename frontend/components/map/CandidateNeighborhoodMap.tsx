@@ -294,7 +294,10 @@ export function VotingPlacesMap({
   );
   return (
     <div className="h-full w-full flex flex-col">
-      <div className="flex-1 relative">
+      {/* min-h próprio: h-full colapsa quando o pai só tem MIN-height (caso
+          do pane do modal no mobile) — o Leaflet montava com ~54px e o
+          markercluster (removeOutsideVisibleBounds) não plotava NADA. */}
+      <div className="flex-1 relative min-h-[280px]">
         <MapContainer
           center={DEFAULT_CENTER}
           zoom={4}
