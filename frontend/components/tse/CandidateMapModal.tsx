@@ -172,13 +172,17 @@ export function CandidateMapModal({ results, onClose }: Props) {
   const [focusPt, setFocusPt] = useState<MapFocus | null>(null);
   const mapPaneRef = useRef<HTMLDivElement | null>(null);
 
-  // Digitar bairro com o modal em modo município → troca pro modo bairro.
+  // Digitar bairro com o modal em modo MUNICÍPIO → troca pro modo bairro
+  // (lá o filtro não teria onde agir). CIENTE DE CONTEXTO (spec do PO): em
+  // modo LOCAIS a busca de bairro NÃO troca a visão — ela filtra as escolas
+  // daquele bairro (locaisViewItems) e o AutoFit dá zoom nelas. A visão só
+  // muda quando o usuário clica num segmento.
   // NÃO marca userPicked: se a UF×ano não tiver dado de seção, o fallback
   // automático ainda devolve o usuário pro município (sem beco sem saída).
   // nbKnownEmpty evita re-entrar no vazio a cada tecla depois do fallback.
   useEffect(() => {
     const nbKnownEmpty = neighborhood !== null && neighborhood.items.length === 0;
-    if (fBairro.trim() && mode !== "bairro" && bairroAvailable && !nbKnownEmpty) {
+    if (fBairro.trim() && mode === "municipio" && bairroAvailable && !nbKnownEmpty) {
       setMode("bairro");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
