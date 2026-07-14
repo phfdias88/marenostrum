@@ -113,6 +113,9 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_ANALYTICS_URL: ${NEXT_PUBLIC_ANALYTICS_URL:-https://example.com/analytics}
         NEXT_PUBLIC_SONAR_URL: ${NEXT_PUBLIC_SONAR_URL:-https://example.com/sonar}
+        # basePath do subdiretorio. VAZIO (default) = raiz, comportamento atual.
+        # No corte pra /sistema: setar NEXT_PUBLIC_BASE_PATH=/sistema no .env da raiz.
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: mn_web
     restart: unless-stopped
     logging: *default-logging
