@@ -34,7 +34,7 @@ export default function GlobalError({
       <div className="relative w-full max-w-md text-center mn-fade-in">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/logo-mark.png"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-mark.png`}
           alt="MareNostrum"
           className="mx-auto h-16 w-16 object-contain"
         />

@@ -76,13 +76,13 @@ function LoginForm() {
           <div className="dark:bg-card rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo-wordmark.png"
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.png`}
               alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain hidden dark:block"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo-wordmark-light.png"
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.png`}
               alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain dark:hidden"
             />

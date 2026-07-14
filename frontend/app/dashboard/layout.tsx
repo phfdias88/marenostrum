@@ -214,13 +214,13 @@ export default function DashboardLayout({
                   dark, grafite no light; o M dourado é o mesmo) */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/logo-wordmark.png"
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.png`}
                 alt="MareNostrum"
                 className="h-7 sm:h-8 w-auto object-contain hidden dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/logo-wordmark-light.png"
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.png`}
                 alt="MareNostrum"
                 className="h-7 sm:h-8 w-auto object-contain dark:hidden"
               />

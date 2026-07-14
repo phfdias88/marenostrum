@@ -62,13 +62,13 @@ export default function CadastroPage() {
       <header className="flex items-center justify-between px-4 sm:px-6 h-14 border-b border-border/60 bg-card/40 backdrop-blur">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/logo-wordmark.png"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.png`}
           alt="MareNostrum"
           className="h-7 w-auto object-contain hidden dark:block"
         />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/logo-wordmark-light.png"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.png`}
           alt="MareNostrum"
           className="h-7 w-auto object-contain dark:hidden"
         />
