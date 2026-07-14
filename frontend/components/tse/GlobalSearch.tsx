@@ -302,9 +302,11 @@ export function GlobalSearch() {
     // o router.push não remonta; navegação completa resolve (dados em cache).
     if (
       href.startsWith("/dashboard/censo?") &&
-      window.location.pathname === "/dashboard/censo"
+      window.location.pathname.endsWith("/dashboard/censo")
     ) {
-      window.location.href = href;
+      // Navegação COMPLETA (não é router.push) → precisa do basePath na mão;
+      // sob /sistema, href cru cairia na raiz. endsWith casa com ou sem prefixo.
+      window.location.href = (process.env.NEXT_PUBLIC_BASE_PATH || "") + href;
       return;
     }
     router.push(href);

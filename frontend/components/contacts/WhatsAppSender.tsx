@@ -9,6 +9,7 @@
  * abordagem segura do widget de aniversariantes).
  */
 import { MessageCircle } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -161,9 +162,9 @@ function PickerDialog({
           <p className="text-sm text-muted-foreground">
             Nenhum template ainda. Você pode escrever a mensagem abaixo ou criar
             modelos em{" "}
-            <a href="/dashboard/templates" className="text-primary hover:underline">
+            <Link href="/dashboard/templates" className="text-primary hover:underline">
               Templates
-            </a>
+            </Link>
             .
           </p>
         ) : (

@@ -147,6 +147,11 @@ def create_app() -> FastAPI:
         description=_DESCRIPTION,
         version=_VERSION,
         lifespan=_lifespan,
+        # root_path = prefixo público quando atrás de proxy com subpath
+        # (ex.: "/sistema"). VAZIO na raiz. Não afeta o roteamento (o nginx
+        # tira o /sistema antes do container) — só faz o Swagger/OpenAPI
+        # gerarem URLs corretas pro "Try it out" e pro link do openapi.json.
+        root_path=settings.ROOT_PATH,
         # orjson (Rust): serializa JSON 5-10x mais rápido que json.dumps —
         # crítico pros payloads grandes (GeoJSON do censo ~8MB, rankings TSE).
         default_response_class=ORJSONResponse,

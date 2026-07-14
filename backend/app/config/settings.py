@@ -35,6 +35,23 @@ class Settings(BaseSettings):
 
     CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
+    # ---- Deploy sob subdiretório (basePath) --------------------------------
+    # Quando o SaaS é servido num subpath do domínio do cliente (ex.:
+    # marenostrumconsult.com.br/sistema) atrás de um proxy reverso.
+    # VAZIO = servido na raiz (comportamento atual em srv1412083.hstgr.cloud).
+    #
+    # ROOT_PATH é o PREFIXO PÚBLICO até a app (NÃO inclui o /api interno: os
+    # routers desta app já registram sob /api). Com o nginx tirando o /sistema
+    # antes de chegar no container, o FastAPI recebe /api/... nativamente e o
+    # root_path só serve pra Swagger/OpenAPI gerarem URLs com o /sistema certo.
+    # Ex.: "/sistema" → docs em /sistema/api/docs, "Try it out" acerta as rotas.
+    ROOT_PATH: str = ""
+
+    # Base pública usada em links absolutos gerados pelo backend (rodapé + QR
+    # code do dossiê PDF). DEVE incluir o basePath quando houver.
+    # Ex.: "https://marenostrumconsult.com.br/sistema".
+    PUBLIC_URL_BASE: str = "https://srv1412083.hstgr.cloud"
+
     # Webhook fallback global. Usado quando o tenant NAO tem webhook_secret
     # proprio (typicamente em dev/staging). Em producao, prefira sempre
     # secret per-tenant — vazamento do global = todos os tenants caem.

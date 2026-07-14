@@ -9,6 +9,12 @@
 
 const COOKIE_NAME = "mn_token";
 
+// Path do cookie casa com o basePath: na raiz vira "/"; sob subpath vira
+// "/sistema" — assim o token NAO vaza pro site principal do domínio
+// compartilhado e AINDA chega ao middleware (a request /sistema/dashboard
+// casa o Path). Mesmo var do next.config (basePath).
+const COOKIE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/";
+
 export type AuthData = {
   access_token: string;
   user_id: string;
@@ -32,7 +38,7 @@ export function saveAuth(data: AuthData): void {
   // requisições http acidentais.
   document.cookie = `${COOKIE_NAME}=${encodeURIComponent(
     data.access_token,
-  )}; Path=/; Max-Age=${maxAge}; SameSite=Lax${_secureFlag()}`;
+  )}; Path=${COOKIE_PATH}; Max-Age=${maxAge}; SameSite=Lax${_secureFlag()}`;
 }
 
 /**
@@ -41,7 +47,7 @@ export function saveAuth(data: AuthData): void {
  */
 export function refreshTokenCookie(token: string, expiresIn: number): void {
   if (typeof document === "undefined") return;
-  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${Math.max(60, expiresIn)}; SameSite=Lax${_secureFlag()}`;
+  document.cookie = `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=${COOKIE_PATH}; Max-Age=${Math.max(60, expiresIn)}; SameSite=Lax${_secureFlag()}`;
 }
 
 export function getToken(): string | null {
@@ -52,5 +58,5 @@ export function getToken(): string | null {
 
 export function clearAuth(): void {
   if (typeof document === "undefined") return;
-  document.cookie = `${COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
+  document.cookie = `${COOKIE_NAME}=; Path=${COOKIE_PATH}; Max-Age=0; SameSite=Lax`;
 }

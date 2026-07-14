@@ -25,6 +25,7 @@ from app.models.user import User
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
+from app.config import get_settings
 from app.utils.agg_cache import agg_get, agg_set, cached_agg
 
 from app.core.database import get_db
@@ -3016,7 +3017,7 @@ def candidate_dossier_pdf(
         zone_results=zone_results,
         photo_bytes=photo_bytes,
         candidate_id=str(candidate.id),
-        public_url_base="https://srv1412083.hstgr.cloud",
+        public_url_base=get_settings().PUBLIC_URL_BASE,
         municipality_coords=municipality_coords,
         ai_report=ai_report,
         path_to_victory=path_to_victory,

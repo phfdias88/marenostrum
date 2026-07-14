@@ -1,0 +1,139 @@
+# =============================================================================
+# BLOCO DE PRODUÇÃO SOB SUBDIRETÓRIO /sistema  (proxy reverso)
+# =============================================================================
+# NÃO carregado automaticamente (extensão .example). É o server block a usar
+# QUANDO o SaaS for servido em https://marenostrumconsult.com.br/sistema,
+# atrás do proxy reverso da hospedagem do site principal.
+#
+# ARQUITETURA (decisão de arquiteto):
+#   O /sistema é UMA CONCERN DE BORDA. Internamente NADA muda:
+#     - os routers do FastAPI seguem em /api/... (root_path só ajusta o Swagger)
+#     - o Next roda com basePath=/sistema (precisa RECEBER o /sistema)
+#   Então este nginx:
+#     - WEB : mantém o /sistema (Next espera o prefixo) → proxy_pass sem reescrever
+#     - API : TIRA o /sistema (rotas do container são /api/...) → rewrite
+#
+# Cadeia: browser → marenostrumconsult.com.br/sistema/...
+#         → proxy da hospedagem (transparente, mantém /sistema)
+#         → ESTA VPS (este bloco)
+#         → containers web:3000 / api:8000
+#
+# Copie o conteúdo relevante pro app.conf no corte. Requer os mesmos
+# proxy_cache_path (mn_census/mn_tse) e o map $census_skip_cache do app.conf.
+# =============================================================================
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name srv1412083.hstgr.cloud _;
+
+    ssl_certificate     /etc/letsencrypt/live/srv1412083.hstgr.cloud/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/srv1412083.hstgr.cloud/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    include /etc/nginx/conf.d/security-headers.inc;
+
+    # -- Raiz do domínio na VPS: opcional. Se o site institucional NÃO estiver
+    #    nesta VPS (é o caso: mora na hospedagem do cliente), deixe um 404/redirect.
+    location = / { return 404; }
+
+    # ---- CENSO sob /sistema : tira o /sistema, replica o proxy_cache -------
+    location /sistema/api/v1/census/ {
+        rewrite ^/sistema/(.*)$ /$1 break;      # /sistema/api/v1/census/x → /api/v1/census/x
+        proxy_pass         http://mn_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Prefix /sistema;   # informativo p/ a app
+        proxy_read_timeout 60s;
+
+        proxy_cache        mn_census;
+        proxy_cache_key    "$uri$is_args$args$http_accept_encoding";
+        proxy_cache_valid  200 7d;
+        proxy_no_cache     $census_skip_cache;
+        proxy_cache_bypass $census_skip_cache;
+        proxy_cache_lock      on;
+        proxy_cache_use_stale updating error timeout;
+        proxy_cache_background_update on;
+        add_header         X-Cache-Status $upstream_cache_status;
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
+    # ---- TSE sob /sistema : tira o /sistema, honra o Cache-Control ---------
+    location /sistema/api/v1/tse/ {
+        rewrite ^/sistema/(.*)$ /$1 break;
+        proxy_pass         http://mn_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Prefix /sistema;
+        proxy_read_timeout 60s;
+
+        proxy_cache        mn_tse;
+        proxy_cache_key    "$uri$is_args$args$http_accept_encoding";
+        proxy_no_cache     $census_skip_cache;
+        proxy_cache_bypass $census_skip_cache;
+        proxy_cache_lock      on;
+        proxy_cache_use_stale updating error timeout;
+        proxy_cache_background_update on;
+        add_header         X-Cache-Status $upstream_cache_status;
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
+    # ---- resto da API sob /sistema (auth, contacts, docs, health...) ------
+    #      tira o /sistema → o container recebe /api/... nativo.
+    location /sistema/api/ {
+        rewrite ^/sistema/(.*)$ /$1 break;
+        proxy_pass         http://mn_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Forwarded-Prefix /sistema;
+        proxy_read_timeout 60s;
+    }
+
+    # ---- ASSETS do Next sob /sistema : MANTÉM o /sistema (o Next emite
+    #      /sistema/_next/... porque tem basePath) → NÃO reescrever. ---------
+    location /sistema/_next/static/ {
+        proxy_pass         http://mn_web;    # sem URI → repassa o path inteiro
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_hide_header  Cache-Control;
+        add_header         Cache-Control "public, max-age=31536000, immutable";
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
+    # imagens/fontes servidas de /public sob o basePath
+    location ~* ^/sistema/.*\.(png|jpe?g|gif|svg|ico|webp|avif|woff2?)$ {
+        proxy_pass         http://mn_web;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_hide_header  Cache-Control;
+        add_header         Cache-Control "public, max-age=2592000";
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
+    # ---- App Next (páginas) sob /sistema : MANTÉM o prefixo ----------------
+    #      O Next standalone com basePath roteia em /sistema/*; NÃO reescrever.
+    location /sistema/ {
+        proxy_pass         http://mn_web;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # /sistema sem barra → normaliza
+    location = /sistema { return 308 /sistema/; }
+}
+
+# NOTA sobre o WARMUP: o listener interno :8088 (app.conf) NÃO muda — ele
+# segue chamando /api/v1/census/ direto no container. O /sistema é só borda
+# pública; o warmup é tráfego interno e continua na raiz.

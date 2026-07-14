@@ -1,3 +1,12 @@
+// basePath vem do ambiente de BUILD (Next embute em build time). VAZIO =
+// servido na raiz (padrao atual). Setar NEXT_PUBLIC_BASE_PATH=/sistema no
+// corte pro subdiretorio. Uma linha, sem duplicar o valor pelo codigo: o
+// mesmo var alimenta o config aqui E as URLs manuais (cookie, deep-links).
+// `basePath` prefixa AUTOMATICAMENTE: <Link>, useRouter().push, next/image,
+// _next/static e /public. So URLs montadas "na mao" (document.cookie Path,
+// window.location.href cru) precisam do prefixo explicito.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+
 /** @type {import('next').NextConfig} */
 module.exports = {
   // standalone gera um build minimo (server.js + .next/standalone),
@@ -5,6 +14,7 @@ module.exports = {
   output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,
+  ...(basePath ? { basePath } : {}),
 
   compiler: {
     // Remove console.* do bundle de producao (mantem error/warn pra erros
