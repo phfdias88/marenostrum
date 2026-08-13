@@ -27,6 +27,7 @@ import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { downloadErrorMessage, saveBlob } from "@/lib/download";
 import type {
   Page,
   TseAiCompare,
@@ -1674,6 +1675,12 @@ function DossierDownload({ candidateId, urnName }: { candidateId: string; urnNam
   async function download() {
     if (loading) return;
     setLoading(true);
+    let status: number | null = null;
+    // O dossiê leva 1-3s pra ser montado (8 páginas, mapa, censo). Sem um aviso
+    // na tela, o único sinal é o spinner do botão e a espera parece travamento.
+    const toastId = toast.loading("Montando o dossiê…", {
+      description: "São 8 páginas com mapa e censo. Leva alguns segundos.",
+    });
     try {
       const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
       const token = getToken();
@@ -1683,19 +1690,25 @@ function DossierDownload({ candidateId, urnName }: { candidateId: string; urnNam
         // um fix no servidor (o cache rápido fica no disco da API).
         cache: "no-store",
       });
+      status = res.status;
       if (!res.ok) throw new Error(`http ${res.status}`);
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      // Resposta vazia = arquivo quebrado. Melhor avisar do que "baixar" 0 byte.
+      if (blob.size === 0) throw new Error("pdf vazio");
+
       const safe = urnName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `dossie-${safe}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const url = saveBlob(blob, `dossie-${safe}.pdf`);
+
+      // O "Abrir" é a rede de segurança: se o navegador tiver barrado o
+      // download automático, o usuário ainda chega no arquivo por aqui.
+      toast.success("Dossiê pronto.", {
+        id: toastId,
+        description: "Se o download não aparecer, use o botão ao lado.",
+        action: { label: "Abrir", onClick: () => window.open(url, "_blank", "noopener") },
+        duration: 15000,
+      });
     } catch {
-      toast.error("Não foi possível gerar o dossiê PDF.");
+      toast.error(downloadErrorMessage(status), { id: toastId });
     } finally {
       setLoading(false);
     }

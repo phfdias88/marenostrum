@@ -87,6 +87,11 @@ services:
       # Fotos pesam ~50KB cada; 428k candidatos = ~20GB no pior caso
       # (mas so cacheamos as fotos efetivamente requisitadas pelos usuarios).
       - tse_photos:/var/marenostrum/tse_photos
+      # Dossiês PDF já montados. Sem este volume o cache mora DENTRO do
+      # container: todo deploy zerava, e o primeiro download de cada candidato
+      # voltava a custar ~2s de CPU (montar 8 páginas com mapa e censo) num
+      # servidor onde a API só tem 0,4 vCPU. Com o volume, vira ~0,3s.
+      - pdf_cache:/var/marenostrum/pdf_cache
     # Comando vem do Dockerfile (CMD). O ENTRYPOINT roda migrations antes.
     deploy:
       resources:
@@ -161,6 +166,8 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
+      # Site institucional (build estático do Vite) servido pelo próprio nginx.
+      - ./site-dist:/usr/share/nginx/site:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       # Cache de borda (censo/TSE) persistente — sobrevive a recreates/deploys.
       - nginx_cache:/var/cache/nginx
@@ -189,6 +196,8 @@ volumes:
   pg_data:
     driver: local
   tse_photos:
+    driver: local
+  pdf_cache:
     driver: local
   nginx_cache:
     driver: local

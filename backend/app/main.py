@@ -271,7 +271,18 @@ def create_app() -> FastAPI:
 
     # Brotli — comprime JSON/text 20-25% mais que gzip do nginx.
     # minimum_size=500 evita gastar CPU compactando payloads pequenos.
-    app.add_middleware(BrotliMiddleware, quality=4, minimum_size=500)
+    #
+    # excluded_handlers: PDF e foto ja SAO formatos comprimidos. Passar o dossie
+    # (140-240KB) pelo Brotli rendia so ~12% e cobrava CPU do unico vCPU em toda
+    # requisicao — inclusive nos acertos do cache em disco, que deveriam ser
+    # instantaneos. Fora que essa CPU competia com as consultas de quem estava
+    # navegando ao mesmo tempo.
+    app.add_middleware(
+        BrotliMiddleware,
+        quality=4,
+        minimum_size=500,
+        excluded_handlers=[r"/dossier\.pdf$", r"/candidates/[^/]+/photo$"],
+    )
 
     # Rate limiting (anti-DoS) — adicionado DEPOIS dos @app.middleware pra
     # ficar mais EXTERNO que eles: o 429 sai antes de decode de JWT/compressão.
