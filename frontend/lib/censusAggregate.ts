@@ -31,11 +31,29 @@ export const SUM_COLS = [
   "raca_parda",
   "raca_indigena",
   // Sexo + idade absolutos (Censo 2022) — pra o painel de bairro poder mostrar
-  // nº absoluto de mulheres / 60+ (toggle %↔nº do painel). O /setores expõe
-  // idade_60mais já somado (60-69 + 70+).
+  // nº absoluto de homens/mulheres, a pirâmide etária completa (11 faixas) e o
+  // saneamento (%↔nº). O /setores expõe cada faixa bruta + idade_60mais somado.
   "sexo_masculino",
   "sexo_feminino",
   "idade_60mais",
+  "idade_0_4",
+  "idade_5_9",
+  "idade_10_14",
+  "idade_15_19",
+  "idade_20_24",
+  "idade_25_29",
+  "idade_30_39",
+  "idade_40_49",
+  "idade_50_59",
+  "idade_60_69",
+  "idade_70_mais",
+  // Saneamento (Censo 2022) — contagens; o % por bairro é (parte ÷ total).
+  "dom_agua_rede",
+  "dom_agua_total",
+  "dom_esgoto_adequado",
+  "dom_esgoto_total",
+  "dom_lixo_coletado",
+  "dom_lixo_total",
 ] as const;
 
 /**

@@ -81,20 +81,21 @@ export default function DashboardPage() {
     const total = (path: string) =>
       api<{ total: number }>(path, o).then((r) => r.total).catch(() => 0);
     try {
-      const [m, c, dOpen, dProg, dRes, mapC] = await Promise.all([
+      const [m, c, dStats, mapC] = await Promise.all([
         api<Me>("/v1/auth/me", o),
         total("/v1/contacts?limit=1"),
-        total("/v1/demands?status=aberta&limit=1"),
-        total("/v1/demands?status=em_andamento&limit=1"),
-        total("/v1/demands?status=resolvida&limit=1"),
-        api<unknown[]>("/v1/contacts/map", o).then((r) => r.length).catch(() => 0),
+        // 1 GROUP BY no lugar de 3 COUNTs separados (aberta/andamento/resolvida).
+        api<Record<string, number>>("/v1/demands/stats", o).catch(() => ({}) as Record<string, number>),
+        // Só a contagem — antes baixava a LISTA inteira de geocodificados
+        // (payload completo de todos os contatos) pra fazer .length.
+        total("/v1/contacts/map/count"),
       ]);
       setMe(m);
       setStats({
         contacts: c,
-        demandsOpen: dOpen,
-        demandsInProgress: dProg,
-        demandsResolved: dRes,
+        demandsOpen: dStats["aberta"] ?? 0,
+        demandsInProgress: dStats["em_andamento"] ?? 0,
+        demandsResolved: dStats["resolvida"] ?? 0,
         contactsOnMap: mapC,
       });
     } catch (err) {

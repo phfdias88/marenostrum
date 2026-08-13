@@ -32,3 +32,10 @@ class TenantContext:
     demands_enabled: bool = True
     agenda_enabled: bool = True
     census_enabled: bool = False
+    # Assinatura em dia? (billing Asaas). Default True: tenants legados/sem
+    # billing nunca são bloqueados. Só afeta tenants nascidos de compra.
+    subscription_active: bool = True
+    # ACESSO MARE NOSTRUM: a request veio de um superadmin visitando o tenant
+    # de um cliente ("entrar como"). user_id continua sendo o do superadmin —
+    # é isso que faz a auditoria registrar QUEM de fato agiu.
+    is_impersonating: bool = False

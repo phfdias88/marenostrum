@@ -39,6 +39,8 @@ type TeamUser = {
   full_name: string;
   role: string;
   is_active: boolean;
+  // Titular da assinatura (quem comprou/paga a plataforma) — badge na lista.
+  is_account_owner?: boolean;
   census_enabled?: boolean;
   analytics_enabled?: boolean;
   panel_enabled?: boolean;
@@ -46,6 +48,10 @@ type TeamUser = {
   demands_enabled?: boolean;
   agenda_enabled?: boolean;
   created_at: string;
+  // Acesso temporário (trial).
+  usage_limit_hours?: number | null;
+  first_login_at?: string | null;
+  expires_at?: string | null;
 };
 
 // Áreas configuráveis pelo owner por usuário. `area` bate com o backend
@@ -75,6 +81,21 @@ const ROLE_LABELS: Record<string, string> = {
   volunteer: "Liderança (só formulário)",
 };
 
+// Texto de status do acesso temporário na linha do membro.
+function trialStatusLabel(u: {
+  first_login_at?: string | null;
+  expires_at?: string | null;
+}): string {
+  if (!u.first_login_at || !u.expires_at) return "trial não iniciado (aguardando 1º login)";
+  const exp = new Date(u.expires_at);
+  const now = new Date();
+  if (exp <= now) return "trial expirado";
+  const fmt = exp.toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+  return `expira ${fmt}`;
+}
+
 export default function SettingsPage() {
   const [me, setMe] = useState<Me | null>(null);
 
@@ -103,12 +124,37 @@ export default function SettingsPage() {
         {/* Dono/Coordenador/Equipe gerenciam equipe. Coordenador e Equipe só
             cadastram LIDERANÇA (volunteer); o Dono cria qualquer papel. */}
         {me && me.role !== "volunteer" && (
-          <TeamCard isOwner={me.role === "owner"} meId={me.user_id} />
+          <TeamCard
+            isOwner={me.role === "owner"}
+            meId={me.user_id}
+            isSuperadmin={!!me.is_superadmin}
+          />
         )}
         {/* Trilha de auditoria — Dono vê a da campanha; super-admin Mare
             Nostrum vê todas (toggle dentro do card). */}
         {me && (me.role === "owner" || me.is_superadmin) && (
           <AuditCard superadmin={!!me.is_superadmin} />
+        )}
+        {/* Painel Mare Nostrum — só super-admin. Gerência cross-tenant
+            (criar cortesia, administrar titulares). Página dedicada. */}
+        {me?.is_superadmin && (
+          <Link
+            href="/dashboard/superadmin"
+            className="block rounded-xl border border-primary/30 bg-primary/5 p-5 hover:bg-primary/10 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="grid place-items-center w-10 h-10 rounded-lg bg-primary/15 text-primary shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold">Painel Mare Nostrum</p>
+                <p className="text-sm text-muted-foreground">
+                  Gerenciar clientes, criar contas de cortesia e administrar titulares.
+                </p>
+              </div>
+              <ArrowLeft className="w-4 h-4 rotate-180 text-muted-foreground" />
+            </div>
+          </Link>
         )}
       </div>
     </div>
@@ -275,7 +321,7 @@ function ChangePasswordCard() {
   const [saving, setSaving] = useState(false);
 
   const canSubmit =
-    current.length > 0 && next.length >= 8 && next === confirm && !saving;
+    current.length > 0 && next.length >= 10 && next === confirm && !saving;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -293,16 +339,19 @@ function ChangePasswordCard() {
       setNext("");
       setConfirm("");
     } catch (err) {
-      const msg =
-        err instanceof ApiError ? err.message : "Erro ao atualizar senha.";
-      toast.error(msg);
+      // A mensagem já vem clara do backend (ex: "A senha deve ter pelo menos
+      // 10 caracteres." ou "Essa senha é muito comum.") — mostra como descrição.
+      toast.error("Não foi possível alterar a senha", {
+        description:
+          err instanceof ApiError ? err.message : "Erro inesperado. Tente novamente.",
+      });
     } finally {
       setSaving(false);
     }
   }
 
   const mismatch = confirm.length > 0 && next !== confirm;
-  const tooShort = next.length > 0 && next.length < 8;
+  const tooShort = next.length > 0 && next.length < 10;
 
   return (
     <section className="rounded-xl border bg-card p-6">
@@ -313,7 +362,7 @@ function ChangePasswordCard() {
         <div>
           <h2 className="font-semibold">Mudar senha</h2>
           <p className="text-xs text-muted-foreground">
-            Mínimo 8 caracteres. A senha atual é obrigatória.
+            Mínimo 10 caracteres. A senha atual é obrigatória.
           </p>
         </div>
       </div>
@@ -330,7 +379,7 @@ function ChangePasswordCard() {
           value={next}
           onChange={setNext}
           autoComplete="new-password"
-          hint={tooShort ? "Use no mínimo 8 caracteres." : undefined}
+          hint={tooShort ? "Use no mínimo 10 caracteres." : undefined}
         />
         <Field
           label="Confirmar nova senha"
@@ -360,7 +409,16 @@ function ChangePasswordCard() {
 
 // ============================================================ team
 
-function TeamCard({ isOwner, meId }: { isOwner: boolean; meId: string }) {
+function TeamCard({
+  isOwner,
+  meId,
+  isSuperadmin,
+}: {
+  isOwner: boolean;
+  meId: string;
+  // Só a Mare Nostrum define PRAZO de acesso (o backend também barra).
+  isSuperadmin: boolean;
+}) {
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -407,6 +465,7 @@ function TeamCard({ isOwner, meId }: { isOwner: boolean; meId: string }) {
       {showForm && !created && (
         <InviteForm
           isOwner={isOwner}
+          isSuperadmin={isSuperadmin}
           onCancel={() => setShowForm(false)}
           onCreated={(u) => {
             setCreated(u);
@@ -457,10 +516,12 @@ function TeamCard({ isOwner, meId }: { isOwner: boolean; meId: string }) {
 
 function InviteForm({
   isOwner,
+  isSuperadmin,
   onCancel,
   onCreated,
 }: {
   isOwner: boolean;
+  isSuperadmin: boolean;
   onCancel: () => void;
   onCreated: (u: CreatedUser) => void;
 }) {
@@ -470,11 +531,17 @@ function InviteForm({
   const [role, setRole] = useState<"manager" | "staff" | "volunteer">(
     isOwner ? "staff" : "volunteer",
   );
+  // Acesso temporário (trial): horas de uso. "" = ilimitado (conta normal).
+  const [limitHours, setLimitHours] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  const limitNum = limitHours.trim() === "" ? null : Number(limitHours);
+  const limitValid =
+    limitNum === null || (Number.isFinite(limitNum) && limitNum >= 0 && limitNum <= 8760);
   const canSubmit =
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
     fullName.trim().length >= 2 &&
+    limitValid &&
     !saving;
 
   async function submit(e: React.FormEvent) {
@@ -484,7 +551,15 @@ function InviteForm({
     try {
       const u = await api<CreatedUser>("/v1/auth/users", {
         method: "POST",
-        body: { email: email.trim().toLowerCase(), full_name: fullName.trim(), role },
+        body: {
+          email: email.trim().toLowerCase(),
+          full_name: fullName.trim(),
+          role,
+          // Só a Mare Nostrum envia prazo; cliente pagante nem manda o campo
+          // (o backend rejeitaria com 403 de qualquer forma). 0 = ilimitado.
+          usage_limit_hours:
+            isSuperadmin && limitNum && limitNum > 0 ? limitNum : 0,
+        },
       });
       onCreated(u);
     } catch (err) {
@@ -547,6 +622,33 @@ function InviteForm({
           </p>
         )}
       </div>
+      {/* RBAC: definir PRAZO de acesso é exclusivo da Mare Nostrum. Pro cliente
+          pagante o campo nem entra no DOM (o backend também rejeita com 403 —
+          esconder na UI é conveniência, não a trava de segurança). */}
+      {isSuperadmin && (
+        <div>
+          <label className="text-xs uppercase tracking-wider text-muted-foreground">
+            Tempo limite de uso (horas) · opcional
+          </label>
+          <input
+            type="number"
+            min={0}
+            max={8760}
+            step="0.5"
+            inputMode="decimal"
+            value={limitHours}
+            onChange={(e) => setLimitHours(e.target.value)}
+            placeholder="Ex: 2 (2h) · deixe vazio ou 0 = ilimitado"
+            className="w-full mt-1 py-2 px-3 rounded-md bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Conta de teste/demonstração: o tempo só começa a contar no primeiro
+            login da pessoa. {!limitValid && (
+              <span className="text-destructive">Informe um número entre 0 e 8760.</span>
+            )}
+          </p>
+        </div>
+      )}
       <div className="flex items-center gap-2 pt-2">
         <Button type="submit" disabled={!canSubmit}>
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -661,8 +763,17 @@ function UserRow({
         { method: "POST" },
       );
       onReset(u);
+      // Feedback explícito com title + description — o sucesso era mudo (só
+      // o card aparecia) e o PO via toast "vazio" quando o erro vinha sem
+      // mensagem (statusText vazio em HTTP/2, tratado também no lib/api.ts).
+      toast.success("Senha provisória gerada!", {
+        description: `Copie a senha de ${user.full_name} no cartão acima e envie por canal seguro.`,
+      });
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Erro ao resetar.");
+      toast.error("Não foi possível gerar a senha", {
+        description:
+          err instanceof ApiError ? err.message : "Erro inesperado. Tente novamente.",
+      });
     } finally {
       setBusy(false);
     }
@@ -671,11 +782,11 @@ function UserRow({
   async function setSpecificPassword() {
     if (busy) return;
     const pwd = window.prompt(
-      `Definir nova senha para ${user.full_name} (mínimo 8 caracteres):`,
+      `Definir nova senha para ${user.full_name} (mínimo 10 caracteres):`,
     );
     if (pwd == null) return; // cancelou
-    if (pwd.trim().length < 8) {
-      toast.error("A senha precisa ter no mínimo 8 caracteres.");
+    if (pwd.trim().length < 10) {
+      toast.error("A senha precisa ter no mínimo 10 caracteres.");
       return;
     }
     setBusy(true);
@@ -711,10 +822,17 @@ function UserRow({
 
   async function deleteUser() {
     if (busy) return;
+    // Dono não-titular pode ser excluído direto (o backend permite), mas o
+    // aviso é reforçado — é uma conta com acesso total.
+    const extra =
+      user.role === "owner"
+        ? "\n\nATENÇÃO: esta conta é Administrador (Dono), com acesso total."
+        : "";
     if (
       !confirm(
         `EXCLUIR ${user.full_name} permanentemente? Esta ação não pode ser desfeita. ` +
-          `Os contatos que essa pessoa cadastrou continuam (o nome fica registrado).`,
+          `Os contatos que essa pessoa cadastrou continuam (o nome fica registrado).` +
+          extra,
       )
     )
       return;
@@ -724,7 +842,10 @@ function UserRow({
       toast.success(`${user.full_name} excluído.`);
       onChanged();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Erro ao excluir.");
+      toast.error("Não foi possível excluir", {
+        description:
+          err instanceof ApiError ? err.message : "Erro inesperado. Tente novamente.",
+      });
     } finally {
       setBusy(false);
     }
@@ -758,6 +879,16 @@ function UserRow({
         <div className="flex-1 min-w-0">
           <p className="font-medium truncate flex items-center gap-2">
             <span className="truncate">{user.full_name}</span>
+            {user.is_account_owner && (
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 whitespace-nowrap">
+                Titular da Assinatura
+              </span>
+            )}
+            {user.usage_limit_hours != null && user.usage_limit_hours > 0 && (
+              <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                Trial · {user.usage_limit_hours}h
+              </span>
+            )}
             {!user.is_active && (
               <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                 desativado
@@ -766,6 +897,9 @@ function UserRow({
           </p>
           <p className="text-xs text-muted-foreground truncate">
             {user.email} · {ROLE_LABELS[user.role] ?? user.role}
+            {user.usage_limit_hours != null && user.usage_limit_hours > 0 && (
+              <> · {trialStatusLabel(user)}</>
+            )}
           </p>
         </div>
 
@@ -818,11 +952,18 @@ function UserRow({
               >
                 {user.is_active ? <Power className="w-4 h-4" /> : <Check className="w-4 h-4" />}
               </button>
+              {/* Titular da assinatura não pode ser excluído (o backend também
+                  recusa) — botão desabilitado com o motivo no tooltip, em vez
+                  de deixar clicar e só então mostrar o erro. */}
               <button
                 onClick={deleteUser}
-                disabled={busy}
-                title="Excluir de vez"
-                className="p-1.5 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                disabled={busy || !!user.is_account_owner}
+                title={
+                  user.is_account_owner
+                    ? "O titular da assinatura não pode ser excluído"
+                    : "Excluir de vez"
+                }
+                className="p-1.5 rounded text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-colors disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:bg-transparent disabled:cursor-not-allowed"
               >
                 <Trash2 className="w-4 h-4" />
               </button>

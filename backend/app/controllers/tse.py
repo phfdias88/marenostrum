@@ -54,6 +54,7 @@ from app.schemas.tse import (
     CandidateTrajectoryResponse,
     CandidateZoneVotesResponse,
     ElectionRead,
+    ElectionResultsResponse,
     ElectionStatsResponse,
     ElectorateResponse,
     ZoneTopCandidate,
@@ -1340,6 +1341,187 @@ def get_municipality(
     return MunicipalityRead.model_validate(m)
 
 
+# Presidente é o único cargo NACIONAL: o candidato recebe votos em todas as UFs.
+# Os demais (governador, senador, deputados, prefeito, vereador) disputam dentro
+# de uma UF — por isso dá pra filtrar candidatos por `state` e evitar o JOIN
+# geográfico na tabela de votos (23,8M linhas).
+PRESIDENT_OFFICE_CODE = 1
+
+
+@router.get(
+    "/election-results",
+    response_model=ElectionResultsResponse,
+    summary="Resultado de um cargo — município OPCIONAL (agrega na UF quando ausente)",
+    description="""\
+Resultado de uma eleição por cargo, com **escopo flexível**:
+
+- `municipality_id` informado → resultado daquele município (`scope=municipality`).
+- Só `state` → agrega **todos os municípios da UF** (`scope=state`). É o caso de
+  Governador, Senador e Deputados, que não fazem sentido só numa cidade.
+- Sem `state` nem `municipality_id` → agrega o país (`scope=national`, Presidente).
+
+`year` e `office_code` são obrigatórios — sem eles candidaturas de anos/cargos
+diferentes se misturariam na mesma lista.
+""",
+)
+def election_results(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030, description="Ano da eleição"),
+    office_code: int = Query(..., description="Cargo (1=Presidente, 3=Gov, 5=Senador...)"),
+    state: str | None = Query(
+        None, min_length=2, max_length=2, description="UF (agrega a UF inteira)"
+    ),
+    municipality_id: UUID | None = Query(
+        None, description="Município (opcional; afunila o resultado a 1 cidade)"
+    ),
+    limit: int = Query(500, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> ElectionResultsResponse:
+    uf = state.upper() if state else None
+
+    # --------------------------------------------------- escopo + validação
+    muni = None
+    if municipality_id is not None:
+        muni = db.get(Municipality, municipality_id)
+        if muni is None:
+            raise NotFoundError("Municipio nao encontrado")
+        scope = "municipality"
+        uf = muni.state
+    elif uf is not None:
+        scope = "state"
+    else:
+        scope = "national"
+
+    _key = f"elec_res:{scope}:{municipality_id}:{uf}:{office_code}:{year}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
+    # --------------------------------------------------------------- query
+    # ESTRATÉGIA (a tabela de votos tem ~24M linhas): filtrar os CANDIDATOS
+    # primeiro (índice composto election_id+state+office_code) e restringir a
+    # leitura dos votos a esses candidate_id. O caminho inverso — varrer
+    # tse_vote_results filtrando por atributo do candidato — faz seq scan e
+    # estoura o tempo. SQLAlchemy Core (sem SQL cru) mantém tudo portável:
+    # os testes rodam em SQLite, que não tem MATERIALIZED nem LATERAL.
+    election_ids_sq = select(Election.id).where(Election.year == year)
+    cand_filters = [
+        Candidate.office_code == office_code,
+        Candidate.election_id.in_(election_ids_sq),
+    ]
+    # Cargos != Presidente disputam DENTRO de uma UF: filtrar candidatos por
+    # state aproveita o índice e dispensa o recorte geográfico nos votos
+    # (todo voto do candidato já está na UF dele).
+    if uf is not None and scope != "municipality" and office_code != PRESIDENT_OFFICE_CODE:
+        cand_filters.append(Candidate.state == uf)
+
+    # ATALHO (UF, cargo não-presidencial): o total do candidato NA UF é o
+    # próprio `total_votes` pré-computado — validado contra a soma real (bate
+    # ao voto). Sem ele, Dep. Estadual de SP (~2 mil candidatos × 645
+    # municípios) estourava o tempo limite.
+    use_precomputed = scope == "state" and office_code != PRESIDENT_OFFICE_CODE
+
+    if use_precomputed:
+        votes_col = func.coalesce(Candidate.total_votes, 0)
+        stmt = (
+            select(
+                Candidate,
+                votes_col.label("votes"),
+                func.sum(votes_col).over().label("total_cargo"),
+            )
+            .where(*cand_filters, votes_col > 0)
+            .order_by(votes_col.desc())
+            .limit(limit)
+        )
+        munis_count = db.execute(
+            select(func.count()).select_from(Municipality).where(Municipality.state == uf)
+        ).scalar_one()
+    else:
+        votes_sum = func.sum(VoteResult.votes)
+        stmt = (
+            select(
+                Candidate,
+                votes_sum.label("votes"),
+                func.sum(votes_sum).over().label("total_cargo"),
+                func.count(func.distinct(VoteResult.municipality_id)).label("munis"),
+            )
+            .join(VoteResult, VoteResult.candidate_id == Candidate.id)
+            # in_(subquery de candidatos) força o índice de candidate_id em vez
+            # de varrer a tabela de votos inteira.
+            .where(
+                VoteResult.candidate_id.in_(select(Candidate.id).where(*cand_filters))
+            )
+            .group_by(Candidate.id)
+            .having(votes_sum > 0)
+            .order_by(votes_sum.desc())
+            .limit(limit)
+        )
+        if scope == "municipality":
+            stmt = stmt.where(VoteResult.municipality_id == municipality_id)
+        elif uf is not None:  # Presidente recortado por UF: precisa do município
+            stmt = stmt.join(
+                Municipality, Municipality.id == VoteResult.municipality_id
+            ).where(Municipality.state == uf)
+        munis_count = None
+
+    rows = db.execute(stmt).all()
+
+    # Hidrata partido/eleição em lote (sem N+1).
+    party_ids = {r[0].party_id for r in rows}
+    election_ids = {r[0].election_id for r in rows}
+    parties_map = {
+        p.id: p for p in db.execute(
+            select(Party).where(Party.id.in_(party_ids))
+        ).scalars()
+    } if party_ids else {}
+    elections_map = {
+        e.id: e for e in db.execute(
+            select(Election).where(Election.id.in_(election_ids))
+        ).scalars()
+    } if election_ids else {}
+
+    results = [
+        TopCandidateInMunicipality(
+            candidate=CandidateRead(
+                id=c.id,
+                number=c.number,
+                name=c.name,
+                urn_name=c.urn_name,
+                office_code=c.office_code,
+                office_name=c.office_name,
+                state=c.state,
+                situation=c.situation,
+                result_status=c.result_status,
+                party=PartyRead.model_validate(parties_map[c.party_id]),
+                election=ElectionRead.model_validate(elections_map[c.election_id]),
+            ),
+            votes=int(r.votes),
+        )
+        for r in rows
+        for c in (r[0],)
+    ]
+
+    if munis_count is None:
+        munis_count = (
+            int(max(r.munis for r in rows)) if rows and scope != "municipality" else 0
+        )
+
+    _resp = ElectionResultsResponse(
+        scope=scope,
+        municipality=MunicipalityRead.model_validate(muni) if muni else None,
+        state=uf,
+        results=results,
+        total_results=len(results),
+        total_votes=int(rows[0].total_cargo) if rows else 0,
+        office_code=office_code,
+        office_name=results[0].candidate.office_name if results else None,
+        year=year,
+        municipalities_aggregated=int(munis_count),
+    )
+    agg_set(_key, _resp)
+    return _resp
+
+
 @router.get(
     "/municipalities/{municipality_id}/top-candidates",
     response_model=MunicipalityResultsResponse,
@@ -2338,6 +2520,14 @@ def candidate_by_neighborhood(
         if municipality is None:
             raise NotFoundError("Municipio nao encontrado")
 
+    # Dado público TSE/IBGE (sem tenant) + agregação pesada (JOIN seções ×
+    # locais + cruzamento censo por bairro) → agg_cache, mesmo critério dos
+    # irmãos (muni_top, party_members). Antes refazia tudo a cada request.
+    _key = f"by_nb:{candidate_id}:{municipality_id}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     # Agregacao SQL: JOIN section_votes × voting_places, group by bairro
     stmt = (
         select(
@@ -2461,7 +2651,7 @@ def candidate_by_neighborhood(
             ),
         ))
 
-    return CandidateByNeighborhoodResponse(
+    resp = CandidateByNeighborhoodResponse(
         candidate=CandidateRead(
             id=candidate.id,
             number=candidate.number,
@@ -2480,6 +2670,8 @@ def candidate_by_neighborhood(
         total_votes=total_votes_all,
         total_neighborhoods=total_neighborhoods_all,
     )
+    agg_set(_key, resp)
+    return resp
 
 
 @router.get(
@@ -3219,27 +3411,32 @@ def tse_voting_locations(
             base = base.where(TseVotingPlace.municipality_id == municipality_id)
         sub = base.subquery()
 
-        total, invalid = db.execute(
+        # UMA passada só: antes a agregação de seções (o `sub` caro) rodava
+        # DUAS vezes — uma pro count/invalid, outra pros rows. Janelas contam
+        # o conjunto todo; ordenando `valid` primeiro, os N do limit são os
+        # válidos (inválidos só aparecem se os válidos acabarem — filtrados
+        # em Python, são poucos: coordenadas quebradas).
+        rows = db.execute(
             select(
-                func.count(),
-                func.count().filter(~valid),
+                TseVotingPlace,
+                Municipality,
+                sub.c.votes,
+                func.count().over().label("total_all"),
+                func.count().filter(~valid).over().label("invalid_all"),
+                valid.label("is_valid"),
             )
             .select_from(sub)
             .join(TseVotingPlace, TseVotingPlace.id == sub.c.place_id)
-        ).one()
-
-        rows = db.execute(
-            select(TseVotingPlace, Municipality, sub.c.votes)
-            .select_from(sub)
-            .join(TseVotingPlace, TseVotingPlace.id == sub.c.place_id)
             .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
-            .where(valid)
-            .order_by(sub.c.votes.desc())
+            .order_by(valid.desc(), sub.c.votes.desc())
             .limit(limit)
         ).all()
+        total = int(rows[0].total_all) if rows else 0
+        invalid = int(rows[0].invalid_all) if rows else 0
         items = [
-            _voting_location_item(p, m, votes=int(v))
-            for p, m, v in rows
+            _voting_location_item(r[0], r[1], votes=int(r[2]))
+            for r in rows
+            if r.is_valid
         ]
     else:
         base_where = [

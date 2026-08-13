@@ -7,7 +7,7 @@
  */
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, BookOpen, Building2, Download, Flame, Layers, Loader2, Lock, MapPin, MapPinned, Search, Sparkles, Trophy, Users } from "lucide-react";
+import { ArrowLeft, BookOpen, Building2, ChevronDown, Download, Flame, Layers, Loader2, Lock, MapPin, MapPinned, Search, Sparkles, Trophy, Users } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { aggregateCensusData } from "@/lib/censusAggregate";
@@ -236,7 +236,7 @@ export type Malha = "setor" | "distrito" | "bairro";
 // o NAVEGADOR cacheia. Ao adicionar/atualizar indicadores (renda, PIB, IDHM,
 // IDEB, saneamento, CadÚnico...), BUMP isto pra furar o cache do browser e os
 // novos campos aparecerem na hora, sem esperar 7 dias.
-const CENSUS_V = "2026-07-09";
+const CENSUS_V = "2026-07-15";
 
 // Limite de setores pro DEFAULT em mosaico. Até este nº de setores o município
 // abre direto no mosaico (render síncrono cabe em ~300-450ms, mascarado pelo
@@ -339,6 +339,11 @@ export default function CensoPage() {
     // Sexo/idade — % + nº absoluto.
     pctFem: number | null; nFem: number | null;
     pct60: number | null; n60: number | null;
+    // Alfabetizados 15+ (nº absoluto) — pra o toggle %↔nº da alfabetização.
+    nAlfab: number | null;
+    // Somas brutas do bairro (idade_*, dom_agua_*, sexo_*...) — fonte única pro
+    // painel calcular homens, pirâmide etária (11 faixas) e saneamento (%↔nº).
+    sums: Record<string, number>;
   } | null>(null);
   // null = verificando; true/false = liberado pelo admin?
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -558,6 +563,8 @@ export default function CensoPage() {
       nFem: masc + fem > 0 ? fem : null,
       pct60: pop > 0 ? Number(((i60 / pop) * 100).toFixed(1)) : null,
       n60: pop > 0 ? i60 : null,
+      nAlfab: p15 > 0 ? alfa : null,
+      sums: g.sums,
     });
     setSel(null);
     // Malha dissolvida NÃO tem setores no mapa (1 polígono por bairro): foca pelo
@@ -1463,18 +1470,25 @@ export default function CensoPage() {
               <DetalheIndicadores
                 mode={valueMode}
                 onMode={setValueMode}
-                v={{
-                  dens: selArea.dens, media: selArea.media, alfab: selArea.alfab, area: selArea.area,
-                  raca: [
-                    { label: "Branca", pct: selArea.branca, n: selArea.nBranca },
-                    { label: "Preta", pct: selArea.preta, n: selArea.nPreta },
-                    { label: "Parda", pct: selArea.parda, n: selArea.nParda },
-                    { label: "Amarela", pct: selArea.amarela, n: selArea.nAmarela },
-                    { label: "Indígena", pct: selArea.indigena, n: selArea.nIndigena },
-                  ],
-                  mulheres: { pct: selArea.pctFem, n: selArea.nFem },
-                  idoso: { pct: selArea.pct60, n: selArea.n60 },
-                }}
+                v={(() => {
+                  const ex = demogExtras(selArea.sums, selArea.pop);
+                  return {
+                    dens: selArea.dens, media: selArea.media, alfab: selArea.alfab, area: selArea.area,
+                    raca: [
+                      { label: "Branca", pct: selArea.branca, n: selArea.nBranca },
+                      { label: "Preta", pct: selArea.preta, n: selArea.nPreta },
+                      { label: "Parda", pct: selArea.parda, n: selArea.nParda },
+                      { label: "Amarela", pct: selArea.amarela, n: selArea.nAmarela },
+                      { label: "Indígena", pct: selArea.indigena, n: selArea.nIndigena },
+                    ],
+                    mulheres: { pct: selArea.pctFem, n: selArea.nFem },
+                    idoso: { pct: selArea.pct60, n: selArea.n60 },
+                    homens: ex.homens,
+                    alfabN: selArea.nAlfab,
+                    faixas: ex.faixas,
+                    saneamento: ex.saneamento,
+                  };
+                })()}
               />
               <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
                 Destacado no mapa. Clique num setor para o detalhe individual.
@@ -1549,19 +1563,26 @@ export default function CensoPage() {
               <DetalheIndicadores
                 mode={valueMode}
                 onMode={setValueMode}
-                v={{
-                  dens: sel.densidade_hab_km2, media: sel.media_moradores,
-                  alfab: sel.taxa_alfabetizacao, area: sel.area_km2,
-                  raca: [
-                    { label: "Branca", pct: sel.pct_branca, n: sel.raca_branca },
-                    { label: "Preta", pct: sel.pct_preta, n: sel.raca_preta },
-                    { label: "Parda", pct: sel.pct_parda, n: sel.raca_parda },
-                    { label: "Amarela", pct: sel.pct_amarela, n: sel.raca_amarela },
-                    { label: "Indígena", pct: sel.pct_indigena, n: sel.raca_indigena },
-                  ],
-                  mulheres: { pct: sel.pct_feminino, n: sel.sexo_feminino },
-                  idoso: { pct: sel.pct_60mais, n: sel.idade_60mais },
-                }}
+                v={(() => {
+                  const ex = demogExtras(sel, Number(sel.populacao ?? 0));
+                  return {
+                    dens: sel.densidade_hab_km2, media: sel.media_moradores,
+                    alfab: sel.taxa_alfabetizacao, area: sel.area_km2,
+                    raca: [
+                      { label: "Branca", pct: sel.pct_branca, n: sel.raca_branca },
+                      { label: "Preta", pct: sel.pct_preta, n: sel.raca_preta },
+                      { label: "Parda", pct: sel.pct_parda, n: sel.raca_parda },
+                      { label: "Amarela", pct: sel.pct_amarela, n: sel.raca_amarela },
+                      { label: "Indígena", pct: sel.pct_indigena, n: sel.raca_indigena },
+                    ],
+                    mulheres: { pct: sel.pct_feminino, n: sel.sexo_feminino },
+                    idoso: { pct: sel.pct_60mais, n: sel.idade_60mais },
+                    homens: ex.homens,
+                    alfabN: sel.alfabetizados_15mais,
+                    faixas: ex.faixas,
+                    saneamento: ex.saneamento,
+                  };
+                })()}
               />
             </div>
           ) : (
@@ -2015,6 +2036,68 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---- Extras demográficos (Censo 2022): homens, pirâmide etária (11 faixas) e
+// saneamento (água/esgoto/lixo). A fonte é a MESMA em setor (props cruas) e em
+// bairro (somas agregadas) — as colunas têm o mesmo nome (idade_*, dom_*,
+// sexo_*), então um único derivador serve os dois caminhos.
+const FAIXA_DEFS: [string, string][] = [
+  ["idade_0_4", "0 a 4"], ["idade_5_9", "5 a 9"], ["idade_10_14", "10 a 14"],
+  ["idade_15_19", "15 a 19"], ["idade_20_24", "20 a 24"], ["idade_25_29", "25 a 29"],
+  ["idade_30_39", "30 a 39"], ["idade_40_49", "40 a 49"], ["idade_50_59", "50 a 59"],
+  ["idade_60_69", "60 a 69"], ["idade_70_mais", "70 ou mais"],
+];
+
+type CompCell = { pct: number | null; n: number | null };
+type DemogExtras = {
+  homens: CompCell;
+  faixas: { label: string; pct: number | null; n: number | null }[] | null;
+  saneamento: { agua: CompCell; esgoto: CompCell; lixo: CompCell } | null;
+};
+
+/**
+ * Deriva homens / pirâmide etária / saneamento a partir de um registro com as
+ * colunas do Censo (setor cru OU somas do bairro). Percentuais:
+ *  - homens = masc ÷ (masc+fem)   (base sexo, casa com o % de mulheres)
+ *  - faixa etária = faixa ÷ população
+ *  - saneamento = parte ÷ total de domicílios da variável (não a população).
+ */
+function demogExtras(src: Record<string, unknown> | null | undefined, pop: number): DemogExtras {
+  const num = (k: string): number | null => {
+    const x = src?.[k];
+    if (typeof x === "number" && Number.isFinite(x)) return x;
+    if (typeof x === "string" && x !== "" && Number.isFinite(Number(x))) return Number(x);
+    return null;
+  };
+  const pctOf = (n: number | null, base: number): number | null =>
+    n != null && base > 0 ? Number(((n / base) * 100).toFixed(1)) : null;
+
+  const masc = num("sexo_masculino");
+  const fem = num("sexo_feminino");
+  const sx = (masc ?? 0) + (fem ?? 0);
+
+  const faixas = FAIXA_DEFS.map(([k, label]) => {
+    const n = num(k);
+    return { label, n, pct: pctOf(n, pop) };
+  });
+  const hasFaixas = faixas.some((f) => f.n != null);
+
+  const san = (parteK: string, totalK: string): CompCell => {
+    const p = num(parteK);
+    const t = num(totalK);
+    return { pct: pctOf(p, t ?? 0), n: p };
+  };
+  const agua = san("dom_agua_rede", "dom_agua_total");
+  const esgoto = san("dom_esgoto_adequado", "dom_esgoto_total");
+  const lixo = san("dom_lixo_coletado", "dom_lixo_total");
+  const hasSan = [agua, esgoto, lixo].some((s) => s.pct != null);
+
+  return {
+    homens: { pct: pctOf(masc, sx), n: masc },
+    faixas: hasFaixas ? faixas : null,
+    saneamento: hasSan ? { agua, esgoto, lixo } : null,
+  };
+}
+
 // Detalhe do bairro/setor: TODOS os indicadores do Censo 2022 que existem no
 // nível de setor (densidade, moradores, alfabetização, área) + composição de
 // cor/raça (5 categorias individuais) e sexo/idade. Um toggle %↔nº alterna a
@@ -2029,6 +2112,15 @@ function DetalheIndicadores({
     raca: { label: string; pct: DNum; n: DNum }[];
     mulheres: { pct: DNum; n: DNum };
     idoso: { pct: DNum; n: DNum };
+    // Extras Censo 2022 (opcionais — só aparecem quando há dado).
+    homens?: { pct: DNum; n: DNum };
+    alfabN?: DNum;
+    faixas?: { label: string; pct: number | null; n: number | null }[] | null;
+    saneamento?: {
+      agua: { pct: number | null; n: number | null };
+      esgoto: { pct: number | null; n: number | null };
+      lixo: { pct: number | null; n: number | null };
+    } | null;
   };
   mode: "pct" | "abs";
   onMode: (m: "pct" | "abs") => void;
@@ -2039,13 +2131,24 @@ function DetalheIndicadores({
   const cell = (o: { pct: DNum; n: DNum }) => (mode === "abs" ? asAbs(o.n) : asPct(o.pct));
   const pctOf = (x: DNum) => (x == null ? null : Number(x));
   // Sexo/idade como lista — mesmo tratamento visual da composição de cor/raça.
+  // Homens entram quando há dado (área e setor), lado a lado com Mulheres.
   const sexoRows = [
+    ...(v.homens ? [{ label: "Homens", ...v.homens }] : []),
     { label: "Mulheres", ...v.mulheres },
     { label: "60 anos ou mais", ...v.idoso },
   ];
   // Dominante do grupo = maior % (rótulo em destaque pra leitura rápida).
   const racaMax = Math.max(0, ...v.raca.map((r) => pctOf(r.pct) ?? 0));
   const sexoMax = Math.max(0, ...sexoRows.map((r) => pctOf(r.pct) ?? 0));
+  const faixaMax = Math.max(0, ...(v.faixas ?? []).map((f) => f.pct ?? 0));
+  const saneRows = v.saneamento
+    ? [
+        { label: "Água na rede", ...v.saneamento.agua },
+        { label: "Esgoto adequado", ...v.saneamento.esgoto },
+        { label: "Lixo coletado", ...v.saneamento.lixo },
+      ]
+    : [];
+  const saneMax = Math.max(0, ...saneRows.map((r) => pctOf(r.pct) ?? 0));
   // Linha de categoria + mini-barra proporcional ao %. A barra SEMPRE lê o pct,
   // mesmo no modo nº: a composição visual não muda com o toggle, só o rótulo.
   // Sem dado (null) → sem barra.
@@ -2073,7 +2176,16 @@ function DetalheIndicadores({
     <div className="mt-3 space-y-2 text-sm">
       <Row label="Densidade" value={v.dens == null ? "—" : `${fmt.format(Math.round(Number(v.dens)))} hab/km²`} />
       <Row label="Moradores/domicílio" value={v.media == null ? "—" : String(v.media).replace(".", ",")} />
-      <Row label="Alfabetização 15+" value={v.alfab == null ? "—" : `${String(v.alfab).replace(".", ",")}%`} />
+      <Row
+        label="Alfabetização 15+"
+        value={
+          mode === "abs" && v.alfabN != null
+            ? `${asAbs(v.alfabN)} pessoas`
+            : v.alfab == null
+              ? "—"
+              : `${String(v.alfab).replace(".", ",")}%`
+        }
+      />
       <Row label="Área" value={v.area == null ? "—" : `${Number(v.area).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} km²`} />
 
       <div className="pt-2 mt-1 border-t border-border/60 space-y-2">
@@ -2113,6 +2225,34 @@ function DetalheIndicadores({
             {sexoRows.map((r) => compRow(r, sexoMax))}
           </div>
         </div>
+
+        {/* Pirâmide etária completa (11 faixas) — recolhida por padrão pra não
+            poluir o painel (pedido do PO). Respeita o toggle %↔nº. */}
+        {v.faixas && v.faixas.length > 0 && (
+          <details className="group">
+            <summary className="flex items-center justify-between cursor-pointer list-none text-muted-foreground hover:text-foreground transition-colors">
+              <span>Faixas etárias</span>
+              <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-2 pl-2.5 border-l-2 border-primary/20 mt-2">
+              {v.faixas.map((r) => compRow(r, faixaMax))}
+            </div>
+          </details>
+        )}
+
+        {/* Saneamento (água/esgoto/lixo) — % sobre o total de domicílios da
+            variável. Recolhido por padrão. Respeita o toggle %↔nº. */}
+        {saneRows.length > 0 && (
+          <details className="group">
+            <summary className="flex items-center justify-between cursor-pointer list-none text-muted-foreground hover:text-foreground transition-colors">
+              <span>Saneamento</span>
+              <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="space-y-2 pl-2.5 border-l-2 border-primary/20 mt-2">
+              {saneRows.map((r) => compRow(r, saneMax))}
+            </div>
+          </details>
+        )}
       </div>
     </div>
   );

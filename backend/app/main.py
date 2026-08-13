@@ -7,9 +7,11 @@ from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, ORJSONResponse
+from jose import JWTError
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from app.core.security import decode_access_token
 from app.utils.rate_limit import limiter
 from app.utils.warmup import warm_up_cache
 
@@ -176,25 +178,14 @@ def create_app() -> FastAPI:
         },
     )
 
-    # Rate limiting (anti-DoS) — primeiro middleware da pilha, pra qualquer
-    # request abusiva ser rejeitada o mais cedo possivel.
+    # ORDEM DA PILHA (Starlette: o ÚLTIMO add_middleware fica MAIS EXTERNO;
+    # os @app.middleware abaixo são adicionados primeiro = mais internos).
+    # Execução real: CORS → RateLimit → Brotli → volunteer → tse_cache → rota.
+    # - CORS mais externo: até o 429 sai com headers CORS (erro legível).
+    # - RateLimit logo dentro: request abusiva NÃO paga Brotli nem decode de
+    #   JWT (antes o limiter era o mais interno e a flood atravessava tudo).
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
-    app.add_middleware(SlowAPIMiddleware)
-
-    # Brotli — comprime JSON/text 20-25% mais que gzip do nginx. Aplicado
-    # antes do CORS pra a resposta sair compactada. minimum_size=500 evita
-    # gastar CPU compactando payloads pequenos onde o overhead nao compensa.
-    app.add_middleware(BrotliMiddleware, quality=4, minimum_size=500)
-
-    # CORS — origens vem do .env
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
 
     # ----------------------------------------- Acesso restrito da LIDERANÇA
     # role=volunteer ("liderança") só pode usar o FORMULÁRIO de cadastro de
@@ -224,14 +215,15 @@ def create_app() -> FastAPI:
             return await call_next(request)
         auth = request.headers.get("authorization", "")
         if auth[:7].lower() == "bearer ":
-            from jose import JWTError
-
-            from app.core.security import decode_access_token
-
             try:
-                role = getattr(decode_access_token(auth[7:]), "role", None)
+                payload = decode_access_token(auth[7:])
             except JWTError:
-                role = None  # token inválido/expirado: deixa a rota dar 401
+                payload = None  # token inválido/expirado: deixa a rota dar 401
+            # Guarda o payload decodificado pra request: get_tenant_context
+            # REUSA em vez de decodificar o MESMO token de novo (HMAC + 3x
+            # base64 + Pydantic 2x por request — dobrado à toa antes disso).
+            request.state.jwt_payload = payload
+            role = getattr(payload, "role", None)
             if role == "volunteer" and (method, path) not in _VOLUNTEER_ALLOW:
                 return JSONResponse(
                     status_code=403,
@@ -276,6 +268,23 @@ def create_app() -> FastAPI:
         ):
             response.headers["Cache-Control"] = "no-store"
         return response
+
+    # Brotli — comprime JSON/text 20-25% mais que gzip do nginx.
+    # minimum_size=500 evita gastar CPU compactando payloads pequenos.
+    app.add_middleware(BrotliMiddleware, quality=4, minimum_size=500)
+
+    # Rate limiting (anti-DoS) — adicionado DEPOIS dos @app.middleware pra
+    # ficar mais EXTERNO que eles: o 429 sai antes de decode de JWT/compressão.
+    app.add_middleware(SlowAPIMiddleware)
+
+    # CORS por último = camada mais externa (até 429/403 saem com headers CORS).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     register_exception_handlers(app)
     app.include_router(api_router, prefix="/api")

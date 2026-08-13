@@ -56,6 +56,22 @@ class DemandService:
 
     # ------------------------------------------------------------------ Read
 
+    def stats_by_status(self) -> dict[str, int]:
+        """Contagem por status num único GROUP BY — o overview do dashboard
+        fazia 3 requests/COUNTs separados (aberta/em_andamento/resolvida)."""
+        from sqlalchemy import func, select
+
+        rows = self._ctx.db.execute(
+            select(Demand.status, func.count())
+            .where(Demand.tenant_id == self._ctx.tenant_id)
+            .group_by(Demand.status)
+        ).all()
+        counts = {
+            (s.value if hasattr(s, "value") else str(s)): int(n) for s, n in rows
+        }
+        # Zera os ausentes — o frontend lê as 4 chaves sem checar existência.
+        return {st.value: counts.get(st.value, 0) for st in DemandStatus}
+
     def get_demand(self, demand_id: UUID) -> Demand:
         demand = self._repo.get_by_id(
             tenant_id=self._ctx.tenant_id,

@@ -12,6 +12,13 @@ class UserRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def save(self, user: User) -> User:
+        """Persiste alterações no usuário (usado pelo trial no 1º login)."""
+        self._db.add(user)
+        self._db.commit()
+        self._db.refresh(user)
+        return user
+
     def get_by_email_and_tenant_slug(
         self,
         *,
@@ -33,6 +40,24 @@ class UserRepository:
             )
         )
         return self._db.execute(stmt).scalar_one_or_none()
+
+    def list_active_by_email(self, *, email: str) -> list[tuple[User, Tenant]]:
+        """Todos os usuários ATIVOS com este e-mail, em tenants ATIVOS.
+
+        Usado no login sem `tenant_slug`: o mesmo e-mail pode existir em mais de
+        uma campanha (ex.: dono da própria conta e coordenador em outra), então
+        o Service resolve qual pela senha — e pede escolha se houver empate.
+        """
+        stmt = (
+            select(User, Tenant)
+            .join(Tenant, User.tenant_id == Tenant.id)
+            .where(
+                User.email == email,
+                User.is_active.is_(True),
+                Tenant.is_active.is_(True),
+            )
+        )
+        return [(row[0], row[1]) for row in self._db.execute(stmt).all()]
 
     def get_with_tenant(
         self,

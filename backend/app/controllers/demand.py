@@ -27,6 +27,20 @@ from app.services.demand import DemandService
 router = APIRouter(prefix="/demands", tags=["demands"])
 
 
+# Registrada ANTES das rotas /{demand_id}: senão GET /demands/stats casaria o
+# path param e viraria 422 (demand_id="stats" não é UUID).
+@router.get(
+    "/stats",
+    summary="Contagem de demandas por status (KPIs do dashboard)",
+    description=(
+        "Um único GROUP BY devolvendo {aberta, em_andamento, resolvida, "
+        "cancelada}. O overview fazia 3 requests separados só pra contar."
+    ),
+)
+def demand_stats(ctx: CurrentTenant) -> dict[str, int]:
+    return DemandService(ctx).stats_by_status()
+
+
 @router.get(
     "",
     response_model=Page[DemandRead],

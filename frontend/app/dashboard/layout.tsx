@@ -16,11 +16,17 @@ import {
   LineChart,
   MapPinned,
   Settings,
+  ShieldAlert,
   Users,
 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
-import { clearAuth, refreshTokenCookie } from "@/lib/auth";
+import {
+  clearAuth,
+  impersonatedTenantName,
+  refreshTokenCookie,
+  stopImpersonation,
+} from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { GlobalSearch } from "@/components/tse/GlobalSearch";
@@ -78,7 +84,19 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [me, setMe] = useState<Me | null>(null);
+  // Hint otimista do último /me (sessionStorage): no F5 o menu pintava com o
+  // conjunto DEFAULT e depois itens sumiam/apareciam quando o /me chegava
+  // ("pisca"). Com o hint, o primeiro frame já sai certo; o /me real corrige
+  // em seguida se algo mudou (e o backend continua sendo a trava de verdade).
+  const [me, setMe] = useState<Me | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = sessionStorage.getItem("mn_me_hint");
+      return raw ? (JSON.parse(raw) as Me) : null;
+    } catch {
+      return null;
+    }
+  });
   const [scrolled, setScrolled] = useState(false);
   const lastY = useRef(0);
 
@@ -91,12 +109,24 @@ export default function DashboardLayout({
           return;
         }
         setMe(m);
+        try {
+          // Persiste SEM o token renovado (token não vai pro sessionStorage).
+          const { refreshed_token: _t, refreshed_expires_in: _e, ...hint } = m;
+          sessionStorage.setItem("mn_me_hint", JSON.stringify(hint));
+        } catch {
+          /* sessionStorage indisponível — segue sem hint */
+        }
         if (m.refreshed_token && m.refreshed_expires_in) {
           refreshTokenCookie(m.refreshed_token, m.refreshed_expires_in);
         }
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) {
+          try {
+            sessionStorage.removeItem("mn_me_hint");
+          } catch {
+            /* noop */
+          }
           clearAuth();
           router.replace("/login");
         }
@@ -191,6 +221,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <RouteProgress />
+      <ImpersonationBanner />
       <header
         data-dash-header
         data-scrolled={scrolled ? "true" : "false"}
@@ -214,13 +245,13 @@ export default function DashboardLayout({
                   dark, grafite no light; o M dourado é o mesmo) */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.png`}
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.webp`}
                 alt="MareNostrum"
                 className="h-7 sm:h-8 w-auto object-contain hidden dark:block"
               />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.png`}
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.webp`}
                 alt="MareNostrum"
                 className="h-7 sm:h-8 w-auto object-contain dark:hidden"
               />
@@ -340,6 +371,44 @@ export default function DashboardLayout({
           map: isOwner || me?.map_enabled !== false,
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Faixa fixa durante o ACESSO MARE NOSTRUM ("entrar como" um cliente).
+ * Deixa explícito de qual conta os dados são — sem isso é fácil confundir o
+ * ambiente do cliente com o próprio e agir na conta errada.
+ */
+function ImpersonationBanner() {
+  const [tenantName, setTenantName] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTenantName(impersonatedTenantName());
+  }, []);
+
+  if (!tenantName) return null;
+
+  return (
+    <div className="sticky top-0 z-[60] bg-amber-500 text-black">
+      <div className="max-w-6xl mx-auto px-4 py-1.5 flex items-center justify-between gap-3 text-sm">
+        <span className="flex items-center gap-2 min-w-0">
+          <ShieldAlert className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            <strong>Acesso Mare Nostrum</strong> · vendo os dados de{" "}
+            <strong>{tenantName}</strong>
+          </span>
+        </span>
+        <button
+          onClick={() => {
+            stopImpersonation();
+            window.location.href = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/dashboard/superadmin`;
+          }}
+          className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80"
+        >
+          Sair desta conta
+        </button>
+      </div>
     </div>
   );
 }

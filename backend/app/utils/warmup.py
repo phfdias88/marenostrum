@@ -58,7 +58,10 @@ REWARM_INTERVAL_S = 3.5 * 3600
 # Chave do cache inclui Accept-Encoding → aquecemos as variantes reais
 # de browser (Chrome/Edge/Opera/Firefox usam zstd; Safari não).
 NGINX_WARM_BASE = "http://nginx:8088"
-_BROWSER_ENCODINGS = ["gzip, deflate, br, zstd", "gzip, deflate, br"]
+# A chave de cache do nginx agora usa um BUCKET do Accept-Encoding (map
+# $enc_bucket: br|gzip|"") em vez da string crua — 1 passada aquece o bucket
+# "br", que cobre todos os browsers modernos. (Antes eram 2 passadas por URL.)
+_BROWSER_ENCODINGS = ["gzip, deflate, br, zstd"]
 
 # CRITICO: o frontend SEMPRE chama o censo com "&v=<CENSUS_V>" no FIM da URL
 # (cache-buster manual, frontend/app/dashboard/censo/page.tsx). A chave do
@@ -66,7 +69,7 @@ _BROWSER_ENCODINGS = ["gzip, deflate, br, zstd", "gzip, deflate, br"]
 # DIFERENTE. Sem anexar o mesmo v= (na mesma posicao), o warmup aquece
 # entradas que nenhum browser jamais pede e 100% do trabalho e desperdicado.
 # MANTER EM SINCRONIA com o CENSUS_V do frontend — bump nos dois juntos.
-CENSUS_V = "2026-07-09"
+CENSUS_V = "2026-07-15"
 
 
 def _muni_top_warm_paths() -> list[str]:
@@ -113,7 +116,9 @@ def _census_warm_paths() -> list[str]:
     ufs = sorted({str(cd)[:2] for cd in cds})
     # A ORDEM dos args importa ($args entra cru na chave do nginx): o v= vai
     # por ULTIMO, exatamente como o frontend monta as URLs.
-    paths = [f"/api/v1/census/uf-overview?uf={u}&v={CENSUS_V}" for u in ufs] + [
+    paths = [f"/api/v1/census/municipalities?v={CENSUS_V}"] + [
+        f"/api/v1/census/uf-overview?uf={u}&v={CENSUS_V}" for u in ufs
+    ] + [
         f"/api/v1/census/setores?cd_mun={cd}&v={CENSUS_V}" for cd in cds
     ]
     # Malha dissolvida (visao DEFAULT do censo desde que bairro virou o padrao):

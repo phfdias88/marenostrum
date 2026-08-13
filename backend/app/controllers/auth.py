@@ -13,17 +13,22 @@ from app.utils.rate_limit import limiter
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant, oauth2_scheme
 from app.core.errors import DomainError, NotFoundError, UnauthorizedError
+from app.config import get_settings
 from app.core.security import (
     create_access_token,
     decode_access_token,
+    decode_set_password_token,
     hash_password,
+    password_fingerprint,
     verify_password,
 )
+from jose import JWTError
 from app.models.user import User, UserRole
 from app.schemas.auth import (
     AccessFlagRequest,
     CensusFlagRequest,
     ChangeRoleRequest,
+    PublicSetPasswordRequest,
     SetPasswordRequest,
     ChangePasswordRequest,
     CreateUserRequest,
@@ -139,6 +144,59 @@ def login(
     return AuthService(db).login(payload)
 
 
+@router.post(
+    "/set-password",
+    response_model=TokenResponse,
+    summary="Definir a senha via link (comprador recém-provisionado)",
+    description="""\
+**Público**. Consome o token de uso único enviado por e-mail após a compra,
+define a senha do owner e já devolve um JWT (login automático). O token é
+invalidado no 1º uso (o fingerprint da senha muda). Não confundir com
+`/users/{id}/set-password`, que é o owner definindo a senha de um MEMBRO.
+""",
+)
+@limiter.limit("10/minute")
+def public_set_password(
+    request: Request,
+    payload: PublicSetPasswordRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> TokenResponse:
+    try:
+        tok = decode_set_password_token(payload.token)
+    except JWTError:
+        raise UnauthorizedError("Link inválido ou expirado.")
+
+    user = db.execute(
+        select(User).where(
+            User.id == tok.sub,
+            User.tenant_id == tok.tid,
+            User.is_active.is_(True),
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise UnauthorizedError("Link inválido ou expirado.")
+
+    # Uso único: o fingerprint precisa bater com a senha ATUAL. Assim que a senha
+    # muda (aqui embaixo), o mesmo token não vale mais.
+    if password_fingerprint(user.hashed_password) != tok.fp:
+        raise UnauthorizedError("Este link já foi usado. Faça login ou peça um novo.")
+
+    user.hashed_password = hash_password(payload.password)
+    db.commit()
+
+    settings = get_settings()
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    access = create_access_token(user_id=user.id, tenant_id=user.tenant_id, role=role)
+    return TokenResponse(
+        access_token=access,
+        token_type="bearer",
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        role=role,
+    )
+
+
 @router.get(
     "/me",
     response_model=MeResponse,
@@ -171,17 +229,29 @@ def me(
     # Token roubado continua limitado: renovar exige um token ainda válido.
     try:
         payload = decode_access_token(token)
-        from datetime import datetime, timezone
+        from datetime import datetime, timedelta, timezone
 
         from app.config import get_settings
+        from app.core.security import capped_token_delta
 
+        now = datetime.now(timezone.utc)
         ttl = get_settings().JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        remaining = payload.exp - int(datetime.now(timezone.utc).timestamp())
+        remaining = payload.exp - int(now.timestamp())
         if 0 < remaining < ttl / 2:
-            resp.refreshed_token = create_access_token(
-                user_id=ctx.user_id, tenant_id=ctx.tenant_id, role=ctx.role,
+            # Cap do trial: o token renovado NUNCA vive além de trial_expires_at.
+            # Sem isso, um usuário de acesso temporário ganharia 7 dias novos a
+            # cada carga do dashboard — furando o limite. None = já expirou → não
+            # renova (o token atual morre sozinho e o próximo login dá 403).
+            new_delta = capped_token_delta(
+                resp.trial_expires_at, now, timedelta(seconds=ttl)
             )
-            resp.refreshed_expires_in = ttl
+            if new_delta is not None and new_delta > timedelta(0):
+                resp.refreshed_token = create_access_token(
+                    user_id=ctx.user_id, tenant_id=ctx.tenant_id, role=ctx.role,
+                    expires_delta=new_delta,
+                    not_after=resp.trial_expires_at,  # teto absoluto do trial
+                )
+                resp.refreshed_expires_in = int(new_delta.total_seconds())
     except Exception:  # noqa: BLE001 — renovação é best-effort, nunca quebra /me
         pass
     return resp
@@ -237,6 +307,7 @@ def list_users(
             full_name=u.full_name,
             role=u.role.value if hasattr(u.role, "value") else str(u.role),
             is_active=u.is_active,
+            is_account_owner=bool(getattr(u, "is_account_owner", False)),
             census_enabled=bool(getattr(u, "census_enabled", False)),
             analytics_enabled=bool(getattr(u, "analytics_enabled", True)),
             panel_enabled=bool(getattr(u, "panel_enabled", True)),
@@ -244,6 +315,9 @@ def list_users(
             demands_enabled=bool(getattr(u, "demands_enabled", True)),
             agenda_enabled=bool(getattr(u, "agenda_enabled", True)),
             created_at=u.created_at,
+            usage_limit_hours=getattr(u, "usage_limit_hours", None),
+            first_login_at=getattr(u, "first_login_at", None),
+            expires_at=getattr(u, "expires_at", None),
         )
         for u in rows
     ]
@@ -294,6 +368,20 @@ def create_user(
 
     temp = _gen_temp_password()
     role_enum = UserRole(payload.role)  # validates against enum values
+    # Trial: 0/None = ilimitado (guarda NULL). O relógio NÃO começa aqui — só
+    # no 1º login (AuthService.login materializa first_login_at/expires_at).
+    _limit = payload.usage_limit_hours
+    usage_limit = _limit if (_limit and _limit > 0) else None
+    # RBAC (Zero Trust): definir PRAZO de acesso é prerrogativa da Mare Nostrum.
+    # O cliente pagante convida a equipe dele, mas não emite acesso temporário —
+    # senão poderia fabricar contas-relâmpago fora do controle comercial.
+    # Checagem no BANCO (não no token): flag não trafega no JWT.
+    if usage_limit is not None:
+        _me = db.get(User, ctx.user_id)
+        if _me is None or not getattr(_me, "is_superadmin", False):
+            raise _ForbiddenError(
+                "Definir tempo limite de uso é exclusivo da equipe Mare Nostrum."
+            )
     user = User(
         tenant_id=ctx.tenant_id,
         email=payload.email.lower(),
@@ -301,6 +389,10 @@ def create_user(
         hashed_password=hash_password(temp),
         role=role_enum,
         is_active=True,
+        # CONVIDADO: herda o tenant do titular mas NUNCA a titularidade —
+        # is_account_owner é exclusivo de quem comprou (webhook Asaas/seed).
+        is_account_owner=False,
+        usage_limit_hours=usage_limit,
     )
     db.add(user)
     db.flush()  # atribui user.id antes de auditar
@@ -530,6 +622,14 @@ def change_user_role(
     ).scalar_one_or_none()
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
+    # TITULAR é intocável: sem esta trava, um convidado promovido a Dono
+    # poderia REBAIXAR quem paga a conta e depois desativá-lo/excluí-lo
+    # (as outras rotas só protegem alvos com role=owner — rebaixar primeiro
+    # abria a cadeia de tomada da conta).
+    if getattr(user, "is_account_owner", False):
+        raise _ForbiddenError(
+            "O papel do titular da assinatura não pode ser alterado."
+        )
     old_role = user.role.value
     user.role = UserRole(payload.role)
     record_audit(
@@ -604,9 +704,18 @@ def delete_user(
     if user is None:
         raise NotFoundError("Usuario nao encontrado.")
     _require_can_manage(ctx, user)
-    if user.role == UserRole.OWNER:
+    # TITULAR da assinatura é intocável: é a identidade dona da conta (quem
+    # paga / abriu o cliente). Excluí-lo deixaria o tenant órfão.
+    if getattr(user, "is_account_owner", False):
         raise _ForbiddenError(
-            "Nao da pra excluir um Administrador (Dono). Rebaixe o papel antes."
+            "O titular da assinatura não pode ser excluído."
+        )
+    # Administrador (Dono) NÃO-titular pode ser excluído direto pelo Dono.
+    # Antes exigia rebaixar o papel primeiro — dois passos nada óbvios, que na
+    # prática travavam a limpeza de contas administrativas antigas.
+    if user.role == UserRole.OWNER and ctx.role != "owner":
+        raise _ForbiddenError(
+            "Apenas um Administrador (Dono) pode excluir outro Administrador."
         )
     # FK contacts.created_by_user_id e' ON DELETE SET NULL — contatos ficam,
     # so perdem o vinculo de autor (o nome denormalizado permanece).

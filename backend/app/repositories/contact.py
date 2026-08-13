@@ -337,6 +337,17 @@ class ContactRepository:
         )
         return list(self._db.execute(stmt).scalars().all())
 
+    def count_with_coords(self, *, tenant_id: UUID) -> int:
+        """So a CONTAGEM do mapa — o KPI do dashboard baixava a lista inteira
+        (nome/telefone/endereco de todos os geocodificados) pra fazer .length."""
+        stmt = select(func.count()).select_from(Contact).where(
+            Contact.tenant_id == tenant_id,
+            Contact.is_active.is_(True),
+            Contact.latitude.is_not(None),
+            Contact.longitude.is_not(None),
+        )
+        return int(self._db.execute(stmt).scalar_one())
+
     # -------------------------------------------------------------- Update
 
     def update(

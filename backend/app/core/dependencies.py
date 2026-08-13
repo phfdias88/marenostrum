@@ -9,9 +9,10 @@ Dependencias FastAPI compartilhadas.
 
 Esta dependencia DEVE ser usada por TODA rota que toca dados de tenant.
 """
+from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.core.tenant_context import TenantContext
+from app.models.tenant import Tenant
 from app.models.user import User
 
 # tokenUrl aponta para a rota de login (a implementar)
@@ -34,22 +36,95 @@ _credentials_exc = HTTPException(
     headers={"WWW-Authenticate": "Bearer"},
 )
 
+# 402 quando a assinatura não está em dia. O frontend usa isso pra levar à tela
+# de "regularizar pagamento".
+_payment_required_exc = HTTPException(
+    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+    detail="Assinatura inativa. Regularize o pagamento para continuar.",
+)
+
+# Rotas que continuam funcionando MESMO com assinatura inativa — senão a própria
+# tela de pagamento (que precisa da identidade + status) não renderiza. O webhook
+# e o checkout de billing são públicos (nem passam por aqui).
+_BILLING_EXEMPT_SUFFIXES = (
+    "/auth/me",
+    "/auth/change-password",
+    "/auth/set-password",
+    "/auth/logout",
+)
+
+
+def _subscription_blocks(tenant: Tenant | None, now: datetime) -> bool:
+    """True se o acesso deve ser bloqueado por assinatura. Tenants legados
+    (status 'active', sem billing) NUNCA bloqueiam."""
+    if tenant is None:
+        return False
+    st = tenant.subscription_status
+    if st in ("suspended", "canceled"):
+        return True
+    # past_due só bloqueia depois que a tolerância (grace) vence.
+    if st == "past_due" and tenant.grace_until is not None and now >= tenant.grace_until:
+        return True
+    return False
+
+
+def _is_billing_exempt(path: str) -> bool:
+    return "/billing/" in path or path.endswith(_BILLING_EXEMPT_SUFFIXES)
+
 
 def get_tenant_context(
+    request: Request,
     token: Annotated[str, Depends(_oauth2_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TenantContext:
-    # 1. Decodifica o JWT (assinatura, expiracao, formato)
-    try:
-        payload = decode_access_token(token)
-    except JWTError:
-        raise _credentials_exc
+    # 1. Decodifica o JWT (assinatura, expiracao, formato). O middleware
+    #    restrict_volunteer (main.py) já decodificou o MESMO token e guardou
+    #    em request.state — reusa pra não pagar HMAC+parse duas vezes.
+    payload = getattr(request.state, "jwt_payload", None)
+    if payload is None:
+        try:
+            payload = decode_access_token(token)
+        except JWTError:
+            raise _credentials_exc
 
-    # 2. Confirma que o usuario do token ainda existe e pertence ao mesmo tenant.
+    # 2. ACESSO MARE NOSTRUM (impersonação): token com `imp` traz o superadmin
+    #    em `sub` e o tenant do CLIENTE em `tid` — os dois divergem de propósito,
+    #    então a checagem "usuário pertence ao tenant" não se aplica. Em troca,
+    #    re-validamos a flag is_superadmin NO BANCO a cada request: se o super-
+    #    acesso for revogado, o token vira inútil na hora (não espera expirar).
+    if getattr(payload, "imp", False):
+        user = (
+            db.query(User)
+            .filter(User.id == payload.sub, User.is_active.is_(True))
+            .one_or_none()
+        )
+        if user is None or not getattr(user, "is_superadmin", False):
+            raise _credentials_exc
+        tenant = db.get(Tenant, payload.tid)
+        if tenant is None:
+            raise _credentials_exc
+        return TenantContext(
+            user_id=user.id,          # QUEM agiu (auditoria aponta pro superadmin)
+            tenant_id=tenant.id,      # ONDE agiu (dados do cliente visitado)
+            role="owner",             # enxerga tudo do cliente
+            db=db,
+            user_name=f"{user.full_name} (Mare Nostrum)",
+            # Sem restrição de área e sem gate de billing: o dono do produto
+            # precisa conseguir entrar até numa conta suspensa pra dar suporte.
+            analytics_enabled=True, panel_enabled=True, map_enabled=True,
+            demands_enabled=True, agenda_enabled=True, census_enabled=True,
+            subscription_active=True,
+            is_impersonating=True,
+        )
+
+    #    Confirma que o usuario do token ainda existe e pertence ao mesmo tenant.
     #    Esta dupla checagem (tid do token + tenant_id da linha) impede que
     #    um token "remixado" ou um usuario migrado entre tenants seja usado.
-    user = (
-        db.query(User)
+    #    JOIN com Tenant na MESMA query: o gate de assinatura precisa do tenant
+    #    e 1 round-trip por request é mais barato que 2 (VPS de 1 vCPU).
+    row = (
+        db.query(User, Tenant)
+        .join(Tenant, Tenant.id == User.tenant_id)
         .filter(
             User.id == payload.sub,
             User.tenant_id == payload.tid,
@@ -57,12 +132,21 @@ def get_tenant_context(
         )
         .one_or_none()
     )
-    if user is None:
+    if row is None:
         raise _credentials_exc
+    user, tenant = row
+
+    # 3. Gate de assinatura (billing Asaas). Tenants legados ficam 'active' e
+    #    passam. Rotas de billing/identidade são isentas pra a tela de
+    #    pagamento conseguir carregar.
+    blocked = _subscription_blocks(tenant, datetime.now(timezone.utc))
+    if blocked and not _is_billing_exempt(request.url.path):
+        raise _payment_required_exc
 
     return TenantContext(
         user_id=user.id,
         tenant_id=user.tenant_id,
+        subscription_active=not blocked,
         # Papel SEMPRE do BANCO, nunca do claim do JWT: com role=payload.role,
         # rebaixar um usuário (demote) não valia na prática — o token de 7 dias
         # (renovado em silêncio pelo /auth/me) perpetuava o papel antigo

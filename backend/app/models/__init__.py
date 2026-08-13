@@ -7,6 +7,7 @@ from app.models.agenda_event import AgendaEvent
 from app.models.interaction import Interaction
 from app.models.message_template import MessageTemplate
 from app.models.monitored_candidate import MonitoredCandidate
+from app.models.subscription import BillingEvent, Subscription
 from app.models.tenant import Tenant
 from app.models.tse import (
     Candidate,
@@ -32,6 +33,8 @@ __all__ = [
     "Interaction",
     "MessageTemplate",
     "MonitoredCandidate",
+    "Subscription",
+    "BillingEvent",
     "Tenant",
     "User",
     "UserRole",

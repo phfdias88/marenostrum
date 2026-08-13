@@ -19,7 +19,14 @@ import {
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    // Dados extras que alguns erros carregam (ex: `choose_tenant` traz as
+    // campanhas disponíveis pra o usuário escolher).
+    public options?: unknown,
+  ) {
     super(message);
   }
 }
@@ -113,16 +120,42 @@ async function _doFetch<T>(
   });
 
   if (!res.ok) {
+    // 402 = assinatura inativa (gate do backend). Leva o tenant à tela de
+    // regularização — só afeta quem está suspenso/cancelado (ativos nunca caem
+    // aqui). Evita loop se já estiver na própria tela.
+    if (res.status === 402 && typeof window !== "undefined") {
+      const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+      if (!window.location.pathname.endsWith("/assinatura")) {
+        window.location.href = `${base}/assinatura`;
+      }
+    }
     let code = "http_error";
+    let extraOptions: unknown;
+    // Em HTTP/2 o statusText vem VAZIO — era a causa dos toasts em branco
+    // (toast.error("") renderiza só o fundo). Fallback sempre não-vazio.
     let message = res.statusText;
     try {
       const data = await res.json();
       code = data.code ?? code;
       message = data.message ?? message;
+      extraOptions = data.options;
+      // Defesa em profundidade: se um 422 escapar sem `message` (formato cru
+      // do FastAPI {detail:[{msg}]}), usa a msg da validação em vez do genérico.
+      if (!data.message && Array.isArray(data.detail) && data.detail[0]?.msg) {
+        message = String(data.detail[0].msg);
+      } else if (!data.message && typeof data.detail === "string") {
+        message = data.detail;
+      }
     } catch {
       /* nao-json */
     }
-    throw new ApiError(res.status, code, message);
+    if (!message) {
+      message =
+        res.status === 429
+          ? "Muitas tentativas. Aguarde um instante e tente de novo."
+          : `Erro no servidor (HTTP ${res.status}). Tente novamente.`;
+    }
+    throw new ApiError(res.status, code, message, extraOptions);
   }
 
   if (res.status === 204) return undefined as T;

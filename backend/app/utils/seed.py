@@ -52,6 +52,16 @@ def seed(
         ).scalar_one_or_none()
 
         if owner is None:
+            # É TITULAR se o tenant ainda não tem um (o seed é o onboarding
+            # manual do dono da conta — equivale à compra). Se o tenant já tem
+            # titular, este owner extra nasce como convidado (is_account_owner
+            # False), preservando 1 titular por cliente.
+            ja_tem_titular = db.execute(
+                select(User.id).where(
+                    User.tenant_id == tenant.id,
+                    User.is_account_owner.is_(True),
+                )
+            ).first() is not None
             owner = User(
                 tenant_id=tenant.id,
                 email=email,
@@ -59,9 +69,13 @@ def seed(
                 hashed_password=hash_password(password),
                 role=UserRole.OWNER,
                 is_active=True,
+                is_account_owner=not ja_tem_titular,
             )
             db.add(owner)
-            print(f"[OK] Owner criado: {email}")
+            print(
+                f"[OK] Owner criado: {email}"
+                + (" (TITULAR da assinatura)" if not ja_tem_titular else "")
+            )
         else:
             print(f"[..] Owner ja existia: {email} (senha NAO foi atualizada)")
 

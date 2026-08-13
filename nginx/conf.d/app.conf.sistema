@@ -26,6 +26,15 @@ map $http_authorization $census_skip_cache {
     default 0;
 }
 
+# Bucket do Accept-Encoding pra chave de cache: cada STRING de browser virava
+# entrada própria (Chrome "…br, zstd" ≠ Firefox "…br" = 2x disco e 2x warmup;
+# strings fora das aquecidas davam MISS). 3 buckets cobrem todo mundo.
+map $http_accept_encoding $enc_bucket {
+    default  "";
+    ~*br     "br";
+    ~*gzip   "gzip";
+}
+
 # HTTP — ACME + redirect pra HTTPS canônico.
 server {
     listen 80;
@@ -48,8 +57,11 @@ server {
         proxy_set_header   Host $host;
         proxy_read_timeout 60s;
         proxy_cache        mn_census;
-        proxy_cache_key    "$uri$is_args$args$http_accept_encoding";
+        proxy_cache_key    "$uri$is_args$args$enc_bucket";
         proxy_cache_valid  200 7d;
+        # Igual ao bloco público: borda cacheia 7d, ignorando o max-age=900
+        # do backend (o warmup nunca passa pelo ai-insight, que é no-store).
+        proxy_ignore_headers Cache-Control Expires;
         proxy_no_cache     $census_skip_cache;
         proxy_cache_bypass $census_skip_cache;
         proxy_cache_lock      on;
@@ -86,6 +98,22 @@ server {
 
     include /etc/nginx/conf.d/security-headers.inc;
 
+    # ---- ai-insight: PRIVADO por tenant + no-store (anti-leak) --------------
+    # Location EXATO ganha do prefixo /census/ e fica FORA do proxy_cache —
+    # obrigatório porque o bloco de censo abaixo passou a IGNORAR o
+    # Cache-Control do upstream (o no-store deste endpoint seria atropelado).
+    location = /sistema/api/v1/census/ai-insight {
+        rewrite ^/sistema/(.*)$ /$1 break;
+        proxy_pass         http://mn_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
     # ---- CENSO sob /sistema : tira o /sistema + proxy_cache -----------------
     location /sistema/api/v1/census/ {
         rewrite ^/sistema/(.*)$ /$1 break;
@@ -97,13 +125,42 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
         proxy_cache        mn_census;
-        proxy_cache_key    "$uri$is_args$args$http_accept_encoding";
+        proxy_cache_key    "$uri$is_args$args$enc_bucket";
         proxy_cache_valid  200 7d;
+        # O backend manda max-age=900 (pro BROWSER); sem ignorar, esses 900s
+        # também viravam o TTL da BORDA e o nginx re-agregava o censo a cada
+        # 15min. Ignorando, vale o proxy_cache_valid 7d aqui (censo é estático
+        # entre ingests) e o browser segue recebendo o max-age=900 original.
+        proxy_ignore_headers Cache-Control Expires;
         proxy_no_cache     $census_skip_cache;
         proxy_cache_bypass $census_skip_cache;
         proxy_cache_lock      on;
         proxy_cache_use_stale updating error timeout;
         proxy_cache_background_update on;
+        add_header         X-Cache-Status $upstream_cache_status;
+        include            /etc/nginx/conf.d/security-headers.inc;
+    }
+
+    # ---- fotos TSE: público, chega via <img> SEM header Authorization -------
+    # O bypass-por-falta-de-auth do bloco /tse/ abaixo anulava o cache
+    # justamente no path mais requisitado do app (toda lista de candidatos
+    # baixa dezenas de fotos). Foto é dado público → cacheia SEM bypass.
+    # O Vary: Accept do backend separa as variantes webp/jpeg sozinho.
+    location ~ ^/sistema/api/v1/tse/candidates/[0-9a-f-]+/photo$ {
+        rewrite ^/sistema/(.*)$ /$1 break;
+        proxy_pass         http://mn_api;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_cache        mn_tse;
+        proxy_cache_key    "$uri";
+        proxy_cache_valid  200 7d;
+        proxy_cache_valid  404 1h;
+        proxy_cache_lock      on;
+        proxy_cache_use_stale updating error timeout;
         add_header         X-Cache-Status $upstream_cache_status;
         include            /etc/nginx/conf.d/security-headers.inc;
     }
@@ -119,7 +176,7 @@ server {
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
         proxy_cache        mn_tse;
-        proxy_cache_key    "$uri$is_args$args$http_accept_encoding";
+        proxy_cache_key    "$uri$is_args$args$enc_bucket";
         proxy_no_cache     $census_skip_cache;
         proxy_cache_bypass $census_skip_cache;
         proxy_cache_lock      on;
@@ -148,6 +205,10 @@ server {
         proxy_set_header   Host $host;
         proxy_hide_header  Cache-Control;
         add_header         Cache-Control "public, max-age=31536000, immutable";
+        # Faz a EDGE da Vercel (que fica na frente via rewrite do site) cachear
+        # os estáticos perto do usuário — sem isso era X-Vercel-Cache: MISS e
+        # todo 1º load por região viajava até a VPS (~440ms num chunk de 172KB).
+        add_header         Vercel-CDN-Cache-Control "public, max-age=31536000, immutable";
         include            /etc/nginx/conf.d/security-headers.inc;
     }
     location ~* ^/sistema/.*\.(png|jpe?g|gif|svg|ico|webp|avif|woff2?)$ {

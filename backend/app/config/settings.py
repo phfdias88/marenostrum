@@ -73,6 +73,46 @@ class Settings(BaseSettings):
     GEOCODING_DEFAULT_CITY: str = "Juiz de Fora"
     GEOCODING_DEFAULT_STATE: str = "MG"
 
+    # ---- Billing (Asaas) — assinatura recorrente do B.I. Eleitoral Completo ----
+    # Vazio = billing DESLIGADO (dev/staging/enquanto não migra). A chave é de
+    # PRODUÇÃO ($aact_prod_) ou sandbox ($aact_hmlg_) e vive SÓ no .env do VPS —
+    # NUNCA no código/git/chat. base_url é derivada de ASAAS_ENV (chave e base
+    # têm que ser do mesmo ambiente, senão 401).
+    ASAAS_API_KEY: str | None = None
+    ASAAS_ENV: str = "production"  # production | sandbox
+    # authToken estático do webhook (comparado com o header asaas-access-token).
+    # Gerado por nós, NUNCA igual à API key.
+    ASAAS_WEBHOOK_TOKEN: str | None = None
+    # User-Agent é header OBRIGATÓRIO na API do Asaas (contas pós-11/06/2024).
+    ASAAS_USER_AGENT: str = "MareNostrum/1.0"
+    # Plano vendido — o preço é fonte da verdade AQUI (não confiar no valor que
+    # vem do cliente no checkout).
+    BILLING_PLAN_NAME: str = "B.I. Eleitoral Completo"
+    BILLING_PLAN_SLUG: str = "bi_eleitoral_completo"
+    BILLING_PLAN_VALUE: float = 250.00
+    BILLING_PLAN_CYCLE: str = "MONTHLY"
+    # Dias de tolerância após o vencimento antes de suspender o acesso.
+    BILLING_GRACE_DAYS: int = 5
+
+    # ---- E-mail transacional (SMTP do domínio) — entrega do link de senha -----
+    # Vazio = envio DESLIGADO: o serviço apenas LOGA o link (dev). Preencher com
+    # o SMTP do domínio (@marenostrumconsult) no go-live.
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    # Remetente exibido, ex.: "MareNostrum <acesso@marenostrumconsult.com.br>".
+    SMTP_FROM: str | None = None
+    SMTP_STARTTLS: bool = True
+
+    @property
+    def asaas_base_url(self) -> str:
+        return (
+            "https://api.asaas.com/v3"
+            if self.ASAAS_ENV == "production"
+            else "https://api-sandbox.asaas.com/v3"
+        )
+
     @property
     def database_url(self) -> str:
         # psycopg v3 driver

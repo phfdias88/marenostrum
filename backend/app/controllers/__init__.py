@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends
 
+from app.controllers.admin import router as admin_router
 from app.controllers.audit import router as audit_router
 from app.controllers.auth import router as auth_router
+from app.controllers.billing import router as billing_router
 from app.controllers.census import router as census_router
 from app.controllers.contact import router as contact_router
 from app.controllers.agenda_event import router as agenda_router
@@ -17,6 +19,7 @@ from app.core.dependencies import require_area
 api_router = APIRouter(prefix="/v1")
 api_router.include_router(auth_router)
 api_router.include_router(audit_router)
+api_router.include_router(admin_router)
 api_router.include_router(contact_router)
 # Demandas e Agenda são dados privados do gabinete — o acesso é configurável
 # pelo owner por usuário (require_area dá 403 se desligado pra quem não é owner).
@@ -28,3 +31,6 @@ api_router.include_router(template_router)
 api_router.include_router(agenda_router, dependencies=[Depends(require_area("agenda_enabled"))])
 api_router.include_router(census_router)
 api_router.include_router(webhook_router)
+# Billing (assinatura Asaas): checkout + webhook são PÚBLICOS; /me é privado.
+# NÃO gatear por assinatura aqui (o comprador precisa poder pagar/regularizar).
+api_router.include_router(billing_router)

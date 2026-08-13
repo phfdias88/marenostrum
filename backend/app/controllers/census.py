@@ -138,30 +138,11 @@ def census_uf_overview(
             "       s.idade_25_29, s.idade_30_39, s.idade_40_49, s.idade_50_59, "
             "       s.idade_60_69, s.idade_70_mais "
             "FROM census_geo g "
-            "LEFT JOIN LATERAL ("
-            "  SELECT count(*) AS setores, "
-            "         round(100*sum(alfabetizados_15mais)::numeric"
-            "               / NULLIF(sum(pop_15mais),0), 1) AS taxa_alfabetizacao, "
-            "         round(100*(coalesce(sum(raca_preta),0)+coalesce(sum(raca_parda),0))::numeric"
-            "               / NULLIF(sum(populacao),0), 1) AS pct_pretos_pardos, "
-            # Cor/raça DESAGREGADA (Censo 2022): pct de cada categoria sobre a
-            # população — o PO pediu Branco/Preto/Pardo/Amarelo/Indígena separados.
-            "         round(100*coalesce(sum(raca_branca),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_branca, "
-            "         round(100*coalesce(sum(raca_preta),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_preta, "
-            "         round(100*coalesce(sum(raca_parda),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_parda, "
-            "         round(100*coalesce(sum(raca_amarela),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_amarela, "
-            "         round(100*coalesce(sum(raca_indigena),0)::numeric/NULLIF(sum(populacao),0),1) AS pct_indigena, "
-            "         round(100*sum(populacao) FILTER (WHERE situacao='Urbana')::numeric"
-            "               / NULLIF(sum(populacao),0), 1) AS pct_urbana, "
-            "         sum(sexo_masculino) AS sexo_masculino, sum(sexo_feminino) AS sexo_feminino, "
-            "         sum(idade_0_4) AS idade_0_4, sum(idade_5_9) AS idade_5_9, "
-            "         sum(idade_10_14) AS idade_10_14, sum(idade_15_19) AS idade_15_19, "
-            "         sum(idade_20_24) AS idade_20_24, sum(idade_25_29) AS idade_25_29, "
-            "         sum(idade_30_39) AS idade_30_39, sum(idade_40_49) AS idade_40_49, "
-            "         sum(idade_50_59) AS idade_50_59, sum(idade_60_69) AS idade_60_69, "
-            "         sum(idade_70_mais) AS idade_70_mais "
-            "  FROM census_geo s WHERE s.level='setor' AND s.cd_mun = g.cd_mun"
-            ") s ON true "
+            # Agregados por município MATERIALIZADOS (migration 058): o LATERAL
+            # que somava ~26k setores por request fria (3,3s medidos) virou um
+            # JOIN plano numa tabela de 1 linha/município. Após novo ingest de
+            # censo, rodar scripts/refresh_census_muni_agg.py.
+            "LEFT JOIN census_muni_agg s ON s.cd_mun = g.cd_mun "
             # CadÚnico/Bolsa Família (MDS): último mês disponível por município.
             "LEFT JOIN LATERAL ("
             "  SELECT cadunico_familias, pbf_familias, anomes "
@@ -341,7 +322,12 @@ def census_setores(
             "       situacao, area_km2, populacao, domicilios, geometry, "
             "       alfabetizados_15mais, pop_15mais, "
             "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena, "
-            "       sexo_masculino, sexo_feminino, idade_60_69, idade_70_mais, "
+            "       sexo_masculino, sexo_feminino, "
+            "       idade_0_4, idade_5_9, idade_10_14, idade_15_19, idade_20_24, "
+            "       idade_25_29, idade_30_39, idade_40_49, idade_50_59, "
+            "       idade_60_69, idade_70_mais, "
+            "       dom_agua_rede, dom_agua_total, dom_esgoto_adequado, dom_esgoto_total, "
+            "       dom_lixo_coletado, dom_lixo_total, "
             "       renda_media_resp_2022, responsaveis_2022 "
             "FROM census_geo WHERE cd_mun = :m AND level='setor' ORDER BY cd_setor "
             "LIMIT 30000"  # cap defensivo: maior município do BR (SP) tem ~27k setores
@@ -425,6 +411,27 @@ def census_setores(
                     (r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0)
                     if (r["idade_60_69"] is not None or r["idade_70_mais"] is not None) else None
                 ),
+                # Pirâmide etária COMPLETA (11 faixas, Censo 2022) — o painel do
+                # bairro soma por setor e mostra a distribuição (pedido do PO:
+                # "faltam as outras faixas etárias"). Contagens brutas: a
+                # agregação (SUM_COLS) soma; o % é calculado no front sobre a pop.
+                **{
+                    f"idade_{k}": r[f"idade_{k}"]
+                    for k in (
+                        "0_4", "5_9", "10_14", "15_19", "20_24", "25_29",
+                        "30_39", "40_49", "50_59", "60_69", "70_mais",
+                    )
+                },
+                # Saneamento POR SETOR (Censo 2022): contagens de domicílios com
+                # água na rede / esgoto adequado / lixo coletado + seus totais.
+                # O front agrega e mostra % por bairro (pedido do PO — o dado
+                # EXISTE por setor, ao contrário de renda/IDHM que são municipais).
+                "dom_agua_rede": r["dom_agua_rede"],
+                "dom_agua_total": r["dom_agua_total"],
+                "dom_esgoto_adequado": r["dom_esgoto_adequado"],
+                "dom_esgoto_total": r["dom_esgoto_total"],
+                "dom_lixo_coletado": r["dom_lixo_coletado"],
+                "dom_lixo_total": r["dom_lixo_total"],
                 # Renda dos responsáveis POR SETOR (Censo 2022, ingest
                 # ingest_census_renda_setor.py + migration 055). `responsaveis`
                 # é o PESO da média ponderada na agregação por bairro/distrito

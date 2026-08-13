@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     locale: "pt_BR",
     images: [
       {
-        url: "/logo-wordmark.png",
+        url: "/logo-wordmark.webp",
         width: 1200,
         height: 208,
         alt: "MareNostrum · Inteligência de Dados & Consultoria",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: _TITLE,
     description: _DESC,
-    images: ["/logo-wordmark.png"],
+    images: ["/logo-wordmark.webp"],
   },
 };
 

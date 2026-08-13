@@ -101,6 +101,33 @@ class MunicipalityResultsResponse(BaseModel):
     year: int | None = None
 
 
+class ElectionResultsResponse(BaseModel):
+    """GET /election-results — resultado de um cargo com ESCOPO FLEXÍVEL.
+
+    Município é OPCIONAL: cargos estaduais/federais (governador, senador,
+    deputados, presidente) fazem sentido agregados na UF inteira. O `scope`
+    diz o nível efetivamente agregado, pra a UI rotular corretamente.
+    """
+    scope: str = Field(
+        ...,
+        description="'municipality' | 'state' | 'national' — nível da agregação",
+        examples=["state"],
+    )
+    # Preenchido só quando scope='municipality'.
+    municipality: MunicipalityRead | None = None
+    # Preenchido quando scope='state' (ou 'municipality', pela UF do município).
+    state: str | None = None
+    results: list[TopCandidateInMunicipality]
+    total_results: int
+    # Soma de TODOS os votos do cargo no escopo (denominador do % por candidato).
+    total_votes: int = 0
+    office_code: int | None = None
+    office_name: str | None = None
+    year: int | None = None
+    # Quantos municípios entraram na agregação (0 quando scope='municipality').
+    municipalities_aggregated: int = 0
+
+
 class CandidateByNeighborhoodItem(BaseModel):
     """Linha de votos por bairro: nome + total + locais agregados + centroide."""
     neighborhood: str

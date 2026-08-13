@@ -494,6 +494,23 @@ export type TseMunicipalityResults = {
   year: number | null;
 };
 
+/**
+ * GET /tse/election-results — resultado com ESCOPO FLEXÍVEL.
+ * Município é opcional: cargos estaduais/federais agregam a UF (ou o país).
+ */
+export type TseElectionResults = {
+  scope: "municipality" | "state" | "national";
+  municipality: TseMunicipality | null;
+  state: string | null;
+  results: TseTopCandidateInMunicipality[];
+  total_results: number;
+  total_votes: number;
+  office_code: number | null;
+  office_name: string | null;
+  year: number | null;
+  municipalities_aggregated: number;
+};
+
 export type TseElectorate = {
   municipality: TseMunicipality;
   year: number;

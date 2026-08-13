@@ -336,6 +336,9 @@ class ContactService:
     def list_for_map(self) -> list[Contact]:
         return self._repo.list_with_coords(tenant_id=self._ctx.tenant_id)
 
+    def count_for_map(self) -> int:
+        return self._repo.count_with_coords(tenant_id=self._ctx.tenant_id)
+
     def map_aggregate(
         self,
         *,

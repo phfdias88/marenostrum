@@ -232,6 +232,19 @@ def list_contacts_for_map(ctx: CurrentTenant) -> list[ContactRead]:
 
 
 @router.get(
+    "/map/count",
+    summary="Contagem de contatos geocodificados (KPI do dashboard)",
+    description=(
+        "Só o TOTAL de contatos com coordenadas. O KPI do overview baixava a "
+        "lista completa do /map (nome/telefone/endereço de todos) pra contar "
+        "no cliente — um COUNT no banco resolve."
+    ),
+)
+def count_contacts_for_map(ctx: CurrentTenant) -> dict:
+    return {"total": ContactService(ctx).count_for_map()}
+
+
+@router.get(
     "/map-aggregate",
     summary="Agregação de contatos/demandas por bairro ou local de votação",
     description=(

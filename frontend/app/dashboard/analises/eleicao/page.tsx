@@ -20,7 +20,7 @@ import { downloadCsv } from "@/lib/csv";
 import type {
   Page,
   TseMunicipality,
-  TseMunicipalityResults,
+  TseElectionResults,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
@@ -61,6 +61,14 @@ const FED_OFFICES = [
   { value: "7", label: "Deputado Estadual" },
   { value: "8", label: "Deputado Distrital" },
 ];
+// Cargos MUNICIPAIS: o resultado só existe dentro de uma cidade, então o
+// município continua OBRIGATÓRIO. Os demais (governador, senador, deputados,
+// presidente) são disputados na UF/país — município vira filtro OPCIONAL.
+const MUNICIPAL_OFFICE_CODES = new Set(["11", "13"]);
+const isMunicipalOffice = (office: string) => MUNICIPAL_OFFICE_CODES.has(office);
+// Presidente é nacional: dispensa até a UF (agrega o país inteiro).
+const PRESIDENT_OFFICE = "1";
+
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
   "2024": MUNI_OFFICES,
   "2022": FED_OFFICES,
@@ -91,7 +99,7 @@ export default function EleicaoAnalysisPage() {
   const [muniLoading, setMuniLoading] = useState(false);
   const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
 
-  const [results, setResults] = useState<TseMunicipalityResults | null>(null);
+  const [results, setResults] = useState<TseElectionResults | null>(null);
   const [resultsLoading, setResultsLoading] = useState(false);
 
   // URL compartilhável: hidrata estado a partir de ?ano=&uf=&cargo=&muni=
@@ -139,22 +147,35 @@ export default function EleicaoAnalysisPage() {
       .finally(() => setMuniLoading(false));
   }, [debounced, state, selectedMuni]);
 
-  // Carrega resultados quando muni + cargo selecionados
+  // Regra de negócio do filtro: município só é OBRIGATÓRIO em cargo municipal.
+  // Nos demais, Ano + UF + Cargo já bastam (o município apenas afunila).
+  const municipalityRequired = isMunicipalOffice(office);
+  const canSearch = municipalityRequired
+    ? Boolean(selectedMuni)
+    : Boolean(year && office && (state || office === PRESIDENT_OFFICE));
+
+  // Carrega resultados assim que os campos mínimos estiverem preenchidos.
   useEffect(() => {
-    if (!selectedMuni) {
+    if (!canSearch) {
       setResults(null);
       return;
     }
     setResultsLoading(true);
-    const params = new URLSearchParams({ limit: "500", year });
-    if (office) params.set("office_code", office);
-    api<TseMunicipalityResults>(
-      `/v1/tse/municipalities/${selectedMuni.id}/top-candidates?${params.toString()}`,
-    )
+    const params = new URLSearchParams({
+      limit: "500",
+      year,
+      office_code: office,
+    });
+    // Município é opcional: quando presente, afunila; quando ausente, o
+    // backend agrega a UF inteira (ou o país, no caso de Presidente).
+    if (selectedMuni) params.set("municipality_id", selectedMuni.id);
+    else if (state) params.set("state", state);
+
+    api<TseElectionResults>(`/v1/tse/election-results?${params.toString()}`)
       .then(setResults)
       .catch(() => setResults(null))
       .finally(() => setResultsLoading(false));
-  }, [selectedMuni, office, year]);
+  }, [canSearch, selectedMuni, office, year, state]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -172,11 +193,17 @@ export default function EleicaoAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise de Eleição</h1>
           <p className="text-sm text-muted-foreground">
-            Resultado por cidade e cargo · eleições de 2014 a 2024.
+            Resultado por cargo · eleições de 2014 a 2024.
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Filtro ativo: {year} · {officeOptions.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Todas as UFs"}
-            {selectedMuni ? ` · ${selectedMuni.name}/${selectedMuni.state}` : " · escolha um município"}
+            {selectedMuni
+              ? ` · ${selectedMuni.name}/${selectedMuni.state}`
+              : municipalityRequired
+                ? " · escolha um município"
+                : office === PRESIDENT_OFFICE && !state
+                  ? " · Brasil (todos os municípios)"
+                  : ` · ${state} inteiro`}
           </p>
         </div>
       </header>
@@ -219,7 +246,16 @@ export default function EleicaoAnalysisPage() {
         />
         <div className="md:col-span-4">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Município
+            Município{" "}
+            <span className="normal-case tracking-normal">
+              {municipalityRequired ? (
+                <span className="text-primary">· obrigatório</span>
+              ) : (
+                <span className="text-muted-foreground/70">
+                  · opcional (afunila o resultado)
+                </span>
+              )}
+            </span>
           </label>
           {selectedMuni ? (
             <div className="mt-1 flex items-center justify-between gap-2 py-2 px-3 rounded-md bg-card border border-primary/40">
@@ -283,7 +319,9 @@ export default function EleicaoAnalysisPage() {
         </div>
       )}
 
-      {!selectedMuni && muniSearch.trim().length < 2 && (
+      {/* Vazio SÓ quando o município é de fato obrigatório (cargo municipal).
+          Em cargo estadual/federal a busca já roda com Ano+UF+Cargo. */}
+      {municipalityRequired && !selectedMuni && muniSearch.trim().length < 2 && (
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <Search className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground mt-3">
@@ -353,7 +391,7 @@ function ResultsPanel({
   muni: TseMunicipality;
   office: string;
   year: string;
-  results: TseMunicipalityResults | null;
+  results: TseElectionResults | null;
   loading: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
