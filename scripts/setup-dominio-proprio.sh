@@ -21,7 +21,9 @@
 set -euo pipefail
 
 DOMAIN="${1:?informe o domínio, ex: marenostrumconsult.com.br}"
-EMAIL="${2:?informe um e-mail para avisos do Let's Encrypt}"
+# Sem apostrofo na mensagem: dentro de ${2:?...} o bash trata o ' como abertura
+# de string e engole a linha seguinte (o script morria com "unbound variable").
+EMAIL="${2:?informe um e-mail para avisos do Lets Encrypt}"
 CONF="nginx/conf.d/site-dominio.conf"
 SITE_DIR="/home/deploy/marenostrum/site-dist"
 
