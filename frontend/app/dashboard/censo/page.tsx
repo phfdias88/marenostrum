@@ -73,11 +73,21 @@ type FC = {
   features: Array<{ type: "Feature"; geometry: unknown; properties: Record<string, number | string | null> }>;
 };
 
+// As 27 UFs. Até a carga nacional (ago/2026) só existiam quatro aqui, e a
+// tela mostrava o código cru ("29") para qualquer outra — o seletor listava
+// "Bahia" como "29". A lista de UFs exibidas continua vindo do banco (só
+// aparece quem tem dado carregado); este dicionário é só o nome.
 const UF_NOMES: Record<string, string> = {
-  "33": "Rio de Janeiro",
+  "11": "Rondônia", "12": "Acre", "13": "Amazonas", "14": "Roraima",
+  "15": "Pará", "16": "Amapá", "17": "Tocantins",
+  "21": "Maranhão", "22": "Piauí", "23": "Ceará", "24": "Rio Grande do Norte",
+  "25": "Paraíba", "26": "Pernambuco", "27": "Alagoas", "28": "Sergipe",
+  "29": "Bahia",
+  "31": "Minas Gerais", "32": "Espírito Santo", "33": "Rio de Janeiro",
   "35": "São Paulo",
-  "31": "Minas Gerais",
-  "32": "Espírito Santo",
+  "41": "Paraná", "42": "Santa Catarina", "43": "Rio Grande do Sul",
+  "50": "Mato Grosso do Sul", "51": "Mato Grosso", "52": "Goiás",
+  "53": "Distrito Federal",
 };
 
 // Dicionários do Censo (config estática — o conjunto de variáveis é fixo e vem
@@ -236,7 +246,10 @@ export type Malha = "setor" | "distrito" | "bairro";
 // o NAVEGADOR cacheia. Ao adicionar/atualizar indicadores (renda, PIB, IDHM,
 // IDEB, saneamento, CadÚnico...), BUMP isto pra furar o cache do browser e os
 // novos campos aparecerem na hora, sem esperar 7 dias.
-const CENSUS_V = "2026-07-15";
+// 2026-08-15: carga nacional. Sem virar esta chave, o navegador de quem já
+// usou a tela continua servindo do próprio cache a lista antiga de 4 UFs —
+// era o que fazia "só aparecer o Rio" mesmo com o país inteiro no banco.
+const CENSUS_V = "2026-08-15";
 
 // Limite de setores pro DEFAULT em mosaico. Até este nº de setores o município
 // abre direto no mosaico (render síncrono cabe em ~300-450ms, mascarado pelo
@@ -906,6 +919,12 @@ export default function CensoPage() {
       ? dissolvedData ?? (malhaLoading ? null : mapData)
       : mapData;
 
+  // Município cujo desenho de setor ainda não foi carregado (fora de
+  // SP/MG/RJ/ES). A resposta chegou e veio vazia — sem distinguir isso de
+  // "ainda buscando", os rankings ficavam em "Carregando…" para sempre.
+  const semMalhaDeSetor =
+    view === "municipio" && !!setores && setores.features.length === 0;
+
   // Destaques automáticos do município (insights prontos pra campanha).
   const destaques = useMemo(() => {
     if (view !== "municipio" || !setores || areasAgg.length === 0) return null;
@@ -1374,6 +1393,28 @@ export default function CensoPage() {
                 </p>
               )}
             </div>
+          ) : shownData.features.length === 0 ? (
+            // Município sem malha de SETOR (carga nacional trouxe os números do
+            // país, mas o desenho dos setores só existe em SP/MG/RJ/ES). Sem
+            // este ramo o mapa ficava no enquadramento anterior e exibia OUTRA
+            // região — clicar num município da Bahia mostrava a serra do Rio.
+            <div className="h-full w-full flex flex-col items-center justify-center gap-2 px-8 text-center">
+              <MapPin className="w-7 h-7 text-muted-foreground/60" />
+              <p className="text-sm font-medium">
+                Mapa por setor ainda não disponível em {muniProps?.nm_mun ?? "este município"}
+              </p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Os números do Censo abaixo estão completos. O desenho dos setores
+                censitários está carregado hoje em São Paulo, Minas Gerais,
+                Rio de Janeiro e Espírito Santo.
+              </p>
+              <button
+                onClick={backToEstado}
+                className="mt-1 text-xs px-3 py-1.5 rounded-md border border-border hover:border-primary/60 hover:bg-accent/40 transition-colors"
+              >
+                Voltar ao mapa do estado
+              </button>
+            </div>
           ) : (
             <CensusMap
               data={shownData}
@@ -1628,7 +1669,11 @@ export default function CensoPage() {
                     })}
                   </ul>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Carregando…</p>
+                  <p className="text-sm text-muted-foreground">
+                  {semMalhaDeSetor
+                    ? "Ranking por setor indisponível neste estado — os números do município estão logo abaixo."
+                    : "Carregando…"}
+                </p>
                 )
               ) : topAreas.length > 0 ? (
                 <ul className="space-y-2">
@@ -1659,7 +1704,11 @@ export default function CensoPage() {
                   })}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">Carregando…</p>
+                <p className="text-sm text-muted-foreground">
+                  {semMalhaDeSetor
+                    ? "Ranking por setor indisponível neste estado — os números do município estão logo abaixo."
+                    : "Carregando…"}
+                </p>
               )}
               {/* Distribuição etária (Censo 2022) — o dado já viaja no payload
                   do uf-overview (faixa_etaria por município); antes a UI só
