@@ -34,6 +34,13 @@ brotli-asgi==1.4.0
 # IBGE shapefile reader (POC dados censitários) — pure-Python, sem GDAL.
 pyshp==2.3.1
 
+# ETL do Censo (scripts/ingest_census_data.py): leitura dos CSVs do IBGE em
+# chunks. O agregado "básico" do país tem ~452 mil linhas e os temáticos
+# centenas de colunas — o chunksize do pandas mantém a memória constante, o
+# que importa num container limitado a 768MB. Só os SCRIPTS importam pandas;
+# a API nunca carrega (custo é tamanho de imagem, não RAM em produção).
+pandas==2.2.3
+
 # Geometria (dissolve dos setores em contornos de bairro/distrito no WebGIS).
 # O wheel já traz o GEOS embutido — sem dependência de sistema (GDAL/PostGIS).
 shapely==2.0.6

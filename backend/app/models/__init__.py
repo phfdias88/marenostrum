@@ -1,6 +1,13 @@
 """Import central dos models (necessario para Alembic detectar metadata)."""
 from app.models.base import Base
 from app.models.audit_log import AuditLog
+from app.models.census import (
+    AreaPonderacao,
+    CensusGeo,
+    Municipio,
+    RegionType,
+    Setor,
+)
 from app.models.contact import Contact, ContactType
 from app.models.demand import Demand, DemandStatus
 from app.models.agenda_event import AgendaEvent
@@ -24,6 +31,12 @@ from app.models.voting_place import VotingPlace
 __all__ = [
     "Base",
     "AuditLog",
+    # Censo IBGE (dados publicos, multi-granularidade)
+    "CensusGeo",
+    "RegionType",
+    "Setor",
+    "Municipio",
+    "AreaPonderacao",
     # CRM (multi-tenant)
     "Contact",
     "ContactType",

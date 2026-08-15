@@ -149,7 +149,11 @@ def census_uf_overview(
             "  FROM mds_social_municipio m WHERE m.cd_mun = g.cd_mun "
             "  ORDER BY m.anomes DESC LIMIT 1"
             ") md ON true "
+            # geometry IS NOT NULL: desde a carga nacional (migration 061) a
+            # tabela tem linhas so com indicadores, sem malha. Uma feature de
+            # geometria nula quebra o render do mapa.
             "WHERE g.level='municipio' AND g.cd_mun LIKE :u "
+            "  AND g.geometry IS NOT NULL "
             "ORDER BY g.nm_mun"
         ),
         {"u": uf + "%"},
@@ -329,7 +333,10 @@ def census_setores(
             "       dom_agua_rede, dom_agua_total, dom_esgoto_adequado, dom_esgoto_total, "
             "       dom_lixo_coletado, dom_lixo_total, "
             "       renda_media_resp_2022, responsaveis_2022 "
-            "FROM census_geo WHERE cd_mun = :m AND level='setor' ORDER BY cd_setor "
+            # geometry IS NOT NULL: a carga nacional (migration 061) traz setor
+            # com indicador e sem malha — no mapa, feature sem geometria quebra.
+            "FROM census_geo WHERE cd_mun = :m AND level='setor' "
+            "  AND geometry IS NOT NULL ORDER BY cd_setor "
             "LIMIT 30000"  # cap defensivo: maior município do BR (SP) tem ~27k setores
         ),
         {"m": cd_mun},
