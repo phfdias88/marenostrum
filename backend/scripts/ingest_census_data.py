@@ -353,8 +353,14 @@ def _abrir_csv(origem: str, tmp_dir: str = "/tmp") -> str:
     return origem
 
 
-def _chunks(caminho: str, chunksize: int) -> Iterator[pd.DataFrame]:
-    """Le o CSV do IBGE em lotes.
+def _chunks(caminho: str, chunksize: int, usecols: list[str] | None) -> Iterator[pd.DataFrame]:
+    """Le o CSV do IBGE em lotes, trazendo SO as colunas necessarias.
+
+    `usecols` nao e otimizacao de luxo, e o que faz a carga caber na maquina:
+    os agregados de alfabetizacao e saneamento tem 363 e 407 colunas, e ler
+    tudo num chunk de 50 mil linhas estourou os 768 MB do container — o
+    processo foi morto pelo OOM killer sem deixar mensagem, so parou. Com as
+    ~15 colunas que o dataset usa, o mesmo chunk ocupa uma fracao disso.
 
     dtype=str e deliberado: deixar o pandas inferir tipo transforma o codigo do
     setor em float (330455705000001 vira 3.3e14) e come o zero a esquerda do
@@ -366,8 +372,44 @@ def _chunks(caminho: str, chunksize: int) -> Iterator[pd.DataFrame]:
         encoding="latin-1",
         dtype=str,
         chunksize=chunksize,
+        usecols=usecols,
         on_bad_lines="warn",  # linha malformada avisa e segue
     )
+
+
+def _preparar_leitura(
+    caminho: str, ds: Dataset, mapa_cod: dict[str, list[str]]
+) -> tuple[dict[str, list[str]], list[str], list[str]]:
+    """Le so o cabecalho e decide o que trazer do disco.
+
+    Devolve (mapa de codigos resolvido, colunas a ler, codigos ausentes).
+    Resolver aqui — e nao no primeiro chunk — permite passar `usecols` ja na
+    primeira leitura, que e onde a memoria estourava.
+    """
+    cabecalho = pd.read_csv(caminho, sep=";", encoding="latin-1", dtype=str, nrows=0)
+    reais = {c.strip().lower(): c for c in cabecalho.columns}
+
+    resolvido: dict[str, list[str]] = {}
+    ausentes: list[str] = []
+    for col_banco, codigos in mapa_cod.items():
+        encontrados = []
+        for cod in codigos:
+            real = reais.get(cod.lower())
+            if real is None:
+                ausentes.append(cod)
+            else:
+                encontrados.append(real)
+        resolvido[col_banco] = encontrados
+
+    # Identificacao: sempre; cadastro: so no dataset que cria setor.
+    ident = ["CD_SETOR", "CD_UF"]
+    if ds.creates:
+        ident += ["CD_MUN", "NM_MUN", "CD_DIST", "NM_DIST", "NM_SUBDIST",
+                  "NM_BAIRRO", "SITUACAO", "AREA_KM2"]
+    usecols = [reais[n.lower()] for n in ident if n.lower() in reais]
+    usecols += [c for cods in resolvido.values() for c in cods]
+
+    return resolvido, sorted(set(usecols)), ausentes
 
 
 def _coluna(df: pd.DataFrame, *nomes: str) -> str | None:
@@ -380,31 +422,6 @@ def _coluna(df: pd.DataFrame, *nomes: str) -> str | None:
     return None
 
 
-def _resolver_variaveis(
-    df: pd.DataFrame, mapa_cod: dict[str, list[str]]
-) -> tuple[dict[str, list[str]], list[str]]:
-    """Casa os codigos do catalogo com os nomes REAIS de coluna do CSV.
-
-    Necessario porque a caixa muda entre agregados: o "basico" publica as
-    variaveis em minusculo (v0001) e os tematicos em maiusculo (V01007). Sem
-    isto o lookup falha em silencio e a carga grava NULL em tudo — foi
-    exatamente o que aconteceu no primeiro teste desta carga.
-
-    Devolve (mapa resolvido, codigos que nao existem no arquivo).
-    """
-    reais = {c.strip().lower(): c for c in df.columns}
-    resolvido: dict[str, list[str]] = {}
-    ausentes: list[str] = []
-    for col_banco, codigos in mapa_cod.items():
-        encontrados = []
-        for cod in codigos:
-            real = reais.get(cod.lower())
-            if real is None:
-                ausentes.append(cod)
-            else:
-                encontrados.append(real)
-        resolvido[col_banco] = encontrados
-    return resolvido, ausentes
 
 
 # ---------------------------------------------------------------------------
@@ -509,10 +526,27 @@ def processar(db: Session, ds: Dataset, caminho: str, chunksize: int,
     st = Stats()
     sql = _montar_sql(ds)
     mapa_cod = {col: _expandir(expr) for col, expr in ds.columns.items()}
+
+    mapa_cod, usecols, ausentes = _preparar_leitura(caminho, ds, mapa_cod)
+    if ausentes:
+        log.warning("variaveis_ausentes_no_csv", dataset=ds.name,
+                    quantas=len(ausentes), exemplos=ausentes[:6],
+                    efeito="essas colunas ficarao NULL")
+    # Nenhuma variavel encontrada = arquivo errado ou layout novo do IBGE.
+    # Seguir gravaria centenas de milhares de linhas com tudo NULL, apagando
+    # o que ja existia — melhor parar e avisar.
+    if not any(mapa_cod.values()):
+        raise SystemExit(
+            f"[{ds.name}] nenhuma variavel do catalogo existe neste CSV. "
+            f"Esperadas: {sorted({c for v in ds.columns.values() for c in _expandir(v)})[:6]}..."
+        )
+    log.info("colunas_lidas_do_arquivo", quantas=len(usecols),
+             motivo="so o necessario: o arquivo inteiro nao cabe na memoria")
+
     t0 = time.perf_counter()
     proximo_aviso = 50_000
 
-    for i, df in enumerate(_chunks(caminho, chunksize), start=1):
+    for i, df in enumerate(_chunks(caminho, chunksize, usecols), start=1):
         col_setor = _coluna(df, "CD_SETOR", "CD_setor", "cod_setor")
         if col_setor is None:
             raise SystemExit(
@@ -529,22 +563,6 @@ def processar(db: Session, ds: Dataset, caminho: str, chunksize: int,
             "nm_bairro": _coluna(df, "NM_BAIRRO"),
             "situacao": _coluna(df, "SITUACAO"),
         } if ds.creates else {}
-
-        if i == 1:
-            mapa_cod, ausentes = _resolver_variaveis(df, mapa_cod)
-            if ausentes:
-                log.warning("variaveis_ausentes_no_csv", dataset=ds.name,
-                            quantas=len(ausentes), exemplos=ausentes[:6],
-                            efeito="essas colunas ficarao NULL")
-            # Nenhuma variavel encontrada = arquivo errado ou layout novo do
-            # IBGE. Seguir gravaria milhares de linhas com tudo NULL, apagando
-            # o que ja existia — melhor parar e avisar.
-            if not any(mapa_cod.values()):
-                raise SystemExit(
-                    f"[{ds.name}] nenhuma das variaveis do catalogo existe neste "
-                    f"CSV. Esperadas: {sorted({c for v in ds.columns.values() for c in _expandir(v)})[:6]}... "
-                    f"Colunas do arquivo: {list(df.columns)[:12]}"
-                )
 
         lote: list[dict] = []
         for row in df.to_dict("records"):
