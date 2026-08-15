@@ -214,6 +214,13 @@ DATASETS: dict[str, Dataset] = {
 _NULOS = {"", "-", "..", "...", "X", "x", "nan", "none", "null"}
 _RE_FAIXA = re.compile(r"^([A-Za-z]+)(\d+)\.\.[A-Za-z]+(\d+)$")
 
+# O IBGE nomeia a coluna do codigo do setor de um jeito diferente em cada
+# agregado: "CD_SETOR" no basico, "CD_setor" na demografia e simplesmente
+# "setor" em caracteristicas_domicilio (que tambem nao traz CD_UF nenhum).
+# A comparacao e feita em minusculo, entao aqui basta uma grafia de cada.
+NOMES_SETOR = ("CD_SETOR", "cod_setor", "setor", "codigo_setor")
+NOMES_UF = ("CD_UF", "cod_uf")
+
 
 def _expandir(expr: str) -> list[str]:
     """"V00309+V00310" -> ["V00309","V00310"]; "V00111..V00113" -> 3 codigos."""
@@ -402,12 +409,21 @@ def _preparar_leitura(
         resolvido[col_banco] = encontrados
 
     # Identificacao: sempre; cadastro: so no dataset que cria setor.
-    ident = ["CD_SETOR", "CD_UF"]
+    ident = [*NOMES_SETOR, *NOMES_UF]
     if ds.creates:
         ident += ["CD_MUN", "NM_MUN", "CD_DIST", "NM_DIST", "NM_SUBDIST",
                   "NM_BAIRRO", "SITUACAO", "AREA_KM2"]
     usecols = [reais[n.lower()] for n in ident if n.lower() in reais]
     usecols += [c for cods in resolvido.values() for c in cods]
+
+    # Sem a coluna de codigo do setor nao ha o que casar — parar aqui, com o
+    # cabecalho na mao, e muito mais claro do que estourar no primeiro chunk.
+    if not any(reais.get(n.lower()) for n in NOMES_SETOR):
+        raise SystemExit(
+            f"[{ds.name}] nenhuma coluna de codigo de setor neste CSV "
+            f"(procurei por {', '.join(NOMES_SETOR)}). "
+            f"Colunas do arquivo: {list(cabecalho.columns)[:10]}"
+        )
 
     return resolvido, sorted(set(usecols)), ausentes
 
@@ -547,13 +563,9 @@ def processar(db: Session, ds: Dataset, caminho: str, chunksize: int,
     proximo_aviso = 50_000
 
     for i, df in enumerate(_chunks(caminho, chunksize, usecols), start=1):
-        col_setor = _coluna(df, "CD_SETOR", "CD_setor", "cod_setor")
-        if col_setor is None:
-            raise SystemExit(
-                "CSV sem coluna de codigo de setor — layout do IBGE mudou? "
-                f"Colunas vistas: {list(df.columns)[:8]}"
-            )
-        col_uf = _coluna(df, "CD_UF", "CD_uf")
+        col_setor = _coluna(df, *NOMES_SETOR)
+        col_uf = _coluna(df, *NOMES_UF)  # None em caracteristicas_domicilio:
+        # ali a UF sai dos 2 primeiros digitos do codigo do setor (ver _parse_linha)
         cadastro = {
             "cd_mun": _coluna(df, "CD_MUN"),
             "nm_mun": _coluna(df, "NM_MUN"),
