@@ -354,19 +354,27 @@ export function CensusMap({
           destoava no tema claro. */}
       <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-card/85 backdrop-blur-md px-3.5 py-2.5 border border-border shadow-xl shadow-black/20 text-[11px] text-foreground">
         {(() => {
+          // Faixas com o MESMO texto viram uma só. Com poucos valores
+          // distintos os quantis colapsam e a legenda repetia a mesma linha
+          // seis vezes — no Distrito Federal, que tem um único município,
+          // saía "2.817.381 – 2.817.381" em todas as seis faixas.
+          const faixas = RAMP.map((cor, i) => ({
+            cor,
+            texto:
+              i === RAMP.length - 1
+                ? `≥ ${fmt(breaks[i])}`
+                : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`,
+          })).filter((f, i, todas) => todas.findIndex((o) => o.texto === f.texto) === i);
+
           const legendList = (
             <ul className="space-y-1">
-              {RAMP.map((c, i) => (
-                <li key={i} className="flex items-center gap-2">
+              {faixas.map((f) => (
+                <li key={f.texto} className="flex items-center gap-2">
                   <span
                     className="inline-block w-4 h-3.5 rounded ring-1 ring-border"
-                    style={{ background: c, boxShadow: `0 0 6px ${c}55` }}
+                    style={{ background: f.cor, boxShadow: `0 0 6px ${f.cor}55` }}
                   />
-                  <span className="tabular-nums text-foreground/85">
-                    {i === RAMP.length - 1
-                      ? `≥ ${fmt(breaks[i])}`
-                      : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`}
-                  </span>
+                  <span className="tabular-nums text-foreground/85">{f.texto}</span>
                 </li>
               ))}
               {hasNoData && (
