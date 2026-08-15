@@ -487,7 +487,14 @@ def _parse_linha(row: dict, ds: Dataset, mapa_cod: dict[str, list[str]],
         for campo, origem in cadastro.items():
             valor = row.get(origem) if origem else None
             valor = str(valor).strip().strip('"') if valor is not None else None
-            dados[campo] = valor if valor and valor.lower() != "nan" else None
+            # "." e o "nao se aplica" do IBGE em campo de texto — aparece em
+            # CD_NU, CD_FCU, CD_AGLOM e, principalmente, no CD_MUN das duas
+            # unidades que nao sao municipio: Lagoa dos Patos (4300001) e Lagoa
+            # Mirim (4300002), corpos d'agua do RS com populacao zero. Sem este
+            # tratamento o "." era gravado como se fosse codigo de municipio.
+            if valor in (None, "", ".", "..") or valor.lower() == "nan":
+                valor = None
+            dados[campo] = valor
         # cd_mun a partir do codigo do setor: mais confiavel que a coluna do
         # arquivo, que ja veio vazia em alguns agregados.
         dados["cd_mun"] = (dados.get("cd_mun") or cd[:7])[:7]
