@@ -12,7 +12,8 @@ Endpoint: https://aplicacoes.mds.gov.br/sagi/servicos/misocial
 Gotcha: codigo_ibge do MDS tem 6 dígitos (ex 330455); census_geo.cd_mun tem 7
 (3304557, com dígito verificador). Casamos por LEFT(cd_mun,6)=codigo_ibge usando
 os municípios que já existem no census_geo (evita reimplementar o DV do IBGE).
-Por isso só popula os municípios que têm censo (hoje: RJ — igual à renda).
+Por isso só popula os municípios que têm censo — desde a carga nacional de
+ago/2026, os 5.570 do país.
 
 Rodar dentro do container api:
   docker compose exec -T api python -m scripts.ingest_mds_social
@@ -74,14 +75,25 @@ def fetch(anomes: str, ibge: str | None = None) -> list[dict]:
 
 
 def latest_anomes() -> str | None:
-    """Volta mês a mês (a partir do atual) até achar um com CadÚnico preenchido.
-    Usa o Rio (330455) como sonda — meses futuros vêm vazios na API."""
+    """Volta mês a mês (a partir do atual) até achar um mês COMPLETO.
+
+    Completo = CadÚnico E Bolsa Família preenchidos. Exigir os dois não é
+    capricho: o MDS publica o CadÚnico do mês corrente antes do PBF, e a sonda
+    antiga (só CadÚnico) aceitava esse mês pela metade. Como o mapa mostra o
+    ÚLTIMO mês de cada município, o mês incompleto virava o escolhido e o
+    Bolsa Família sumia da tela — aconteceu em 15/08/2026, com o mês 202608
+    zerando o PBF nos 92 municípios do RJ que antes tinham o número.
+
+    Usa o Rio (330455) como sonda — meses futuros vêm vazios na API.
+    """
     y, m = date.today().year, date.today().month
     for _ in range(24):
         am = f"{y:04d}{m:02d}"
         docs = fetch(am, ibge="330455")
-        if docs and _int(docs[0].get("cad_fam")):
+        if docs and _int(docs[0].get("cad_fam")) and _int(docs[0].get("pbf_fam")):
             return am
+        if docs and _int(docs[0].get("cad_fam")):
+            print(f"  {am}: CadÚnico publicado, Bolsa Família ainda não — pulando")
         m -= 1
         if m == 0:
             m, y = 12, y - 1
