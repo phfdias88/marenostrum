@@ -538,11 +538,21 @@ def census_malha(
             headers={"Cache-Control": _CACHE},
         )
 
-    # Nome da área. Para bairro, cai pro distrito quando o setor não tem bairro
-    # mapeado — MESMA chave que o frontend usa (nm_bairro || nm_dist), pra os
-    # polígonos dissolvidos casarem com o agregado calculado no front.
+    # Nome da área. Para bairro, cai pro SUBDISTRITO e só então pro distrito —
+    # MESMA cadeia que o frontend usa, pra os polígonos dissolvidos casarem com
+    # o agregado calculado lá.
+    #
+    # O subdistrito no meio existe por causa do DF: as 33 Regiões
+    # Administrativas (Ceilândia, Taguatinga, Gama) vivem em nm_subdist, com
+    # nm_bairro 100% vazio e nm_dist valendo "Brasília" para os 5.418 setores.
+    # Sem este degrau, a única agregação possível no DF era um grupo só — logo
+    # onde ela mais importa, já que o DF tem um único município. Também melhora
+    # Contagem (28), Sete Lagoas (17) e Juiz de Fora (10). Onde há bairro
+    # mapeado nada muda: o COALESCE só desce quando o anterior é vazio.
     name_expr = (
-        "COALESCE(NULLIF(nm_bairro, ''), nm_dist)" if level == "bairro" else "nm_dist"
+        "COALESCE(NULLIF(nm_bairro, ''), NULLIF(nm_subdist, ''), nm_dist)"
+        if level == "bairro"
+        else "nm_dist"
     )
     rows = db.execute(
         text(

@@ -68,6 +68,22 @@ const prettyName = (s: string) => {
   return x;
 };
 
+/**
+ * Nome da área "de bairro" de um setor — a cadeia bairro → subdistrito →
+ * distrito, num lugar só.
+ *
+ * Estava repetida em cinco pontos (ranking, dissolve, seleção, agregação) e
+ * qualquer divergência entre eles faz o polígono desenhado receber o número de
+ * outro grupo — o tipo de erro que ninguém percebe olhando a tela.
+ *
+ * O subdistrito no meio é o que torna o Distrito Federal utilizável: as 33
+ * Regiões Administrativas (Ceilândia, Taguatinga, Gama) vivem nesse campo,
+ * com nm_bairro vazio e nm_dist sempre "Brasília". O backend (/census/malha)
+ * usa exatamente a mesma ordem.
+ */
+const areaNome = (p: Record<string, number | string | null>): string =>
+  String(p.nm_bairro || p.nm_subdist || p.nm_dist || "—");
+
 type FC = {
   type: "FeatureCollection";
   features: Array<{ type: "Feature"; geometry: unknown; properties: Record<string, number | string | null> }>;
@@ -530,7 +546,7 @@ export default function CensoPage() {
   function openArea(nome: string) {
     if (!setores) return;
     const feats = setores.features.filter(
-      (f) => String(f.properties.nm_bairro || f.properties.nm_dist || "—") === nome,
+      (f) => areaNome(f.properties) === nome,
     );
     if (!feats.length) return;
     // Agregação oficial via lib/censusAggregate: absolutos somados; as
@@ -606,7 +622,7 @@ export default function CensoPage() {
   function navUp() {
     if (sel) {
       // setor → sobe pro bairro/distrito dele (se mapeado), senão pro município
-      const areaDoSetor = String(sel.nm_bairro || sel.nm_dist || "");
+      const areaDoSetor = sel.nm_bairro || sel.nm_subdist ? areaNome(sel) : "";
       if (areaDoSetor && areaDoSetor !== "—") openArea(areaDoSetor);
       else clearToMunicipio();
       return;
@@ -702,7 +718,11 @@ export default function CensoPage() {
     .slice(0, 10);
 
   // Agregação por bairro (se houver) ou distrito: pop, domicílios, área, setores.
-  const hasBairros = !!setores?.features.some((f) => f.properties.nm_bairro);
+  // Subdistrito conta como "bairro" pro seletor: é o recorte intermediário
+  // real em Brasília e em cidades como Contagem, onde nm_bairro vem vazio.
+  const hasBairros = !!setores?.features.some(
+    (f) => f.properties.nm_bairro || f.properties.nm_subdist,
+  );
   // A malha "bairro" só faz sentido se o município tiver bairros mapeados —
   // senão cai pra distrito (Seropédica, p.ex., só tem distrito). Cascata
   // defensiva: bairro → distrito → setor, validando que o nível existe.
@@ -726,11 +746,15 @@ export default function CensoPage() {
       : baseMalha === "distrito" && !hasDistritos
         ? "setor"
         : baseMalha;
-  // Coluna de agrupamento da área conforme a malha escolhida.
+  // Coluna de agrupamento da área conforme a malha escolhida. O SUBDISTRITO
+  // entra entre bairro e distrito — é onde o IBGE guarda as 33 Regiões
+  // Administrativas do DF (Ceilândia, Taguatinga), que sem isso caíam todas
+  // num grupo só chamado "Brasília". MESMA cadeia do backend (/census/malha),
+  // senão os polígonos dissolvidos não casam com este agregado.
   const areaGroupOf = (p: Record<string, number | string | null>) =>
     effMalha === "distrito"
       ? String(p.nm_dist || "—")
-      : String(p.nm_bairro || p.nm_dist || "—");
+      : areaNome(p);
   const areaKind = effMalha === "distrito" || !hasBairros ? "Distritos" : "Bairros";
 
   // Busca a geometria DISSOLVIDA da malha atual (bairro/distrito) — cacheada no
@@ -840,10 +864,12 @@ export default function CensoPage() {
   const areaAggByName = useMemo(() => {
     const m = new Map<string, Record<string, number | null>>();
     if (view !== "municipio" || effMalha === "setor" || !setores) return m;
+    // Cadeia idêntica à do areaGroupOf e à do backend — divergir aqui faria o
+    // polígono dissolvido receber o número de outro grupo.
     const groupOf = (p: Record<string, number | string | null>) =>
       effMalha === "distrito"
         ? String(p.nm_dist || "—")
-        : String(p.nm_bairro || p.nm_dist || "—");
+        : areaNome(p);
     const rows = setores.features.map((f) => ({
       ...f.properties,
       area_key: groupOf(f.properties),
@@ -881,7 +907,7 @@ export default function CensoPage() {
     if (effMalha === "bairro" && setores) {
       for (const f of setores.features) {
         const p = f.properties;
-        const key = String(p.nm_bairro || p.nm_dist || "—");
+        const key = areaNome(p);
         const d = String(p.nm_dist ?? "").trim();
         if (!d) continue;
         let set = distByBairro.get(key);
@@ -959,7 +985,7 @@ export default function CensoPage() {
     if (view !== "municipio" || !setores) return [];
     const m = new Map<string, { props: Record<string, number | string | null>; pop: number }>();
     for (const f of setores.features) {
-      const nome = String(f.properties.nm_bairro || f.properties.nm_dist || "—");
+      const nome = areaNome(f.properties);
       const pop = Number(f.properties.populacao ?? 0);
       const cur = m.get(nome);
       if (!cur || pop > cur.pop) m.set(nome, { props: f.properties, pop });
@@ -1547,7 +1573,7 @@ export default function CensoPage() {
                   {String(muniProps?.nm_mun ?? "")}
                 </button>
                 {(() => {
-                  const areaDoSetor = String(sel.nm_bairro || sel.nm_dist || "");
+                  const areaDoSetor = sel.nm_bairro || sel.nm_subdist ? areaNome(sel) : "";
                   return areaDoSetor && areaDoSetor !== "—" ? (
                     <>
                       <span className="opacity-50">›</span>
@@ -1643,7 +1669,7 @@ export default function CensoPage() {
                   <ul className="space-y-2">
                     {topSetores.map((s, i) => {
                       const max = topSetores[0]?.val || 1;
-                      const parent = prettyName(String(s.props.nm_bairro || s.props.nm_dist || ""));
+                      const parent = prettyName(areaNome(s.props).replace("—", ""));
                       const code = String(s.props.cd_setor ?? "").slice(-3);
                       return (
                         <li key={String(s.props.cd_setor)}>
