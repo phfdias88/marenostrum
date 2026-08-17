@@ -762,6 +762,14 @@ export default function CensoPage() {
       : areaNome(p);
   const areaKind = effMalha === "distrito" || !hasBairros ? "Distritos" : "Bairros";
 
+  // O ranking lateral lista SETOR só quando o setor tem um nome de bairro que
+  // signifique algo pra quem lê. Em 83,9% dos municípios do país o IBGE não
+  // mapeia bairro (4.677 de 5.572): ali o rótulo virava "Maricá · setor 219",
+  // que não diz nada — enquanto os distritos reais (Itaipuaçu, Inoã, Ponta
+  // Negra) ficavam de fora. Sem bairro, o ranking mostra as áreas com nome; o
+  // MAPA continua no detalhe do setor, que é onde a granularidade importa.
+  const rankearPorSetor = effMalha === "setor" && hasBairros;
+
   // Busca a geometria DISSOLVIDA da malha atual (bairro/distrito) — cacheada no
   // backend (shapely). Só quando estamos num município e a malha ≠ setor.
   useEffect(() => {
@@ -1667,9 +1675,9 @@ export default function CensoPage() {
                 <span className="text-foreground font-medium">{String(muniProps?.nm_mun ?? "")}</span>
               </nav>
               <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5" /> {effMalha === "setor" ? "Setores" : areaKind} por {indicatorShortLabel(mapIndicator)}
+                <Layers className="w-3.5 h-3.5" /> {rankearPorSetor ? "Setores" : areaKind} por {indicatorShortLabel(mapIndicator)}
               </p>
-              {effMalha === "setor" ? (
+              {rankearPorSetor ? (
                 topSetores.length > 0 ? (
                   <ul className="space-y-2">
                     {topSetores.map((s, i) => {
