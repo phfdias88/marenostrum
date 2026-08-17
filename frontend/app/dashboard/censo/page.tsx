@@ -159,10 +159,15 @@ const DICTIONARIES: { key: string; label: string; vars: CensusVar[] }[] = [
     label: "Renda & economia",
     vars: [
       {
+        // NÃO é `disabled`. A nota antiga dizia que "o IBGE não publica renda
+        // por setor" — publica: é o agregado Rendimento do Responsável (V06004),
+        // já carregado por setor (migration 055 + ingest_census_renda_setor.py).
+        // O backend entrega `renda_media` no payload do setor e a agregação por
+        // bairro pondera pelo nº de responsáveis. Estava tudo pronto e travado
+        // só por este campo — o sócio reportou "não tem os dados de renda".
         key: "renda_media",
         label: "Renda média",
-        disabled: true,
-        note: "Renda é por MUNICÍPIO (IBGE não publica por setor). Veja na visão estadual: o mapa colore cada município pela renda média domiciliar.",
+        note: "Rendimento médio mensal dos responsáveis pelo domicílio (Censo 2022). Por bairro, é a média ponderada pelo número de responsáveis de cada setor.",
       },
       {
         key: "pib_per_capita",
