@@ -96,6 +96,26 @@ def _muni_top_warm_paths() -> list[str]:
     return out
 
 
+# Sobrenomes mais comuns do Brasil. A busca custa PROPORCIONALMENTE ao numero
+# de nomes que casam, e sobrenome comum e justamente o que mais se digita:
+# "silva" bate em 259.877 candidatos e custava 5-13s a frio; "santos", 154.023.
+# Aquecendo aqui, quem digita paga o preco do cache (~0,2s) e nao o da query.
+# A lista e curta de proposito — o agg_cache guarda 256 entradas no total e
+# precisa sobrar espaco pras agregacoes de mapa e municipio.
+SOBRENOMES_COMUNS = [
+    "silva", "santos", "oliveira", "souza", "lima", "pereira",
+    "costa", "carvalho", "almeida", "ferreira", "rodrigues", "alves",
+]
+
+
+def _busca_warm_paths() -> list[str]:
+    """Buscas por sobrenome comum — o caso caro da tela de candidatos."""
+    return [
+        f"/api/v1/tse/candidates?search={termo}&limit=20&offset=0"
+        for termo in SOBRENOMES_COMUNS
+    ]
+
+
 def _census_warm_paths() -> list[str]:
     """TODOS os municípios com censo carregado (maiores primeiro — ficam
     quentes mais cedo) + uf-overview de cada UF presente. Dinâmico: ingerir
@@ -156,17 +176,30 @@ async def _warm_once() -> None:
     """Bate em todos os WARM_PATHS uma vez. Tolera falhas."""
     from app.core.database import SessionLocal
     from app.core.security import create_access_token
+    from app.models.tenant import Tenant
     from app.models.user import User
 
     with SessionLocal() as db:
+        # O usuário PRECISA estar ativo, e o tenant dele também: o token é
+        # gerado sem problema para um usuário desativado, mas o
+        # get_tenant_context o rejeita e TODA chamada do warmup volta 401.
+        # Foi o que aconteceu — 283 de 295 chamadas falhando em silêncio,
+        # porque o `.first()` pegava um usuário desativado e o log registrava
+        # "warmup_ok" com status 401. Resultado: o cache nunca era aquecido e
+        # cada primeiro usuário pagava o custo integral de cada tela.
+        _ativos = (
+            db.query(User)
+            .join(Tenant, Tenant.id == User.tenant_id)
+            .filter(User.is_active.is_(True), Tenant.is_active.is_(True))
+        )
         # Prefere um usuário com o módulo Censo liberado: o warm do
         # /census/search-areas só monta o índice se o flag estiver ativo.
         u = (
-            db.query(User).filter(User.census_enabled.is_(True)).first()
-            or db.query(User).first()
+            _ativos.filter(User.census_enabled.is_(True)).first()
+            or _ativos.first()
         )
         if u is None:
-            log.warning("warmup_no_user_skip")
+            log.warning("warmup_no_active_user_skip")
             return
         tok = create_access_token(
             user_id=u.id,
@@ -181,12 +214,19 @@ async def _warm_once() -> None:
     async with httpx.AsyncClient(
         base_url="http://localhost:8000", timeout=90.0
     ) as c:
-        for path in WARM_PATHS + _muni_top_warm_paths():
+        for path in WARM_PATHS + _muni_top_warm_paths() + _busca_warm_paths():
             t0 = asyncio.get_event_loop().time()
             try:
                 r = await c.get(path, headers=headers)
                 ms = int((asyncio.get_event_loop().time() - t0) * 1000)
-                log.info("warmup_ok", path=path, status=r.status_code, ms=ms)
+                # Status != 2xx e FALHA, e precisa aparecer como falha: o log
+                # antigo dizia "warmup_ok" com status 401 no mesmo evento, e o
+                # aquecimento ficou quebrado sem ninguem ver.
+                if r.status_code >= 400:
+                    log.warning("warmup_falhou", path=path,
+                                status=r.status_code, ms=ms)
+                else:
+                    log.info("warmup_ok", path=path, status=r.status_code, ms=ms)
             except Exception as e:  # pragma: no cover
                 log.warning("warmup_path_failed", path=path, err=str(e)[:160])
 

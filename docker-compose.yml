@@ -32,6 +32,12 @@ services:
       - ./backend/.env
     volumes:
       - pg_data:/var/lib/postgresql/data
+    # /dev/shm do Docker sao 64MB por padrao, e e ali que o Postgres monta a
+    # memoria compartilhada das consultas PARALELAS. Agregacoes grandes
+    # falhavam com "could not resize shared memory segment ... No space left
+    # on device" — o VACUUM paralelo e o GROUP BY do mapa de vencedores foram
+    # dois casos vistos. 256MB cabe folgado no limite de 1,5G do container.
+    shm_size: 256m
     # Tuning medido (ago/2026), não estimado. O que motivou cada número:
     #
     # shared_buffers 256MB->512MB e o limite do container 1G->1,5G: o Postgres

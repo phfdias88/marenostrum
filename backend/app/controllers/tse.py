@@ -29,6 +29,12 @@ from app.config import get_settings
 from app.utils.agg_cache import agg_get, agg_set, cached_agg
 
 from app.core.database import get_db
+
+# Logger do modulo: o winners_map avisa quando cai no calculo em tempo real
+# por falta de materializacao — sem isso, o refresh atrasado ficaria invisivel.
+import structlog as _structlog
+
+log = _structlog.get_logger("marenostrum.controllers.tse")
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
 from app.core.errors import DomainError, NotFoundError
 from app.models.tse import (
@@ -387,6 +393,24 @@ def list_candidates(
     ),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
+    # Cache da BUSCA. O custo cresce com o numero de nomes que casam: "silva"
+    # bate em 259.877 candidatos e a query precisa avaliar todos pra ordenar
+    # por relevancia — 5 a 10s medidos. Sobrenome comum e exatamente o que mais
+    # se digita, e a mesma busca se repete entre usuarios e entre teclas.
+    #
+    # Cache GLOBAL (sem tenant na chave) porque este endpoint so devolve dado
+    # publico do TSE — nao ha filtro por cliente aqui. Se algum dia entrar
+    # qualquer coisa derivada do tenant, a chave PRECISA passar a incluir
+    # ctx.tenant_id, senao vaza entre clientes.
+    _ck = (
+        f"cand:{search}:{state}:{office_code}:{party_number}:{election_id}:"
+        f"{year}:{elected_only}:{municipality_id}:{order}:{group_person}:"
+        f"{limit}:{offset}"
+    )
+    _hit = agg_get(_ck)
+    if _hit is not None:
+        return _hit
+
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
     # evita o overhead de carregar tudo). Em vez disso, montamos os nested
     # (party, election) com batch fetch via mapas, mais abaixo.
@@ -609,7 +633,9 @@ def list_candidates(
             election=ElectionRead.model_validate(elections_map[c.election_id]),
         ))
 
-    return Page[CandidateRead](items=items, total=total, limit=limit, offset=offset)
+    _page = Page[CandidateRead](items=items, total=total, limit=limit, offset=offset)
+    agg_set(_ck, _page)
+    return _page
 
 
 @router.get(
@@ -2267,27 +2293,52 @@ def winners_map(
     if _hit is not None:
         return _hit
 
-    # DISTINCT ON (municipio) ordenado por votos desc → vencedor por municipio.
+    # Lê da tabela MATERIALIZADA (migration 062). O cálculo em tempo real
+    # ordenava 3,3 milhões de linhas em disco para devolver 5.570 municípios —
+    # 164s medidos em Deputado Federal 2022. Aqui é um range scan na PK
+    # (year, office_code).
+    #
+    # O desempate por urn_name mora agora no refresh_tse_winners_map.py: sem
+    # ele, empate de votos dava vencedor não-determinístico e o município
+    # trocava de cor entre cargas.
     sql = text(
         """
-        SELECT DISTINCT ON (vr.municipality_id)
-          m.id AS municipality_id, m.name, m.state, m.latitude, m.longitude,
-          p.number AS party_number, p.abbreviation AS party_abbreviation,
-          c.urn_name AS winner_name, vr.votes
-        FROM tse_vote_results vr
-        JOIN tse_candidates c ON c.id = vr.candidate_id
-        JOIN tse_elections e ON e.id = c.election_id
-        JOIN tse_parties p ON p.id = c.party_id
-        JOIN tse_municipalities m ON m.id = vr.municipality_id
-        WHERE e.year = :year AND c.office_code = :office
-          AND m.latitude IS NOT NULL
-        -- tiebreaker estável (urn_name): sem ele, em empate de votos o
-        -- DISTINCT ON pegava um vencedor não-determinístico → cor errada
-        -- (ex: prefeito do Rio aparecendo na cor de outro partido).
-        ORDER BY vr.municipality_id, vr.votes DESC, c.urn_name ASC
+        SELECT municipality_id, municipality AS name, state, latitude, longitude,
+               party_number, party_abbr AS party_abbreviation,
+               urn_name AS winner_name, votes
+        FROM tse_winners_map
+        WHERE year = :year AND office_code = :office
+          AND latitude IS NOT NULL
+        ORDER BY votes DESC
         """
     )
     rows = db.execute(sql, {"year": year, "office": office_code}).mappings().all()
+
+    # Sem linha materializada (import novo do TSE sem o refresh, ou combinação
+    # ano+cargo que nunca existiu): cai no cálculo antigo em vez de devolver
+    # mapa vazio. Lento, porém correto — e o log denuncia o refresh atrasado.
+    if not rows:
+        log.warning(
+            "winners_map_sem_materializacao",
+            year=year, office_code=office_code,
+            acao="rodar scripts/refresh_tse_winners_map.py",
+        )
+        rows = db.execute(text(
+            """
+            SELECT DISTINCT ON (vr.municipality_id)
+              m.id AS municipality_id, m.name, m.state, m.latitude, m.longitude,
+              p.number AS party_number, p.abbreviation AS party_abbreviation,
+              c.urn_name AS winner_name, vr.votes
+            FROM tse_vote_results vr
+            JOIN tse_candidates c ON c.id = vr.candidate_id
+            JOIN tse_elections e ON e.id = c.election_id
+            JOIN tse_parties p ON p.id = c.party_id
+            JOIN tse_municipalities m ON m.id = vr.municipality_id
+            WHERE e.year = :year AND c.office_code = :office
+              AND m.latitude IS NOT NULL
+            ORDER BY vr.municipality_id, vr.votes DESC, c.urn_name ASC
+            """
+        ), {"year": year, "office": office_code}).mappings().all()
     points = [
         WinnerMapPoint(
             municipality_id=r["municipality_id"],
