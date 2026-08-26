@@ -14,18 +14,20 @@ e os alvos das ações administrativas são restritos a TITULARES
 (is_account_owner), não a qualquer membro de qualquer tenant.
 """
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentTenant
+from app.core.dependencies import CurrentTenant, hash_api_key
 from app.core.errors import DomainError, NotFoundError
 from app.core.security import create_access_token, hash_password
+from app.models.api_key import ApiKey
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.schemas.admin import (
@@ -391,5 +393,124 @@ def set_titular_active(
             f"[superadmin] {'Reativou' if payload.is_active else 'Desativou'} "
             f"o titular {target.email}"
         ),
+    )
+    db.commit()
+
+
+# ============================================================ CHAVES DE API
+# Somente superadmin: chave e credencial de leitura de dados de cliente, entao
+# quem cria e a Mare Nostrum — nao o proprio cliente.
+
+
+class ApiKeyCreateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=120,
+                      description="Pra que serve esta chave (ex: 'BI do Daniel')")
+    tenant_id: UUID | None = Field(
+        None, description="Campanha dona da chave. Vazio = a sua."
+    )
+    expires_in_days: int | None = Field(
+        None, ge=1, le=3650,
+        description="Validade em dias. Vazio = sem prazo (revogue quando quiser).",
+    )
+
+
+class ApiKeyCreated(BaseModel):
+    """A chave em texto aparece UMA vez, aqui. Depois so o hash fica no banco."""
+    id: UUID
+    name: str
+    api_key: str = Field(description="GUARDE AGORA: nao da pra ver de novo.")
+    prefix: str
+    expires_at: datetime | None
+    tenant_id: UUID
+
+
+class ApiKeyRead(BaseModel):
+    id: UUID
+    name: str
+    prefix: str
+    tenant_id: UUID
+    scopes: str
+    created_at: datetime
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    last_used_at: datetime | None
+    use_count: int
+
+
+@router.post(
+    "/api-keys",
+    response_model=ApiKeyCreated,
+    status_code=status.HTTP_201_CREATED,
+    summary="Cria uma chave de API (somente leitura)",
+)
+def create_api_key(
+    payload: ApiKeyCreateRequest,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+    _su: _SUPERADMIN,
+) -> ApiKeyCreated:
+    # token_urlsafe(32) = 256 bits de entropia. O prefixo "mn_live_" existe pra
+    # a chave ser reconhecivel se vazar num log ou num commit.
+    raw = f"mn_live_{secrets.token_urlsafe(32)}"
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days)
+        if payload.expires_in_days
+        else None
+    )
+    chave = ApiKey(
+        tenant_id=payload.tenant_id or ctx.tenant_id,
+        created_by=ctx.user_id,
+        name=payload.name,
+        key_hash=hash_api_key(raw),
+        prefix=raw[:16],
+        scopes="read",
+        expires_at=expires_at,
+    )
+    db.add(chave)
+    record_audit(
+        ctx, action="create", entity_type="api_key", entity_id=chave.id,
+        summary=f"[superadmin] Criou chave de API '{payload.name}' ({raw[:16]}…)",
+    )
+    db.commit()
+    db.refresh(chave)
+    return ApiKeyCreated(
+        id=chave.id, name=chave.name, api_key=raw, prefix=chave.prefix,
+        expires_at=chave.expires_at, tenant_id=chave.tenant_id,
+    )
+
+
+@router.get(
+    "/api-keys",
+    response_model=list[ApiKeyRead],
+    summary="Lista as chaves de API (sem o valor da chave)",
+)
+def list_api_keys(
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+    _su: _SUPERADMIN,
+) -> list[ApiKeyRead]:
+    linhas = db.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
+    return [ApiKeyRead.model_validate(k, from_attributes=True) for k in linhas]
+
+
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoga uma chave de API (efeito imediato)",
+)
+def revoke_api_key(
+    key_id: UUID,
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+    _su: _SUPERADMIN,
+) -> None:
+    chave = db.get(ApiKey, key_id)
+    if chave is None:
+        raise NotFoundError("Chave nao encontrada")
+    # Revoga, nao apaga: o historico de uso continua existindo pra auditoria.
+    chave.revoked_at = datetime.now(timezone.utc)
+    record_audit(
+        ctx, action="delete", entity_type="api_key", entity_id=chave.id,
+        summary=f"[superadmin] Revogou a chave '{chave.name}' ({chave.prefix}…)",
     )
     db.commit()

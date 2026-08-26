@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant
+from app.utils.agg_cache import agg_get, agg_set
 
 router = APIRouter(prefix="/census", tags=["census"])
 
@@ -93,6 +94,13 @@ def _clean_dissolved(geom, min_area: float = 5e-7):
     summary="Municípios com dados censitários disponíveis",
 )
 def census_municipalities(ctx: CurrentTenant, db: Session = Depends(get_db)) -> list[dict]:
+    # Cache: este GROUP BY varre os 468 mil setores do pais (antes da carga
+    # nacional eram 205 mil) e o resultado so muda quando entra censo novo.
+    # Sem cache, toda abertura da tela pagava a agregacao inteira.
+    _hit = agg_get("census_municipalities")
+    if _hit is not None:
+        return _hit
+
     rows = db.execute(
         text(
             "SELECT cd_mun, max(nm_mun) AS nm_mun, count(*) AS setores, "
@@ -103,7 +111,9 @@ def census_municipalities(ctx: CurrentTenant, db: Session = Depends(get_db)) -> 
             "FROM census_geo WHERE level='setor' GROUP BY cd_mun ORDER BY max(nm_mun)"
         )
     ).mappings().all()
-    return [dict(r) for r in rows]
+    _out = [dict(r) for r in rows]
+    agg_set("census_municipalities", _out)
+    return _out
 
 
 @router.get(

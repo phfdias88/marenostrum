@@ -10,10 +10,11 @@ Dependencias FastAPI compartilhadas.
 Esta dependencia DEVE ser usada por TODA rota que toca dados de tenant.
 """
 from datetime import datetime, timezone
+import hashlib
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,7 @@ from app.core.database import get_db
 from app.core.security import decode_access_token
 from app.core.tenant_context import TenantContext
 from app.models.tenant import Tenant
+from app.models.api_key import ApiKey
 from app.models.user import User
 
 # tokenUrl aponta para a rota de login (a implementar)
@@ -70,6 +72,80 @@ def _subscription_blocks(tenant: Tenant | None, now: datetime) -> bool:
 
 def _is_billing_exempt(path: str) -> bool:
     return "/billing/" in path or path.endswith(_BILLING_EXEMPT_SUFFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Chave de API (acesso programatico, somente leitura)
+# ---------------------------------------------------------------------------
+# Metodos que MODIFICAM dado. A chave nasce com escopo "read" e a checagem e
+# feita aqui, no portao, e nao em cada rota: rota nova entra protegida por
+# padrao, sem ninguem precisar lembrar.
+_METODOS_DE_ESCRITA = {"POST", "PUT", "PATCH", "DELETE"}
+
+_api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+_api_key_exc = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Chave de API invalida, revogada ou vencida.",
+)
+_api_key_readonly_exc = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Esta chave de API e somente leitura.",
+)
+
+
+def hash_api_key(raw: str) -> str:
+    """SHA-256 da chave. O banco guarda SO isto — nunca a chave."""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def get_context_by_api_key(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    api_key: Annotated[str | None, Depends(_api_key_scheme)] = None,
+) -> TenantContext | None:
+    """Autentica pelo header X-API-Key. None = nao veio chave (tenta JWT).
+
+    Devolve o MESMO TenantContext do login humano — de proposito: assim toda
+    regra de isolamento por tenant que ja existe nos repositorios vale igual
+    pra chave, sem caminho paralelo que possa divergir e vazar dado.
+    """
+    if not api_key:
+        return None
+
+    if request.method in _METODOS_DE_ESCRITA:
+        raise _api_key_readonly_exc
+
+    chave = (
+        db.query(ApiKey).filter(ApiKey.key_hash == hash_api_key(api_key)).one_or_none()
+    )
+    if chave is None or not chave.is_valid:
+        raise _api_key_exc
+
+    row = (
+        db.query(Tenant).filter(Tenant.id == chave.tenant_id, Tenant.is_active.is_(True))
+        .one_or_none()
+    )
+    if row is None:
+        raise _api_key_exc
+
+    # Marca o uso. Sem isto nao da pra responder "esta chave ainda e usada?"
+    # na hora de limpar acesso antigo.
+    chave.last_used_at = datetime.now(timezone.utc)
+    chave.use_count = (chave.use_count or 0) + 1
+    db.commit()
+
+    return TenantContext(
+        user_id=chave.created_by or chave.id,
+        tenant_id=chave.tenant_id,
+        role="viewer",          # papel mais baixo: a chave nunca administra
+        db=db,
+        user_name=f"chave: {chave.name}",
+        # Leitura liberada nos modulos de dado. A escrita ja foi barrada acima.
+        analytics_enabled=True, panel_enabled=True, map_enabled=True,
+        demands_enabled=True, agenda_enabled=True, census_enabled=True,
+        subscription_active=True,
+    )
 
 
 def get_tenant_context(
@@ -163,8 +239,34 @@ def get_tenant_context(
     )
 
 
+# Bearer OPCIONAL: quando a requisicao vem com chave de API nao existe token,
+# e o esquema obrigatorio recusaria antes de olharmos a chave.
+_oauth2_opcional = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login", auto_error=False
+)
+
+
+def get_context_flex(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    api_ctx: Annotated[TenantContext | None, Depends(get_context_by_api_key)] = None,
+    token: Annotated[str | None, Depends(_oauth2_opcional)] = None,
+) -> TenantContext:
+    """Aceita chave de API OU login humano, nesta ordem.
+
+    As duas devolvem o mesmo TenantContext, entao o resto do sistema nao
+    precisa saber por onde a requisicao entrou — e nao ha um segundo caminho
+    de autorizacao que possa divergir do primeiro com o tempo.
+    """
+    if api_ctx is not None:
+        return api_ctx
+    if not token:
+        raise _credentials_exc
+    return get_tenant_context(request=request, token=token, db=db)
+
+
 # Alias tipado pronto para uso nas rotas: `ctx: CurrentTenant`
-CurrentTenant = Annotated[TenantContext, Depends(get_tenant_context)]
+CurrentTenant = Annotated[TenantContext, Depends(get_context_flex)]
 
 
 _area_forbidden = HTTPException(

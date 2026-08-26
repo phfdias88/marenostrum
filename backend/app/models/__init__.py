@@ -1,5 +1,6 @@
 """Import central dos models (necessario para Alembic detectar metadata)."""
 from app.models.base import Base
+from app.models.api_key import ApiKey
 from app.models.audit_log import AuditLog
 from app.models.census import (
     AreaPonderacao,
@@ -30,6 +31,7 @@ from app.models.voting_place import VotingPlace
 
 __all__ = [
     "Base",
+    "ApiKey",
     "AuditLog",
     # Censo IBGE (dados publicos, multi-granularidade)
     "CensusGeo",
