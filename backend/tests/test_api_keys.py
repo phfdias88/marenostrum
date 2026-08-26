@@ -48,7 +48,9 @@ def test_chave_nao_escreve(client, tenant_a, db_session):
         json={"full_name": "Fulano", "contact_type": "eleitor"},
     )
     assert r.status_code == 403
-    assert "somente leitura" in r.json().get("detail", "").lower()
+    corpo = r.json()
+    texto = f"{corpo.get('message','')} {corpo.get('detail','')}".lower()
+    assert "somente leitura" in texto, corpo
 
 
 def test_chave_nao_enxerga_outro_cliente(client, tenant_a, tenant_b, db_session):
@@ -119,3 +121,62 @@ def test_login_normal_continua_funcionando(client, tenant_a):
 def test_sem_credencial_nenhuma_e_401(client):
     r = client.get("/api/v1/contacts")
     assert r.status_code == 401
+
+
+# --------------------------------------------------------------------------
+# Quem pode EMITIR chave. Trava por identidade, alem do super-acesso: super-
+# acesso e concedido pra dar suporte dentro da conta do cliente, e emitir
+# credencial de leitura por fora do sistema nao deveria vir junto no pacote.
+# --------------------------------------------------------------------------
+
+def test_superadmin_fora_da_lista_nao_emite_chave(client, tenant_a, db_session):
+    """O caso que motivou a trava: promover alguem a superadmin pra dar
+    suporte NAO pode dar de brinde o poder de emitir credencial."""
+    from app.models.user import User
+
+    _tenant, user, tok = tenant_a
+    user.is_superadmin = True                     # super-acesso concedido
+    user.email = "suporte@marenostrum.com.br"     # mas fora da lista
+    db_session.commit()
+
+    r = client.post(
+        "/api/v1/admin/api-keys",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"name": "chave que nao deveria nascer"},
+    )
+    assert r.status_code == 403
+    corpo = r.json()
+    texto = f"{corpo.get('message','')} {corpo.get('detail','')}".lower()
+    assert "administrador" in texto, corpo
+
+
+def test_administrador_da_lista_emite_chave(client, tenant_a, db_session):
+    _tenant, user, tok = tenant_a
+    user.is_superadmin = True
+    user.email = "admin@marenostrum.com.br"       # na lista
+    db_session.commit()
+
+    r = client.post(
+        "/api/v1/admin/api-keys",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"name": "chave do administrador"},
+    )
+    assert r.status_code == 201, r.text
+    corpo = r.json()
+    assert corpo["api_key"].startswith("mn_live_")
+    assert corpo["prefix"] == corpo["api_key"][:16]
+
+
+def test_daniel_emite_chave(client, tenant_a, db_session):
+    _tenant, user, tok = tenant_a
+    user.is_superadmin = True
+    user.email = "danieldeluna@gmail.com"         # na lista
+    db_session.commit()
+
+    r = client.post(
+        "/api/v1/admin/api-keys",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"name": "BI do Daniel", "expires_in_days": 365},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["expires_at"] is not None     # respeitou o prazo pedido

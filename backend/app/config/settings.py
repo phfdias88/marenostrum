@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Ex.: "https://marenostrumconsult.com.br/sistema".
     PUBLIC_URL_BASE: str = "https://srv1412083.hstgr.cloud"
 
+    # Quem pode CRIAR/REVOGAR chave de API. Trava por identidade, alem do
+    # is_superadmin: super-acesso e concedido pra dar suporte a cliente, e
+    # emitir credencial de leitura de dados nao deveria vir junto no pacote.
+    # Separado por virgula no .env se um dia precisar mudar sem deploy.
+    API_KEY_ADMINS: str = "admin@marenostrum.com.br,danieldeluna@gmail.com"
+
     # Webhook fallback global. Usado quando o tenant NAO tem webhook_secret
     # proprio (typicamente em dev/staging). Em producao, prefira sempre
     # secret per-tenant — vazamento do global = todos os tenants caem.

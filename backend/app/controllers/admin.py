@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant, hash_api_key
 from app.core.errors import DomainError, NotFoundError
@@ -398,6 +399,37 @@ def set_titular_active(
 
 
 # ============================================================ CHAVES DE API
+
+
+def require_api_key_admin(
+    ctx: CurrentTenant,
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    """So o administrador e o Daniel emitem chave de API.
+
+    Por que nao basta o require_superadmin: super-acesso existe pra dar
+    suporte dentro da conta do cliente, e e concedido com essa finalidade.
+    Emitir credencial que le dados por fora do sistema e outra coisa — a
+    lista de quem pode fazer isso e explicita e curta (API_KEY_ADMINS).
+    """
+    user = db.get(User, ctx.user_id)
+    if user is None or not user.is_active:
+        raise _ForbiddenError("Sessao invalida.")
+    autorizados = {
+        e.strip().lower()
+        for e in get_settings().API_KEY_ADMINS.split(",")
+        if e.strip()
+    }
+    if (user.email or "").lower() not in autorizados:
+        raise _ForbiddenError(
+            "Apenas o administrador da Mare Nostrum pode gerar chaves de API."
+        )
+    return user
+
+
+_API_KEY_ADMIN = Annotated[User, Depends(require_api_key_admin)]
+
+
 # Somente superadmin: chave e credencial de leitura de dados de cliente, entao
 # quem cria e a Mare Nostrum — nao o proprio cliente.
 
@@ -447,7 +479,7 @@ def create_api_key(
     payload: ApiKeyCreateRequest,
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
-    _su: _SUPERADMIN,
+    _adm: _API_KEY_ADMIN,
 ) -> ApiKeyCreated:
     # token_urlsafe(32) = 256 bits de entropia. O prefixo "mn_live_" existe pra
     # a chave ser reconhecivel se vazar num log ou num commit.
@@ -487,7 +519,7 @@ def create_api_key(
 def list_api_keys(
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
-    _su: _SUPERADMIN,
+    _adm: _API_KEY_ADMIN,
 ) -> list[ApiKeyRead]:
     linhas = db.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
     return [ApiKeyRead.model_validate(k, from_attributes=True) for k in linhas]
@@ -502,7 +534,7 @@ def revoke_api_key(
     key_id: UUID,
     ctx: CurrentTenant,
     db: Annotated[Session, Depends(get_db)],
-    _su: _SUPERADMIN,
+    _adm: _API_KEY_ADMIN,
 ) -> None:
     chave = db.get(ApiKey, key_id)
     if chave is None:

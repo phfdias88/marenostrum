@@ -218,7 +218,18 @@ for nome, (soma, total) in ranking[:10]:
 
 ## 7. Operação das chaves
 
-Criar, listar e revogar é feito pela conta da MareNostrum (superadmin):
+**Quem pode emitir:** apenas `admin@marenostrum.com.br` e `danieldeluna@gmail.com`
+(lista em `API_KEY_ADMINS`). A trava é por identidade, além do super-acesso:
+super-acesso é concedido para dar suporte dentro da conta do cliente, e emitir
+credencial que lê dados por fora do sistema não deveria vir junto no pacote.
+Qualquer outra conta — mesmo superadmin — recebe `403`.
+
+**Pelo painel (jeito recomendado):** entre no Painel Mare Nostrum e role até
+"Chaves de acesso aos dados", no fim da página. Preencha para que serve, clique
+em **Gerar chave** e copie — ela aparece uma vez só. A mesma lista mostra o uso
+de cada chave e o botão de cancelar.
+
+**Pela linha de comando:**
 
 ```bash
 # criar

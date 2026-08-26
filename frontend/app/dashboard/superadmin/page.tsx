@@ -19,7 +19,9 @@ import {
   LogIn,
   Power,
   RefreshCcw,
+  KeyRound,
   ShieldCheck,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import Link from "next/link";
@@ -31,7 +33,34 @@ import { api, ApiError } from "@/lib/api";
 import { startImpersonation } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
-type Me = { is_superadmin?: boolean; user_id: string };
+type Me = { is_superadmin?: boolean; user_id: string; email?: string };
+
+// Quem emite chave de API. Mesma lista do backend (API_KEY_ADMINS) — aqui
+// serve so pra nao MOSTRAR um botao que o servidor vai recusar; a decisao
+// que vale continua sendo a do backend.
+const PODEM_EMITIR_CHAVE = [
+  "admin@marenostrum.com.br",
+  "danieldeluna@gmail.com",
+];
+
+type ApiKeyItem = {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+};
+
+type ApiKeyCriada = {
+  id: string;
+  name: string;
+  api_key: string;
+  prefix: string;
+  expires_at: string | null;
+};
 
 type Tenant = {
   id: string;
@@ -78,6 +107,7 @@ export default function SuperadminPage() {
   const router = useRouter();
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [meuEmail, setMeuEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [created, setCreated] = useState<CreatedComp | null>(null);
 
@@ -103,6 +133,7 @@ export default function SuperadminPage() {
   useEffect(() => {
     api<Me>("/v1/auth/me")
       .then((m) => {
+        setMeuEmail((m.email || "").toLowerCase());
         if (!m.is_superadmin) {
           setAllowed(false);
           router.replace("/dashboard");
@@ -156,6 +187,7 @@ export default function SuperadminPage() {
           loading={loading}
           onChanged={load}
         />
+        {PODEM_EMITIR_CHAVE.includes(meuEmail) && <ApiKeysCard />}
       </div>
     </div>
   );
@@ -489,6 +521,175 @@ function TenantRow({ tenant, onChanged }: { tenant: Tenant; onChanged: () => voi
 }
 
 // ============================================================ helpers
+
+function ApiKeysCard() {
+  const [chaves, setChaves] = useState<ApiKeyItem[]>([]);
+  const [nome, setNome] = useState("");
+  const [dias, setDias] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [criada, setCriada] = useState<ApiKeyCriada | null>(null);
+  const [copiada, setCopiada] = useState(false);
+
+  const carregar = useCallback(async () => {
+    try {
+      setChaves(await api<ApiKeyItem[]>("/v1/admin/api-keys", { skipCache: true }));
+    } catch {
+      /* silencioso: o card ainda serve pra criar */
+    }
+  }, []);
+
+  useEffect(() => { void carregar(); }, [carregar]);
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nome.trim() || busy) return;
+    setBusy(true);
+    try {
+      const nova = await api<ApiKeyCriada>("/v1/admin/api-keys", {
+        method: "POST",
+        body: JSON.stringify({
+          name: nome.trim(),
+          ...(Number(dias) > 0 ? { expires_in_days: Number(dias) } : {}),
+        }),
+      });
+      setCriada(nova);      // aparece UMA vez: depois só o hash fica no banco
+      setNome("");
+      setDias("");
+      void carregar();
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "Não foi possível gerar a chave.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revogar(id: string, rotulo: string) {
+    if (!confirm(`Revogar a chave "${rotulo}"? Quem usa ela perde o acesso na hora.`)) return;
+    try {
+      await api<null>(`/v1/admin/api-keys/${id}`, { method: "DELETE" });
+      toast.success("Chave revogada.");
+      void carregar();
+    } catch {
+      toast.error("Não foi possível revogar.");
+    }
+  }
+
+  async function copiar() {
+    if (!criada) return;
+    await navigator.clipboard.writeText(criada.api_key);
+    setCopiada(true);
+    toast.success("Chave copiada.");
+    setTimeout(() => setCopiada(false), 2000);
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <KeyRound className="w-5 h-5 text-primary" />
+        <h2 className="font-semibold">Chaves de acesso aos dados</h2>
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Serve para ligar o sistema a um BI, uma planilha ou outro programa. A
+        chave <strong>só lê</strong> — nunca altera nem apaga nada — e pode ser
+        cancelada a qualquer momento.
+      </p>
+
+      {criada && (
+        <div className="mb-5 rounded-lg border border-primary/40 bg-primary/5 p-4">
+          <p className="text-sm font-medium mb-1">
+            Copie agora — esta chave não aparece de novo
+          </p>
+          <p className="text-xs text-muted-foreground mb-3">
+            Guarde no gerenciador de senhas. Se perder, é só cancelar esta e
+            gerar outra.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="flex-1 min-w-0 break-all rounded-md bg-background px-3 py-2 font-mono text-xs">
+              {criada.api_key}
+            </code>
+            <Button onClick={copiar} variant="secondary" className="shrink-0">
+              {copiada ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copiada ? "Copiada" : "Copiar"}
+            </Button>
+          </div>
+          <button
+            onClick={() => setCriada(null)}
+            className="mt-3 text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            Já guardei, pode esconder
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={criar} className="space-y-3 mb-5">
+        <Field
+          label="Para que serve esta chave"
+          value={nome}
+          onChange={setNome}
+          placeholder="Ex: BI do Daniel"
+        />
+        <Field
+          label="Validade em dias · opcional"
+          value={dias}
+          onChange={setDias}
+          type="number"
+          placeholder="Vazio = sem prazo"
+        />
+        <Button type="submit" disabled={!nome.trim() || busy} className="w-full sm:w-auto">
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+          Gerar chave
+        </Button>
+      </form>
+
+      {chaves.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <th className="pb-2 pr-3 font-medium">Nome</th>
+                <th className="pb-2 pr-3 font-medium">Início da chave</th>
+                <th className="pb-2 pr-3 font-medium tabular-nums">Usos</th>
+                <th className="pb-2 pr-3 font-medium">Situação</th>
+                <th className="pb-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {chaves.map((k) => (
+                <tr key={k.id} className="border-t border-border/60">
+                  <td className="py-2 pr-3">{k.name}</td>
+                  <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">
+                    {k.prefix}…
+                  </td>
+                  <td className="py-2 pr-3 tabular-nums">{k.use_count}</td>
+                  <td className="py-2 pr-3">
+                    {k.revoked_at ? (
+                      <span className="text-muted-foreground">cancelada</span>
+                    ) : (
+                      <span className="text-primary">ativa</span>
+                    )}
+                  </td>
+                  <td className="py-2 text-right">
+                    {!k.revoked_at && (
+                      <button
+                        onClick={() => revogar(k.id, k.name)}
+                        className="inline-flex items-center gap-1 text-xs text-destructive hover:underline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Cancelar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Field({
   label,
