@@ -31,7 +31,10 @@ export class ApiError extends Error {
   }
 }
 
-type RequestOpts = Omit<RequestInit, "body"> & { body?: unknown };
+// body é objeto/FormData/Blob — nunca string: quem passasse JSON.stringify aqui
+// serializava duas vezes e o backend recusava ("valid dictionary or object").
+// Tipar como `object` transforma esse engano em erro de compilação.
+type RequestOpts = Omit<RequestInit, "body"> & { body?: object };
 
 /**
  * Opções extras de cache (além de RequestInit):

@@ -547,10 +547,12 @@ function ApiKeysCard() {
     try {
       const nova = await api<ApiKeyCriada>("/v1/admin/api-keys", {
         method: "POST",
-        body: JSON.stringify({
+        // objeto puro: o api() serializa (stringify aqui manda texto e o
+        // backend responde "Input should be a valid dictionary")
+        body: {
           name: nome.trim(),
           ...(Number(dias) > 0 ? { expires_in_days: Number(dias) } : {}),
-        }),
+        },
       });
       setCriada(nova);      // aparece UMA vez: depois só o hash fica no banco
       setNome("");
