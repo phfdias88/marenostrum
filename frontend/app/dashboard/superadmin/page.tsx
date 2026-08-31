@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
@@ -529,6 +529,7 @@ function ApiKeysCard() {
   const [busy, setBusy] = useState(false);
   const [criada, setCriada] = useState<ApiKeyCriada | null>(null);
   const [copiada, setCopiada] = useState(false);
+  const chaveRef = useRef<HTMLElement>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -580,10 +581,28 @@ function ApiKeysCard() {
 
   async function copiar() {
     if (!criada) return;
-    await navigator.clipboard.writeText(criada.api_key);
-    setCopiada(true);
-    toast.success("Chave copiada.");
-    setTimeout(() => setCopiada(false), 2000);
+    try {
+      await navigator.clipboard.writeText(criada.api_key);
+      setCopiada(true);
+      toast.success("Chave copiada.");
+      setTimeout(() => setCopiada(false), 2000);
+    } catch {
+      // O navegador pode negar a area de transferencia (permissao bloqueada,
+      // aba sem foco). Como a chave aparece UMA vez, falhar calado faria a
+      // pessoa clicar em "ja guardei" sem ter guardado: seleciona o texto e
+      // manda usar Ctrl+C.
+      const el = chaveRef.current;
+      if (el) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+      toast.error("O navegador bloqueou a copia automatica.", {
+        description: "A chave ja esta selecionada — use Ctrl+C para copiar.",
+      });
+    }
   }
 
   return (
@@ -608,7 +627,10 @@ function ApiKeysCard() {
             gerar outra.
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <code className="flex-1 min-w-0 break-all rounded-md bg-background px-3 py-2 font-mono text-xs">
+            <code
+              ref={chaveRef}
+              className="flex-1 min-w-0 break-all rounded-md bg-background px-3 py-2 font-mono text-xs select-all"
+            >
               {criada.api_key}
             </code>
             <Button onClick={copiar} variant="secondary" className="shrink-0">
