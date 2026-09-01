@@ -1,0 +1,408 @@
+<title>Acesso aos Dados MareNostrum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  :root{
+    --ground:#FBFCFC; --surface:#F1F4F3; --surface-2:#E7EDEB;
+    --ink:#16201F; --ink-soft:#3C4A48; --muted:#5C6B69;
+    --line:#D6E0DD; --line-soft:#E4EBE9;
+    --accent:#0F6B5C; --accent-soft:#E2F0EC;
+    --warn:#8A5D00; --warn-soft:#FBF1DC;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --body:'Source Sans 3',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --display:'Newsreader',Georgia,'Times New Roman',serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1413; --surface:#161E1D; --surface-2:#1E2827;
+      --ink:#E7EDEB; --ink-soft:#C2CFCC; --muted:#8CA09C;
+      --line:#26332F; --line-soft:#1E2A28;
+      --accent:#5AD3B8; --accent-soft:#12312B;
+      --warn:#E0AC4E; --warn-soft:#2C2313;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1413; --surface:#161E1D; --surface-2:#1E2827;
+    --ink:#E7EDEB; --ink-soft:#C2CFCC; --muted:#8CA09C;
+    --line:#26332F; --line-soft:#1E2A28;
+    --accent:#5AD3B8; --accent-soft:#12312B;
+    --warn:#E0AC4E; --warn-soft:#2C2313;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--body); font-size:16.5px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:0 24px}
+
+  /* ---------- topo ---------- */
+  header.top{border-bottom:1px solid var(--line); background:var(--surface)}
+  .top-in{display:flex; flex-wrap:wrap; gap:20px 32px; align-items:baseline;
+          justify-content:space-between; padding:34px 0 28px}
+  h1{font-family:var(--display); font-weight:600; font-size:clamp(1.9rem,4vw,2.6rem);
+     margin:0; letter-spacing:-.015em; text-wrap:balance}
+  .sub{color:var(--muted); margin:.35rem 0 0; max-width:60ch}
+  .base{font-family:var(--mono); font-size:.82rem; background:var(--ground);
+        border:1px solid var(--line); border-radius:7px; padding:9px 13px;
+        color:var(--ink-soft); white-space:nowrap; overflow-x:auto; max-width:100%}
+  .base b{color:var(--accent); font-weight:600}
+
+  /* ---------- layout ---------- */
+  .cols{display:grid; grid-template-columns:236px minmax(0,1fr); gap:52px;
+        align-items:start; padding:44px 0 80px}
+  @media (max-width:900px){ .cols{grid-template-columns:1fr; gap:32px; padding-top:28px} }
+
+  /* ---------- arvore lateral ---------- */
+  nav.tree{position:sticky; top:24px; font-size:.9rem}
+  @media (max-width:900px){ nav.tree{position:static; border:1px solid var(--line);
+        border-radius:10px; padding:16px 18px; background:var(--surface)} }
+  .tree-title{font-size:.72rem; text-transform:uppercase; letter-spacing:.11em;
+              color:var(--muted); font-weight:600; margin:0 0 12px}
+  nav.tree ol{list-style:none; margin:0; padding:0; display:flex;
+              flex-direction:column; gap:2px}
+  nav.tree a{display:block; color:var(--ink-soft); text-decoration:none;
+             padding:5px 10px; border-radius:6px; border-left:2px solid transparent}
+  nav.tree a:hover{background:var(--surface); color:var(--accent)}
+  nav.tree a:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+  nav.tree .kids{padding-left:12px; margin-top:2px; border-left:1px solid var(--line);
+                 display:flex; flex-direction:column; gap:1px}
+  nav.tree .kids a{font-size:.85rem; color:var(--muted); padding:3px 10px}
+  .n{font-family:var(--mono); font-size:.76rem; color:var(--accent);
+     margin-right:7px; font-weight:600}
+
+  /* ---------- conteudo ---------- */
+  main{min-width:0; display:flex; flex-direction:column; gap:44px}
+  section{scroll-margin-top:20px}
+  h2{font-family:var(--display); font-weight:600; font-size:1.55rem; margin:0 0 6px;
+     letter-spacing:-.01em; display:flex; gap:11px; align-items:baseline; text-wrap:balance}
+  h2 .n{font-size:.95rem}
+  h3{font-family:var(--body); font-weight:600; font-size:1.02rem;
+     margin:26px 0 8px; color:var(--ink)}
+  p{margin:0 0 12px; max-width:68ch; color:var(--ink-soft)}
+  .lead{color:var(--ink); max-width:68ch}
+  ul,ol.steps{margin:0 0 14px; padding-left:20px; max-width:68ch; color:var(--ink-soft)}
+  li{margin-bottom:6px}
+  strong{color:var(--ink); font-weight:600}
+  code{font-family:var(--mono); font-size:.85em; background:var(--surface-2);
+       padding:1px 5px; border-radius:4px; color:var(--ink)}
+
+  /* ---------- tabelas ---------- */
+  .tbl{overflow-x:auto; border:1px solid var(--line); border-radius:9px;
+       background:var(--surface); margin:0 0 14px}
+  table{border-collapse:collapse; width:100%; font-size:.9rem; min-width:520px}
+  th{text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.08em;
+     color:var(--muted); font-weight:600; padding:11px 15px;
+     border-bottom:1px solid var(--line); white-space:nowrap}
+  td{padding:10px 15px; border-bottom:1px solid var(--line-soft);
+     color:var(--ink-soft); vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td code{background:transparent; padding:0; color:var(--accent); font-size:.84em}
+  td.num{font-variant-numeric:tabular-nums; white-space:nowrap}
+
+  /* ---------- codigo ---------- */
+  pre{font-family:var(--mono); font-size:.82rem; line-height:1.6;
+      background:var(--surface); border:1px solid var(--line); border-radius:9px;
+      padding:15px 17px; overflow-x:auto; margin:0 0 14px; color:var(--ink-soft)}
+  pre .c{color:var(--muted)}
+  pre .k{color:var(--accent); font-weight:600}
+
+  /* ---------- avisos ---------- */
+  .note{border-left:3px solid var(--accent); background:var(--accent-soft);
+        padding:13px 17px; border-radius:0 8px 8px 0; margin:0 0 14px; max-width:68ch}
+  .note p{margin:0; color:var(--ink)}
+  .note.warn{border-left-color:var(--warn); background:var(--warn-soft)}
+  .tag{display:inline-block; font-family:var(--mono); font-size:.7rem; font-weight:600;
+       padding:2px 7px; border-radius:4px; background:var(--accent-soft);
+       color:var(--accent); border:1px solid color-mix(in srgb,var(--accent) 26%,transparent);
+       letter-spacing:.03em}
+  .tag.w{background:var(--warn-soft); color:var(--warn);
+         border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+  hr.sep{border:none; border-top:1px solid var(--line-soft); margin:6px 0 0}
+  footer{border-top:1px solid var(--line); padding:22px 0 40px; color:var(--muted);
+         font-size:.86rem}
+</style>
+
+<header class="top">
+  <div class="wrap top-in">
+    <div>
+      <h1>Acesso aos Dados MareNostrum</h1>
+      <p class="sub">Como puxar dados do sistema por fora da tela — planilha, BI ou script.</p>
+    </div>
+    <div class="base">https://marenostrumconsult.com.br/sistema/api/<b>v1</b></div>
+  </div>
+</header>
+
+<div class="wrap cols">
+
+  <nav class="tree" aria-label="Índice">
+    <p class="tree-title">Índice</p>
+    <ol>
+      <li><a href="#ftp"><span class="n">1</span>Por que API</a></li>
+      <li><a href="#auth"><span class="n">2</span>Autenticação</a></li>
+      <li>
+        <a href="#dados"><span class="n">3</span>Árvore de dados</a>
+        <div class="kids">
+          <a href="#tse">Eleições (TSE)</a>
+          <a href="#censo">Censo e social</a>
+          <a href="#crm">CRM da campanha</a>
+          <a href="#servico">Serviço</a>
+        </div>
+      </li>
+      <li><a href="#formatos"><span class="n">4</span>Formatos</a></li>
+      <li><a href="#exemplos"><span class="n">5</span>Exemplos</a></li>
+      <li><a href="#chaves"><span class="n">6</span>Gerenciar chaves</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="ftp">
+      <h2><span class="n">1</span>Por que API e não FTP</h2>
+      <p class="lead">A pergunta era “API ou FTP”. A resposta é API, e vale registrar o porquê.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th></th><th>FTP</th><th>API com chave</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Senha</strong></td><td>trafega em texto puro</td><td>nunca trafega senha</td></tr>
+            <tr><td><strong>Quem vê o quê</strong></td><td>quem entra vê o diretório</td><td>cada chave só enxerga a campanha dela</td></tr>
+            <tr><td><strong>Registro</strong></td><td>não diz quem baixou</td><td>grava data e contagem de uso</td></tr>
+            <tr><td><strong>Cortar acesso</strong></td><td>trocar a senha derruba todos</td><td>revogar uma chave, efeito imediato</td></tr>
+            <tr><td><strong>Atualidade</strong></td><td>arquivo gerado ontem</td><td>consulta o banco agora</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>O FTP ainda exigiria exportar cópias do banco para arquivos — que envelhecem no mesmo dia e viram uma segunda fonte de verdade para manter.</p>
+    </section>
+
+    <hr class="sep">
+
+    <section id="auth">
+      <h2><span class="n">2</span>Autenticação</h2>
+      <p>Toda chamada leva a chave num cabeçalho:</p>
+      <pre><span class="k">X-API-Key</span>: mn_live_xxxxxxxxxxxxxxxxxxxxxxxx</pre>
+      <p>Exemplo completo:</p>
+      <pre>curl -H <span class="k">"X-API-Key: SUA_CHAVE"</span> \
+  "https://marenostrumconsult.com.br/sistema/api/v1/tse/stats/counts?year=2024"</pre>
+
+      <h3>Três regras que a chave sempre obedece</h3>
+      <ul>
+        <li><strong>Somente leitura.</strong> Tentar criar, alterar ou apagar devolve <code>403</code>. A trava fica no portão de entrada, não em cada rota — rota nova já nasce protegida.</li>
+        <li><strong>Não atravessa campanhas.</strong> A chave pertence a uma campanha e só enxerga os dados dela, pela mesma regra do login normal.</li>
+        <li><strong>Revogável na hora.</strong> Cortar o acesso é imediato e não mexe na senha de ninguém.</li>
+      </ul>
+
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Código</th><th>Significa</th></tr></thead>
+          <tbody>
+            <tr><td class="num"><code>200</code></td><td>tudo certo</td></tr>
+            <tr><td class="num"><code>401</code></td><td>chave inexistente, revogada ou vencida</td></tr>
+            <tr><td class="num"><code>403</code></td><td>tentou escrever com chave de leitura</td></tr>
+            <tr><td class="num"><code>429</code></td><td>muitas chamadas em pouco tempo</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="sep">
+
+    <section id="dados">
+      <h2><span class="n">3</span>Árvore de dados</h2>
+      <p class="lead">Três famílias, mais os endpoints de serviço. Todos os caminhos abaixo são <span class="tag">GET</span> e partem da base no topo da página.</p>
+
+      <h3 id="tse">3.1 &nbsp;Eleições (TSE) — dado público, 2002 a 2024</h3>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Caminho</th><th>O que devolve</th></tr></thead>
+          <tbody>
+            <tr><td><code>/tse/candidates?search=nome</code></td><td>busca por nome ou nome de urna</td></tr>
+            <tr><td><code>/tse/candidates?year=2024&amp;office_code=11&amp;state=RJ</code></td><td>filtra por ano, cargo e UF</td></tr>
+            <tr><td><code>/tse/candidates/{id}</code></td><td>ficha completa: partido, patrimônio, votação</td></tr>
+            <tr><td><code>/tse/candidates/{id}/results</code></td><td>votos por município</td></tr>
+            <tr><td><code>/tse/candidates/{id}/by-zone</code></td><td>votos por zona eleitoral</td></tr>
+            <tr><td><code>/tse/candidates/{id}/by-neighborhood</code></td><td>votos por bairro</td></tr>
+            <tr><td><code>/tse/candidates/{id}/trajectory</code></td><td>histórico de candidaturas da pessoa</td></tr>
+            <tr><td><code>/tse/stats/counts?year=2024</code></td><td>totais de candidatos, municípios e partidos</td></tr>
+            <tr><td><code>/tse/stats/top-candidates</code></td><td>mais votados do cargo</td></tr>
+            <tr><td><code>/tse/stats/winners-map</code></td><td>vencedor por município, pronto para mapa</td></tr>
+            <tr><td><code>/tse/stats/party-performance</code></td><td>desempenho por partido</td></tr>
+            <tr><td><code>/tse/parties</code></td><td>lista de partidos</td></tr>
+            <tr><td><code>/tse/municipalities</code></td><td>municípios com código IBGE e TSE</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Códigos de cargo:</strong> <code>1</code> presidente · <code>3</code> governador · <code>5</code> senador · <code>6</code> deputado federal · <code>7</code> deputado estadual · <code>11</code> prefeito · <code>13</code> vereador</p>
+      <div class="note">
+        <p>Candidaturas existem de 2002 a 2024, mas <strong>voto por município só de 2014 em diante</strong>. Antes disso a consulta responde vazia — não é erro.</p>
+      </div>
+
+      <h3 id="censo">3.2 &nbsp;Censo e socioeconômico — Brasil inteiro</h3>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Caminho</th><th>O que devolve</th></tr></thead>
+          <tbody>
+            <tr><td><code>/census/municipalities</code></td><td>os 5.570 municípios com dado censitário</td></tr>
+            <tr><td><code>/census/uf-overview?uf=33</code></td><td>municípios de uma UF em GeoJSON</td></tr>
+            <tr><td><code>/census/setores?cd_mun=3304557</code></td><td>setores censitários do município em GeoJSON</td></tr>
+            <tr><td><code>/census/malha?cd_mun=…&amp;level=bairro</code></td><td>contornos de bairro ou distrito</td></tr>
+            <tr><td><code>/census/mds-series?cd_mun=…</code></td><td>série mensal de CadÚnico e Bolsa Família</td></tr>
+            <tr><td><code>/census/search-areas?q=copacabana</code></td><td>busca bairros e distritos pelo nome</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Indicadores:</strong> população, domicílios, sexo, 11 faixas etárias, cor/raça, alfabetização, renda do responsável, água, esgoto, lixo, PIB per capita, IDHM, IDEB, CadÚnico e Bolsa Família. Fontes: IBGE, MDS e INEP.</p>
+      <p><strong>Granularidade:</strong> município (5.570), setor censitário (468.099) e — onde o IBGE publica — bairro. Fora das cidades grandes o recorte intermediário é o distrito: o IBGE só mapeia bairro em 16% dos municípios.</p>
+
+      <h3 id="crm">3.3 &nbsp;CRM da campanha — dado privado</h3>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Caminho</th><th>O que devolve</th></tr></thead>
+          <tbody>
+            <tr><td><code>/contacts</code></td><td>contatos da campanha, paginado e com filtros</td></tr>
+            <tr><td><code>/contacts/{id}</code></td><td>ficha do contato</td></tr>
+            <tr><td><code>/contacts/{id}/interactions</code></td><td>histórico de contatos com a pessoa</td></tr>
+            <tr><td><code>/contacts/map</code></td><td>contatos com coordenadas, para mapa</td></tr>
+            <tr><td><code>/contacts/map-aggregate?group_by=neighborhood</code></td><td>contagem por bairro</td></tr>
+            <tr><td><code>/contacts/birthdays</code></td><td>aniversariantes</td></tr>
+            <tr><td><code>/demands</code> · <code>/demands/stats</code></td><td>demandas e contagem por status</td></tr>
+            <tr><td><code>/agenda</code></td><td>eventos da agenda</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note warn">
+        <p><span class="tag w">LGPD</span> &nbsp;Estes carregam <strong>dados pessoais de eleitores</strong>. A chave só devolve os da campanha dona dela, mas quem consome assume o mesmo cuidado que o sistema tem.</p>
+      </div>
+
+      <h3 id="servico">3.4 &nbsp;Serviço</h3>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Caminho</th><th>O que devolve</th></tr></thead>
+          <tbody>
+            <tr><td><code>/api/health</code></td><td>o serviço está de pé</td></tr>
+            <tr><td><code>/api/ready</code></td><td>o serviço e o banco respondem</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <p><strong>Duas rotas não atendem chave de API, de propósito:</strong>
+        <code>/auth/me</code> e <code>/audit</code> respondem a sessão humana apenas.
+        A chave não tem identidade própria — ela carrega a de quem a emitiu —, então
+        tudo que decide por identidade, a área administrativa inclusive, fica fora
+        do alcance dela.</p>
+      </div>
+    </section>
+
+    <hr class="sep">
+
+    <section id="formatos">
+      <h2><span class="n">4</span>Paginação e formatos</h2>
+      <p>Listagens aceitam <code>limit</code> (máximo 200) e <code>offset</code>, e respondem sempre no mesmo envelope:</p>
+      <pre>{ <span class="k">"items"</span>: [ … ], <span class="k">"total"</span>: 1523, <span class="k">"limit"</span>: 100, <span class="k">"offset"</span>: 200 }</pre>
+      <p>Os endpoints de mapa — <code>uf-overview</code>, <code>setores</code>, <code>malha</code>, <code>contacts/map</code> — devolvem <strong>GeoJSON</strong> padrão, que QGIS, Google Earth e bibliotecas de mapa abrem direto.</p>
+
+      <h3>Documentação viva</h3>
+      <p>A API se documenta sozinha, sempre em dia com o código:</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Endereço</th><th>Para quê</th></tr></thead>
+          <tbody>
+            <tr><td><code>/sistema/api/docs</code></td><td>interativa — dá para testar na hora</td></tr>
+            <tr><td><code>/sistema/api/redoc</code></td><td>leitura corrida</td></tr>
+            <tr><td><code>/sistema/api/openapi.json</code></td><td>formato máquina — importa no Postman ou Insomnia</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="sep">
+
+    <section id="exemplos">
+      <h2><span class="n">5</span>Exemplos prontos</h2>
+
+      <h3>Planilha — mais votados de um cargo, em CSV</h3>
+      <pre>curl -H <span class="k">"X-API-Key: SUA_CHAVE"</span> \
+  ".../v1/tse/stats/top-candidates?year=2024&amp;office_code=11&amp;limit=200" -o top.json
+
+python -c "import json,csv; d=json.load(open('top.json',encoding='utf-8')); \
+w=csv.writer(open('mais_votados.csv','w',newline='',encoding='utf-8')); \
+w.writerow(['nome','partido','uf','votos']); \
+[w.writerow([i['candidate']['urn_name'], (i['candidate'].get('party') or {}).get('abbreviation'), \
+i['candidate'].get('state'), i['total_votes']]) for i in d['items']]"</pre>
+      <p>Saída real:</p>
+      <pre><span class="c">EDUARDO PAES,PSD,RJ,1861856
+RICARDO NUNES,MDB,SP,1801139
+GUILHERME BOULOS,PSOL,SP,1776127</span></pre>
+      <div class="note">
+        <p>Repare no formato: listagens vêm como <code>items</code>, e cada item de ranking traz <code>candidate</code> (a ficha) e <code>total_votes</code> (o número).</p>
+      </div>
+
+      <h3>Python — renda por bairro de um município</h3>
+      <pre><span class="k">import</span> requests
+
+BASE = "https://marenostrumconsult.com.br/sistema/api/v1"
+H = {"X-API-Key": "SUA_CHAVE"}
+
+setores = requests.get(f"{BASE}/census/setores",
+                       params={"cd_mun": "3304557"}, headers=H).json()
+
+<span class="c"># média ponderada pelo nº de responsáveis — a mesma conta da tela</span>
+por_bairro = {}
+<span class="k">for</span> f <span class="k">in</span> setores["features"]:
+    p = f["properties"]
+    nome = p.get("nm_bairro") <span class="k">or</span> p.get("nm_subdist") <span class="k">or</span> p.get("nm_dist")
+    renda, peso = p.get("renda_media"), p.get("responsaveis")
+    <span class="k">if</span> renda <span class="k">and</span> peso:
+        soma, total = por_bairro.get(nome, (0, 0))
+        por_bairro[nome] = (soma + renda * peso, total + peso)
+
+ranking = sorted(por_bairro.items(), key=<span class="k">lambda</span> x: -x[1][0] / x[1][1])
+<span class="k">for</span> nome, (soma, total) <span class="k">in</span> ranking[:5]:
+    print(f"{nome:&lt;22} R$ {soma / total:&gt;10,.0f}")</pre>
+      <p>Saída real, conferida contra a tela:</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Bairro</th><th>Renda média do responsável</th></tr></thead>
+          <tbody>
+            <tr><td>Lagoa</td><td class="num">R$ 18.147</td></tr>
+            <tr><td>Leblon</td><td class="num">R$ 16.229</td></tr>
+            <tr><td>São Conrado</td><td class="num">R$ 14.860</td></tr>
+            <tr><td>Barra da Tijuca</td><td class="num">R$ 14.521</td></tr>
+            <tr><td>Ipanema</td><td class="num">R$ 14.447</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <hr class="sep">
+
+    <section id="chaves">
+      <h2><span class="n">6</span>Gerenciar as chaves</h2>
+      <p>Criar, listar e revogar é feito pela conta da MareNostrum, com o login de sempre:</p>
+      <pre><span class="c"># criar</span>
+curl -X POST -H "Authorization: Bearer SEU_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"BI do Daniel","expires_in_days":365}' ".../v1/admin/api-keys"
+
+<span class="c"># listar — mostra uso e prefixo, nunca a chave</span>
+curl -H "Authorization: Bearer SEU_TOKEN" ".../v1/admin/api-keys"
+
+<span class="c"># revogar — efeito imediato</span>
+curl -X DELETE -H "Authorization: Bearer SEU_TOKEN" ".../v1/admin/api-keys/{id}"</pre>
+
+      <div class="note warn">
+        <p><span class="tag w">Guarde agora</span> &nbsp;A chave aparece <strong>uma única vez</strong>, na resposta da criação. Depois o sistema guarda apenas um resumo criptográfico dela — nem nós conseguimos recuperá-la. Perdeu, revoga e cria outra.</p>
+      </div>
+
+      <p><strong>Cuidados.</strong> Trate a chave como senha: fora de código versionado, fora de planilha compartilhada, fora de mensagem. Se vazar, revogue — leva um comando e vale na hora.</p>
+      <p><strong>Uma chave por finalidade</strong> (“BI”, “site”, “parceiro X”): assim dá para cortar uma sem afetar as outras, e o registro de uso mostra qual integração ainda está viva.</p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">MareNostrum · documento interno · a referência sempre atual fica em <code>/sistema/api/docs</code></div>
+</footer>

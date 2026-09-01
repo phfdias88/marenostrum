@@ -86,6 +86,10 @@ def require_superadmin(
     quem não é superadmin toma 403 sem sequer ter o payload validado (não
     vaza schema nem 422 pra não-autorizado). Super-acesso é uma flag do banco
     (não papel/tenant); relemos o usuário e exigimos is_superadmin."""
+    # Chave de API carrega o user_id de quem a criou: sem isto, uma chave
+    # emitida por superadmin leria o painel inteiro de clientes.
+    if getattr(ctx, "via_api_key", False):
+        raise _ForbiddenError("Chave de API não acessa a área administrativa.")
     user = db.get(User, ctx.user_id)
     if user is None or not getattr(user, "is_superadmin", False):
         raise _ForbiddenError("Acesso restrito à equipe Mare Nostrum (super-admin).")
@@ -412,9 +416,18 @@ def require_api_key_admin(
     Emitir credencial que le dados por fora do sistema e outra coisa — a
     lista de quem pode fazer isso e explicita e curta (API_KEY_ADMINS).
     """
+    if getattr(ctx, "via_api_key", False):
+        raise _ForbiddenError("Chave de API não emite chave de API.")
     user = db.get(User, ctx.user_id)
     if user is None or not user.is_active:
         raise _ForbiddenError("Sessao invalida.")
+    # O e-mail sozinho nao autoriza: e-mail so e unico DENTRO do tenant, entao
+    # um cliente poderia cadastrar um membro com o e-mail da lista. Exigir
+    # tambem o super-acesso (flag do banco, que so nos concedemos) fecha isso.
+    if not getattr(user, "is_superadmin", False):
+        raise _ForbiddenError(
+            "Apenas o administrador da Mare Nostrum pode gerar chaves de API."
+        )
     autorizados = {
         e.strip().lower()
         for e in get_settings().API_KEY_ADMINS.split(",")
@@ -483,6 +496,14 @@ def create_api_key(
 ) -> ApiKeyCreated:
     # token_urlsafe(32) = 256 bits de entropia. O prefixo "mn_live_" existe pra
     # a chave ser reconhecivel se vazar num log ou num commit.
+    # tenant_id vinha do corpo sem conferencia: chave apontando pra um tenant
+    # inexistente (ou digitado errado) nasceria orfa e sem dono visivel.
+    alvo = payload.tenant_id or ctx.tenant_id
+    if payload.tenant_id is not None:
+        existe = db.query(Tenant).filter(Tenant.id == payload.tenant_id).one_or_none()
+        if existe is None:
+            raise _ForbiddenError("Cliente informado nao existe.")
+
     raw = f"mn_live_{secrets.token_urlsafe(32)}"
     expires_at = (
         datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days)
@@ -490,7 +511,7 @@ def create_api_key(
         else None
     )
     chave = ApiKey(
-        tenant_id=payload.tenant_id or ctx.tenant_id,
+        tenant_id=alvo,
         created_by=ctx.user_id,
         name=payload.name,
         key_hash=hash_api_key(raw),

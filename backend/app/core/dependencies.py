@@ -93,6 +93,11 @@ _api_key_readonly_exc = HTTPException(
     detail="Esta chave de API e somente leitura.",
 )
 
+_api_key_admin_exc = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Chave de API nao acessa a area administrativa.",
+)
+
 
 def hash_api_key(raw: str) -> str:
     """SHA-256 da chave. O banco guarda SO isto — nunca a chave."""
@@ -115,6 +120,12 @@ def get_context_by_api_key(
 
     if request.method in _METODOS_DE_ESCRITA:
         raise _api_key_readonly_exc
+
+    # Area administrativa e sobre IDENTIDADE, e a chave nao tem uma propria:
+    # ela viaja com o user_id de quem a criou. Barrar o prefixo inteiro aqui
+    # faz rota administrativa nova ja nascer fechada.
+    if "/admin/" in request.url.path:
+        raise _api_key_admin_exc
 
     chave = (
         db.query(ApiKey).filter(ApiKey.key_hash == hash_api_key(api_key)).one_or_none()
@@ -141,6 +152,7 @@ def get_context_by_api_key(
         role="viewer",          # papel mais baixo: a chave nunca administra
         db=db,
         user_name=f"chave: {chave.name}",
+        via_api_key=True,
         # Leitura liberada nos modulos de dado. A escrita ja foi barrada acima.
         analytics_enabled=True, panel_enabled=True, map_enabled=True,
         demands_enabled=True, agenda_enabled=True, census_enabled=True,

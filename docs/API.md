@@ -119,7 +119,6 @@ distrito: o IBGE só mapeia bairro em 16% dos municípios.
 | `/demands` | demandas, paginado |
 | `/demands/stats` | contagem por status |
 | `/agenda` | eventos da agenda |
-| `/audit` | trilha de auditoria: quem fez o quê |
 
 > Estes carregam **dados pessoais de eleitores**. A chave só devolve os da
 > campanha dona dela, mas quem consome assume o mesmo cuidado de LGPD que o
@@ -131,7 +130,11 @@ distrito: o IBGE só mapeia bairro em 16% dos municípios.
 |---|---|
 | `/api/health` | o serviço está de pé |
 | `/api/ready` | o serviço e o banco respondem |
-| `/auth/me` | de quem é a credencial em uso |
+
+> Duas rotas **não** atendem chave de API, de propósito: `/auth/me` e `/audit`
+> respondem a sessão humana apenas. A chave não tem identidade própria — ela
+> carrega a de quem a emitiu —, então tudo que decide por identidade (a área
+> administrativa inclusive) fica fora do alcance dela.
 
 ---
 

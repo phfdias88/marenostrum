@@ -54,6 +54,11 @@ type ApiKeyItem = {
   use_count: number;
 };
 
+/** Chave sem prazo nunca vence; com prazo, vale ate o instante gravado. */
+function venceu(k: { expires_at: string | null }): boolean {
+  return !!k.expires_at && new Date(k.expires_at) <= new Date();
+}
+
 type ApiKeyCriada = {
   id: string;
   name: string;
@@ -531,6 +536,17 @@ function ApiKeysCard() {
   const [copiada, setCopiada] = useState(false);
   const chaveRef = useRef<HTMLElement>(null);
 
+  // Espelha o contrato do backend (name min 3, expires_in_days 1..3650). Sem
+  // isto o servidor responde 422 com a mensagem crua do Pydantic, em ingles.
+  const diasNum = dias.trim() === "" ? null : Number(dias);
+  const erroForm =
+    nome.trim() !== "" && nome.trim().length < 3
+      ? "O nome precisa de pelo menos 3 letras."
+      : diasNum !== null &&
+        (!Number.isInteger(diasNum) || diasNum < 1 || diasNum > 3650)
+      ? "A validade vai de 1 a 3650 dias (10 anos). Deixe vazio para sem prazo."
+      : null;
+
   const carregar = useCallback(async () => {
     try {
       setChaves(await api<ApiKeyItem[]>("/v1/admin/api-keys", { skipCache: true }));
@@ -661,7 +677,10 @@ function ApiKeysCard() {
           type="number"
           placeholder="Vazio = sem prazo"
         />
-        <Button type="submit" disabled={!nome.trim() || busy} className="w-full sm:w-auto">
+        {erroForm && (
+          <p className="text-xs text-destructive">{erroForm}</p>
+        )}
+        <Button type="submit" disabled={!!erroForm || !nome.trim() || busy} className="w-full sm:w-auto">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
           Gerar chave
         </Button>
@@ -675,6 +694,7 @@ function ApiKeysCard() {
                 <th className="pb-2 pr-3 font-medium">Nome</th>
                 <th className="pb-2 pr-3 font-medium">Início da chave</th>
                 <th className="pb-2 pr-3 font-medium tabular-nums">Usos</th>
+                <th className="pb-2 pr-3 font-medium">Validade</th>
                 <th className="pb-2 pr-3 font-medium">Situação</th>
                 <th className="pb-2" />
               </tr>
@@ -687,9 +707,19 @@ function ApiKeysCard() {
                     {k.prefix}…
                   </td>
                   <td className="py-2 pr-3 tabular-nums">{k.use_count}</td>
+                  <td className="py-2 pr-3 text-xs text-muted-foreground">
+                    {k.expires_at
+                      ? new Date(k.expires_at).toLocaleDateString("pt-BR")
+                      : "sem prazo"}
+                  </td>
                   <td className="py-2 pr-3">
                     {k.revoked_at ? (
                       <span className="text-muted-foreground">cancelada</span>
+                    ) : venceu(k) ? (
+                      // O backend recusa chave vencida (401). Mostrar "ativa"
+                      // aqui faria a pessoa abrir chamado achando que o sistema
+                      // quebrou, quando foi o prazo que acabou.
+                      <span className="text-destructive">vencida</span>
                     ) : (
                       <span className="text-primary">ativa</span>
                     )}

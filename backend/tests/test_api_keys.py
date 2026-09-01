@@ -180,3 +180,62 @@ def test_daniel_emite_chave(client, tenant_a, db_session):
     )
     assert r.status_code == 201, r.text
     assert r.json()["expires_at"] is not None     # respeitou o prazo pedido
+
+
+# --------------------------------------------------------------- escalada
+# Achados da auditoria de 31/08/2026. A chave viaja com o user_id de quem a
+# criou; sem estas travas ela herdava os poderes do criador.
+
+
+def test_chave_nao_le_painel_de_clientes(client, tenant_a, db_session):
+    """Chave criada por superadmin NAO pode listar os clientes do SaaS."""
+    _tenant, user, _tok = tenant_a
+    user.is_superadmin = True
+    user.email = "admin@marenostrum.com.br"
+    db_session.commit()
+    raw = _cria_chave(db_session, _tenant.id, created_by=user.id)
+
+    r = client.get("/api/v1/admin/tenants", headers={"X-API-Key": raw})
+    assert r.status_code == 403, r.text
+
+
+def test_chave_nao_lista_chaves_de_todos(client, tenant_a, db_session):
+    _tenant, user, _tok = tenant_a
+    user.is_superadmin = True
+    user.email = "admin@marenostrum.com.br"
+    db_session.commit()
+    raw = _cria_chave(db_session, _tenant.id, created_by=user.id)
+
+    r = client.get("/api/v1/admin/api-keys", headers={"X-API-Key": raw})
+    assert r.status_code == 403, r.text
+
+
+def test_email_da_lista_sem_superacesso_nao_emite(client, tenant_a, db_session):
+    """E-mail so e unico DENTRO do tenant: um cliente poderia cadastrar um
+    membro com o e-mail do Daniel. Sem is_superadmin, nao emite."""
+    _tenant, user, tok = tenant_a
+    user.is_superadmin = False
+    user.email = "danieldeluna@gmail.com"      # na lista, mas sem super-acesso
+    db_session.commit()
+
+    r = client.post(
+        "/api/v1/admin/api-keys",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"name": "tentativa de escalada"},
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_chave_para_tenant_inexistente_e_recusada(client, tenant_a, db_session):
+    _tenant, user, tok = tenant_a
+    user.is_superadmin = True
+    user.email = "admin@marenostrum.com.br"
+    db_session.commit()
+
+    r = client.post(
+        "/api/v1/admin/api-keys",
+        headers={"Authorization": f"Bearer {tok}"},
+        json={"name": "chave orfa",
+              "tenant_id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert r.status_code == 403, r.text
