@@ -90,8 +90,10 @@ def test_com_municipio_soma_por_bairro(client, tenant_a, db_session):
     body = r.json()
 
     assert body["escopo"] == "bairro"
-    # A quebra por bairro e aproximada enquanto o local nao carregar a zona.
-    assert body["dados_confiaveis"] is False
+    # Cidade Alfa (tse_code 70001) nao esta na lista de locais fundidos:
+    # 96,6% dos municipios nunca foram afetados, e desconfiar deles seria
+    # esconder dado bom.
+    assert body["dados_confiaveis"] is True
     bairros = {i["bairro"]: i["total_votos"] for i in body["itens"]}
     assert bairros == {"CENTRO": 200, "PRAIA": 100}
     # A soma dos bairros fecha com o total do municipio.
@@ -192,3 +194,45 @@ def test_chave_de_api_le_a_rota(client, tenant_a, db_session):
     )
     assert r.status_code == 200, r.text
     assert r.json()["total_votos"] == 420
+
+
+def test_municipio_afetado_avisa_que_o_bairro_e_aproximado(client, tenant_a, db_session):
+    """Nas 187 cidades onde locais de zonas diferentes foram fundidos (Sao
+    Paulo tinha 160 locais no lugar de 2.062; o Rio, 163 no lugar de 1.440),
+    a resposta tem de dizer que a divisao por bairro nao vale."""
+    from app.utils.locais_fundidos import MUNICIPIOS_COM_LOCAIS_FUNDIDOS
+
+    _, _, token = tenant_a
+    m1, _, _ = _seed(db_session)
+    m1.tse_code = next(iter(MUNICIPIOS_COM_LOCAIS_FUNDIDOS))   # vira "afetado"
+    db_session.commit()
+
+    r = client.get(
+        f"/api/v1/tse/stats/aggregated-votes?uf=ZZ&year=2024&office_code=13"
+        f"&municipality_id={m1.id}",
+        headers=_auth(token),
+    )
+    body = r.json()
+    assert body["dados_confiaveis"] is False
+    assert "aproximada" in body["cobertura"]
+
+
+def test_reimportado_com_zona_volta_a_ser_confiavel(client, tenant_a, db_session):
+    """Depois de reimportar com a zona na chave, o municipio sai da suspeita —
+    o codigo confia no dado (zone preenchido), nao na lista."""
+    from app.utils.locais_fundidos import MUNICIPIOS_COM_LOCAIS_FUNDIDOS
+    from app.models.tse.voting_place import TseVotingPlace
+
+    _, _, token = tenant_a
+    m1, _, _ = _seed(db_session)
+    m1.tse_code = next(iter(MUNICIPIOS_COM_LOCAIS_FUNDIDOS))
+    for vp in db_session.query(TseVotingPlace).filter_by(municipality_id=m1.id):
+        vp.zone = 1                      # marca de reimportacao
+    db_session.commit()
+
+    r = client.get(
+        f"/api/v1/tse/stats/aggregated-votes?uf=ZZ&year=2024&office_code=13"
+        f"&municipality_id={m1.id}",
+        headers=_auth(token),
+    )
+    assert r.json()["dados_confiaveis"] is True

@@ -54,6 +54,7 @@ from app.models.tse.section_vote import TseSectionVote
 from app.models.tse.vote_result import VoteResult
 from app.models.tse.voting_place import TseVotingPlace
 from app.utils.agg_cache import cached_agg
+from app.utils.locais_fundidos import MUNICIPIOS_COM_LOCAIS_FUNDIDOS
 
 log = structlog.get_logger("marenostrum.services.election_data")
 
@@ -232,13 +233,10 @@ def _por_bairro(
     if muni is None:
         raise NotFoundError("Municipio nao encontrado")
 
+    confiavel = _bairro_confiavel(db, muni, ano)
+
     if ano not in ANOS_COM_BAIRRO:
-        return (
-            [],
-            "bairro",
-            _cobertura_bairro(),
-            True,
-        )
+        return [], "bairro", _cobertura_bairro(confiavel), True
 
     locais = (
         select(
@@ -282,15 +280,44 @@ def _por_bairro(
         }
         for r in db.execute(stmt)
     ]
-    return itens, "bairro", _cobertura_bairro(), False
+    return itens, "bairro", _cobertura_bairro(confiavel), confiavel
 
 
-def _cobertura_bairro() -> str:
-    return (
+def _bairro_confiavel(db: Session, muni: Municipality, ano: int) -> bool:
+    """A quebra por bairro deste municipio pode ser levada a serio?
+
+    Duas fontes, nesta ordem:
+      1. se os locais do ano ja tem `zone` preenchido, o municipio foi
+         reimportado com a zona na chave — confia no dado, nao na lista;
+      2. senao, cai na lista apurada no arquivo do TSE: so 187 municipios de
+         5.569 tiveram locais fundidos. Nos outros 96,6% nada se perdeu, e
+         dizer "aproximado" ali seria desconfianca sem motivo.
+    """
+    reimportado = db.execute(
+        select(func.count()).select_from(TseVotingPlace).where(
+            TseVotingPlace.municipality_id == muni.id,
+            TseVotingPlace.year == ano,
+            TseVotingPlace.zone.is_not(None),
+        )
+    ).scalar() or 0
+    if reimportado:
+        return True
+    return muni.tse_code not in MUNICIPIOS_COM_LOCAIS_FUNDIDOS
+
+
+def _cobertura_bairro(confiavel: bool = True) -> str:
+    base = (
         "Voto por bairro vem das secoes eleitorais: 2024 (Brasil) e "
-        "2018/2020/2022 (somente RJ). Fora desse recorte a lista volta vazia. "
-        "A atribuicao de bairro e aproximada enquanto os locais de votacao nao "
-        "forem reimportados com a zona eleitoral na chave."
+        "2018/2020/2022 (somente RJ). Fora desse recorte a lista volta vazia."
+    )
+    if confiavel:
+        return base + " Neste municipio cada local de votacao esta separado"                       " corretamente, entao a divisao por bairro pode ser usada."
+    return base + (
+        " NESTE MUNICIPIO a divisao por bairro e aproximada: locais de zonas "
+        "eleitorais diferentes com o mesmo numero foram gravados como um so, "
+        "entao parte dos votos aparece no bairro do vizinho. O total do "
+        "municipio continua correto. Some depois de reimportar os locais com "
+        "a zona na chave."
     )
 
 

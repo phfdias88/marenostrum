@@ -101,11 +101,13 @@ curl -H "X-API-Key: SUA_CHAVE"   ".../v1/tse/stats/aggregated-votes?uf=SP&year=2
 
 Dois avisos que a própria resposta carrega:
 
-- **`dados_confiaveis`** vem `false` na quebra por bairro. O local de votação é
-  gravado com chave (ano, município, número), mas no TSE esse número só é único
-  dentro da zona eleitoral — em cidade com mais de uma zona, locais distintos
-  colidem. O total do município continua certo; a atribuição de bairro é
-  aproximada até os locais serem reimportados com a zona na chave.
+- **`dados_confiaveis`** diz, **por município**, se a divisão por bairro pode ser
+  usada. Vem `true` em 5.382 dos 5.569 municípios. Vem `false` em 187 — as
+  capitais e cidades grandes —, onde locais de zonas eleitorais diferentes com o
+  mesmo número foram gravados como um só e parte dos votos aparece no bairro
+  vizinho (São Paulo tinha 160 locais no lugar de 2.062; o Rio, 163 no lugar de
+  1.440). O total do município continua certo nos dois casos. O campo volta a
+  `true` sozinho conforme cada estado é reimportado com a zona na chave.
 - **Não há filtro de turno**, de propósito: a base só tem votação de 1º turno, e
   quem foi ao 2º turno fica num registro separado carregando os votos do 1º.
   Filtrar por turno esconderia os dois mais votados de toda cidade que teve
