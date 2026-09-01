@@ -220,7 +220,11 @@ def main() -> int:
     from app.models.tse.sync_job import TseSyncJob
     from app.utils.tse_sync import _process_votacao_secao
 
-    job = TseSyncJob(dataset=f"votacao_secao_{args.ano}_{uf}", status="running")
+    job = TseSyncJob(
+        dataset=f"votacao_secao_{args.ano}_{uf}",
+        year=args.ano,          # NOT NULL na tabela
+        status="running",
+    )
     db.add(job)
     db.commit()
     _process_votacao_secao(
