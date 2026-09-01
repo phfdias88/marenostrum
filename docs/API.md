@@ -77,8 +77,39 @@ Base de todas as URLs:
 | `/tse/stats/top-candidates?year=2024&office_code=13` | mais votados |
 | `/tse/stats/winners-map?year=2024&office_code=11` | vencedor por município |
 | `/tse/stats/party-performance?year=2024&office_code=11` | desempenho por partido |
+| `/tse/stats/aggregated-votes?uf=SP&year=2024&office_code=11` | **votos já somados por município** |
+| `/tse/stats/aggregated-votes?…&municipality_id=…` | **votos já somados por bairro** |
 | `/tse/parties` | lista de partidos |
 | `/tse/municipalities` | municípios com código IBGE e TSE |
+
+### Votos já somados (para painel e BI)
+
+`/tse/stats/aggregated-votes` devolve o dado agregado, sem cálculo do lado de quem
+consome. O escopo decide a granularidade:
+
+- **sem `municipality_id`** → soma por **município** (2014–2024, Brasil, número exato)
+- **com `municipality_id`** → soma por **bairro** (2024 no Brasil; 2018/2020/2022 só no RJ)
+
+```bash
+curl -H "X-API-Key: SUA_CHAVE"   ".../v1/tse/stats/aggregated-votes?uf=SP&year=2024&office_code=11&limit=5"
+```
+
+```json
+{ "escopo": "municipio", "dados_confiaveis": true,
+  "itens": [ { "municipio": "SÃO PAULO", "bairro": null, "total_votos": 6109051 } ] }
+```
+
+Dois avisos que a própria resposta carrega:
+
+- **`dados_confiaveis`** vem `false` na quebra por bairro. O local de votação é
+  gravado com chave (ano, município, número), mas no TSE esse número só é único
+  dentro da zona eleitoral — em cidade com mais de uma zona, locais distintos
+  colidem. O total do município continua certo; a atribuição de bairro é
+  aproximada até os locais serem reimportados com a zona na chave.
+- **Não há filtro de turno**, de propósito: a base só tem votação de 1º turno, e
+  quem foi ao 2º turno fica num registro separado carregando os votos do 1º.
+  Filtrar por turno esconderia os dois mais votados de toda cidade que teve
+  segundo turno.
 
 **Códigos de cargo:** `1` presidente · `3` governador · `5` senador ·
 `6` deputado federal · `7` deputado estadual · `11` prefeito · `13` vereador

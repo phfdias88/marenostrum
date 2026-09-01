@@ -34,6 +34,8 @@ from app.core.database import get_db
 # por falta de materializacao — sem isso, o refresh atrasado ficaria invisivel.
 import structlog as _structlog
 
+from app.services.election_data_service import get_aggregated_votes
+
 log = _structlog.get_logger("marenostrum.controllers.tse")
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
 from app.core.errors import DomainError, NotFoundError
@@ -53,6 +55,7 @@ from app.models.tse import (
 )
 from app.schemas.contact import Page
 from app.schemas.tse import (
+    AggregatedVotesResponse,
     CandidateByNeighborhoodItem,
     CandidateByNeighborhoodResponse,
     CandidateRead,
@@ -3636,3 +3639,56 @@ def tse_municipality_center(
     if not row or row[0] is None or row[1] is None:
         return {"lat": None, "lng": None}
     return {"lat": float(row[0]), "lng": float(row[1])}
+
+
+@router.get(
+    "/stats/aggregated-votes",
+    response_model=AggregatedVotesResponse,
+    summary="Votos somados por territorio — municipio ou bairro",
+    description="""\
+Devolve os votos **ja somados** para um escopo de eleicao, no formato que um
+painel consome direto, sem calculo no cliente.
+
+**O escopo decide a granularidade e a fonte:**
+
+- **sem `municipality_id`** → soma por **municipio**, de `tse_vote_results`.
+  Cobre 2014-2024, Brasil inteiro. Numero exato.
+- **com `municipality_id`** → soma por **bairro**, das secoes eleitorais.
+  So existe onde importamos secao: 2024 (Brasil) e 2018/2020/2022 (somente RJ).
+  Fora desse recorte a lista volta **vazia** — nao e erro; leia `cobertura`.
+
+`dados_confiaveis` vem **false** na quebra por bairro: o local de votacao e
+gravado com chave (ano, municipio, numero), mas no TSE esse numero so e unico
+dentro da zona eleitoral. Em cidade com mais de uma zona, locais distintos
+colidem — o total do municipio continua certo, a atribuicao de bairro e
+aproximada ate os locais serem reimportados com a zona na chave.
+
+**Turno:** a base tem apenas votacao de **1o turno**. Quem foi ao 2o turno esta
+incluido, com os votos do 1o. Nao ha filtro de turno de proposito: no TSE esses
+candidatos ficam num registro separado, e filtrar por turno derrubaria os dois
+mais votados de toda cidade que teve segundo turno.
+
+Cargos: 1 presidente · 3 governador · 5 senador · 6 deputado federal ·
+7 deputado estadual · 11 prefeito · 13 vereador.
+""",
+)
+def aggregated_votes(
+    ctx: CurrentTenant,
+    uf: str = Query(..., min_length=2, max_length=2, description="UF, ex: RJ"),
+    year: int = Query(..., ge=1994, le=2030),
+    office_code: int = Query(..., description="11=prefeito, 13=vereador…"),
+    municipality_id: UUID | None = Query(
+        None, description="Informe para quebrar por bairro dentro do municipio",
+    ),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> AggregatedVotesResponse:
+    dados = get_aggregated_votes(
+        db,
+        uf=uf,
+        ano=year,
+        cargo=office_code,
+        municipio=municipality_id,
+        limit=limit,
+    )
+    return AggregatedVotesResponse(**dados)

@@ -573,3 +573,31 @@ class VotingLocationsMeta(BaseModel):
 class VotingLocationsResponse(BaseModel):
     items: list[VotingLocationItem]
     meta: VotingLocationsMeta
+
+
+# ---------------------------------------------- votos agregados por territorio
+
+class AggregatedVoteItem(BaseModel):
+    """Uma linha do painel. Nomes em portugues por pedido de quem consome:
+    esta rota nasceu para alimentar grafico, nao para uso interno."""
+    municipio: str
+    municipio_id: str
+    # None quando o escopo e a UF inteira (agrupado por municipio).
+    bairro: str | None = None
+    total_votos: int
+
+
+class AggregatedVotesResponse(BaseModel):
+    # "municipio" = somado por municipio; "bairro" = somado por bairro.
+    escopo: str
+    uf: str
+    ano: int
+    cargo: int
+    total_votos: int
+    # Frase pronta sobre o recorte que a fonte cobre — para a interface exibir
+    # em vez de o usuario concluir que faltou dado.
+    cobertura: str
+    # False quando a quebra e aproximada (bairro, enquanto os locais nao forem
+    # reimportados com a zona eleitoral na chave).
+    dados_confiaveis: bool
+    itens: list[AggregatedVoteItem]

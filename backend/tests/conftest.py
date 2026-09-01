@@ -103,6 +103,17 @@ def client(engine, db_session) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _limpa_cache_de_agregacao():
+    """O cache de agregacao vive no processo e a suite roda tudo num processo
+    so: sem limpar, o segundo teste que usa a mesma chave recebe o resultado do
+    primeiro e passa (ou falha) por engano."""
+    from app.utils.agg_cache import clear_agg_cache
+    clear_agg_cache()
+    yield
+    clear_agg_cache()
+
+
+@pytest.fixture(autouse=True)
 def _disable_geocoding(monkeypatch):
     """
     SEMPRE mockado: nenhum teste bate no Nominatim real.
