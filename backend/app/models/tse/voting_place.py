@@ -23,7 +23,16 @@ class TseVotingPlace(Base, TimestampMixin):
         Integer, nullable=False, default=2024, server_default="2024", index=True
     )
 
-    # NR_LOCAL_VOTACAO no TSE — unique POR (ano, municipio)
+    # NR_ZONA — a zona eleitoral. Faz parte da IDENTIDADE do local: no TSE o
+    # NR_LOCAL_VOTACAO so e unico DENTRO da zona, entao sem esta coluna o
+    # "local 12" da 1a zona e o "local 12" da 5a viram a mesma linha, e o
+    # bairro de um deles leva os votos de todos. Media do Rio antes do
+    # conserto: 163 locais para uma cidade de mais de 1.400, um deles com
+    # 129.241 eleitores.
+    # Nulo nas linhas anteriores ao conserto (carga de ago/2026).
+    zone: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+    # NR_LOCAL_VOTACAO no TSE — unique POR (ano, municipio, ZONA)
     local_code: Mapped[int] = mapped_column(Integer, nullable=False)
 
     municipality_id: Mapped[UUID] = mapped_column(
@@ -53,11 +62,15 @@ class TseVotingPlace(Base, TimestampMixin):
     geo_source: Mapped[str | None] = mapped_column(String(12), nullable=True)
 
     __table_args__ = (
-        # Unique composto: mesmo numero pode existir em municipios/anos diferentes
+        # Unique composto: o mesmo numero existe em municipios, anos E ZONAS
+        # diferentes. NULLS NOT DISTINCT preserva a garantia antiga nas linhas
+        # legadas (zone nulo): sem isso o Postgres trataria cada nulo como
+        # valor distinto e aceitaria duplicata onde antes barrava.
         Index(
-            "ix_tse_voting_places_year_muni_code",
-            "year", "municipality_id", "local_code",
+            "ix_tse_voting_places_year_muni_zone_code",
+            "year", "municipality_id", "zone", "local_code",
             unique=True,
+            postgresql_nulls_not_distinct=True,
         ),
         # Index por bairro pra agregacao rapida
         Index("ix_tse_voting_places_muni_neighborhood", "municipality_id", "neighborhood"),

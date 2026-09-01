@@ -30,7 +30,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -685,11 +685,17 @@ def _process_locais_votacao(
 ) -> None:
     """
     Parseia eleitorado_local_votacao_2024.csv.
-    Cada linha = uma SECAO. Agregamos por (municipio, local_code) — bairro
+    Cada linha = uma SECAO. Agregamos por (municipio, ZONA, local_code) — bairro
     e endereco sao do local, nao da secao. electors_total = SUM secoes.
 
+    A ZONA e obrigatoria na chave: no TSE o NR_LOCAL_VOTACAO so e unico dentro
+    da zona eleitoral. Sem ela, o "local 12" da 1a zona e o "local 12" da 5a
+    colidem e viram uma linha so, e o bairro de um deles leva os votos de
+    todos. Foi o que aconteceu na carga de ago/2026: o Rio ficou com 163
+    locais para uma cidade de mais de 1.400.
+
     Esquema das colunas relevantes:
-      CD_MUNICIPIO, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
+      CD_MUNICIPIO, NR_ZONA, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
       NM_BAIRRO, NR_LATITUDE, NR_LONGITUDE, QT_ELEITOR_SECAO
     """
     # Cache: tse_code → municipality_id + centroide do município (pro fallback
@@ -701,21 +707,22 @@ def _process_locais_votacao(
         if _coord_in_brazil(m.latitude, m.longitude):
             muni_centroid_by_id[m.id] = (m.latitude, m.longitude)
 
-    # Cache em memoria: (municipality_id, local_code) → dict do local
-    places_acc: dict[tuple[UUID, int], dict] = {}
+    # Cache em memoria: (municipality_id, zone, local_code) → dict do local
+    places_acc: dict[tuple[UUID, int, int], dict] = {}
     rows_processed = 0
 
     for _, row in iter_csv_rows(zip_path):
         rows_processed += 1
         muni_code = _i(row.get("CD_MUNICIPIO"))
+        zone = _i(row.get("NR_ZONA"))
         local_code = _i(row.get("NR_LOCAL_VOTACAO"))
-        if not muni_code or not local_code:
+        if not muni_code or not local_code or not zone:
             continue
         muni_id = munis_by_tse.get(muni_code)
         if muni_id is None:
             continue  # municipio nao importado ainda
 
-        key = (muni_id, local_code)
+        key = (muni_id, zone, local_code)
         electors = _i(row.get("QT_ELEITOR_SECAO"))
 
         if key in places_acc:
@@ -742,6 +749,7 @@ def _process_locais_votacao(
         places_acc[key] = {
             "id": uuid4(),
             "year": year,
+            "zone": zone,
             "local_code": local_code,
             "municipality_id": muni_id,
             "name": _s(row.get("NM_LOCAL_VOTACAO"), 200),
@@ -766,6 +774,28 @@ def _process_locais_votacao(
     rows = [
         {**v, "created_at": now, "updated_at": now} for v in places_acc.values()
     ]
+
+    # Purga o ANO antes de inserir. Sao dois motivos:
+    #  1. a insercao e um INSERT puro (sem upsert), entao rodar de novo
+    #     esbarraria na chave unica;
+    #  2. reimportar depois da migration 064 tem de APAGAR as linhas antigas
+    #     (zona nula, locais fundidos) — deixa-las ao lado das novas faria o
+    #     mesmo voto aparecer duas vezes na soma por bairro.
+    # tse_section_votes referencia o local com ON DELETE CASCADE: as secoes do
+    # ano caem junto e PRECISAM ser reimportadas na sequencia.
+    antigos = db.execute(
+        select(func.count()).select_from(TseVotingPlace)
+        .where(TseVotingPlace.year == year)
+    ).scalar() or 0
+    if antigos:
+        log.warning(
+            "tse_locais_purgando_ano",
+            year=year, locais_removidos=antigos, novos=len(rows),
+            aviso="as secoes deste ano caem por cascata e precisam ser reimportadas",
+        )
+        db.execute(delete(TseVotingPlace).where(TseVotingPlace.year == year))
+        db.commit()
+
     log.info("tse_locais_inserting", total_places=len(rows))
 
     for i in range(0, len(rows), CHUNK_SIZE):
@@ -866,10 +896,12 @@ def _process_votacao_secao(
     Parseia votacao_secao_<year>_<UF>.csv. Cada linha = (candidato, secao, votos).
     Agregamos por (candidate_id, voting_place_id) → SUM(votos).
 
-    Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_LOCAL_VOTACAO, QT_VOTOS
+    Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_ZONA, NR_LOCAL_VOTACAO,
+    QT_VOTOS
 
     Pre-condicao: locais_votacao_<year> ja sincronizado (precisamos do mapping
-    (muni, local_code) → voting_place_id daquele ANO) E candidatos do UF/ano.
+    (muni, zona, local_code) → voting_place_id daquele ANO) E candidatos do
+    UF/ano.
     """
     # Cache 1: SQ_CANDIDATO → candidate_id (pre-filtrado por UF+ANO pra RAM e
     # pra não casar com candidato homônimo de outro ano).
@@ -883,20 +915,21 @@ def _process_votacao_secao(
     }
     log.info("tse_secao_candidates_loaded", uf=uf, year=year, count=len(candidates_by_sq))
 
-    # Cache 2: (municipality_id, local_code) → voting_place_id (só do UF, ANO certo)
+    # Cache 2: (municipality_id, zone, local_code) → voting_place_id (só do UF,
+    # ANO certo). A zona faz parte da chave — ver a nota em _process_locais.
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(
             select(Municipality).where(Municipality.state == uf)
         ).scalars()
     }
-    voting_places_lookup: dict[tuple[UUID, int], UUID] = {}
+    voting_places_lookup: dict[tuple[UUID, int | None, int], UUID] = {}
     for vp in db.execute(
         select(TseVotingPlace).where(
             TseVotingPlace.municipality_id.in_(list(munis_by_tse.values())),
             TseVotingPlace.year == year,
         )
     ).scalars():
-        voting_places_lookup[(vp.municipality_id, vp.local_code)] = vp.id
+        voting_places_lookup[(vp.municipality_id, vp.zone, vp.local_code)] = vp.id
     log.info(
         "tse_secao_places_loaded", uf=uf, count=len(voting_places_lookup),
     )
@@ -921,6 +954,7 @@ def _process_votacao_secao(
             continue
         sq = _i(row.get("SQ_CANDIDATO"))
         muni_code = _i(row.get("CD_MUNICIPIO"))
+        zone = _i(row.get("NR_ZONA"))
         local_code = _i(row.get("NR_LOCAL_VOTACAO"))
         votes = _i(row.get("QT_VOTOS"))
 
@@ -929,7 +963,11 @@ def _process_votacao_secao(
         if cand_id is None or muni_id is None or not local_code:
             skipped += 1
             continue
-        vp_id = voting_places_lookup.get((muni_id, local_code))
+        vp_id = voting_places_lookup.get((muni_id, zone, local_code))
+        if vp_id is None:
+            # Linha legada (carga anterior a migration 064, sem zona gravada):
+            # cai na chave antiga pra nao perder voto num banco meio migrado.
+            vp_id = voting_places_lookup.get((muni_id, None, local_code))
         if vp_id is None:
             skipped += 1
             continue
