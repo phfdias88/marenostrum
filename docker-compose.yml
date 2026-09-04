@@ -120,6 +120,8 @@ services:
       # voltava a custar ~2s de CPU (montar 8 páginas com mapa e censo) num
       # servidor onde a API só tem 0,4 vCPU. Com o volume, vira ~0,3s.
       - pdf_cache:/var/marenostrum/pdf_cache
+      # Entrada manual dos arquivos do TSE (ver tse_sync.CACHE_DIR)
+      - tse_drop:/var/marenostrum/tse_drop
     # Comando vem do Dockerfile (CMD). O ENTRYPOINT roda migrations antes.
     deploy:
       resources:
@@ -228,6 +230,7 @@ volumes:
     driver: local
   tse_photos:
     driver: local
+  tse_drop:
   pdf_cache:
     driver: local
   nginx_cache:

@@ -18,6 +18,8 @@ URLs dataset 2024:
 """
 from __future__ import annotations
 
+import os
+
 import csv
 import io
 import logging
@@ -176,7 +178,13 @@ for _yr in (2014, 2016, 2018, 2020, 2022, 2024):
         "max_mb": 600,
     }
 
-CACHE_DIR = Path("/tmp/tse_cache")
+# Onde o ZIP do TSE fica. NAO e /tmp de proposito: o container e recriado a
+# cada deploy e levaria o arquivo junto — e, mais importante, este diretorio e
+# a PORTA DE ENTRADA MANUAL. O TSE devolve 403 a cliente automatizado desde
+# 31/08/2026 (CDN e portal, de qualquer maquina); navegador passa. Entao quem
+# baixa a mao larga o arquivo aqui com o nome do dataset e o job encontra
+# pronto, sem tentar baixar. Ver ARQUIVOS_PRONTOS em tse_ingest.py.
+CACHE_DIR = Path(os.getenv("TSE_DROP_DIR", "/var/marenostrum/tse_drop"))
 MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
 # Flush parcial do vote_acc quando passar disso (evita OOM).
@@ -304,6 +312,14 @@ def run_sync_job(job_id: UUID) -> None:
 
             # Despacha pro processor adequado
             processor = dataset_meta.get("processor", "candidato_munzona")
+
+            # PORTAO: confere o cabecalho ANTES de escrever qualquer coisa. Se
+            # o TSE mudar o layout, o job morre dizendo qual coluna sumiu — em
+            # vez de importar nulo e terminar "com sucesso". Este projeto ja
+            # perdeu uma carga inteira do censo exatamente assim (V0001 virou
+            # v0001 e ninguem viu).
+            from app.services.tse_ingest import validar_estrutura
+            validar_estrutura(zip_path, processor)
             if processor == "candidato_munzona":
                 _process_candidato_munzona(db, job, zip_path)
             elif processor == "locais_votacao":
@@ -993,14 +1009,19 @@ def _process_votacao_secao(
     # Agregacao em memoria: (candidate_id, voting_place_id) → votes
     # Estimativa MG: ~8k locais × ~150 candidates = ~1.2M entries. Cabe.
     votes_acc: dict[tuple[UUID, UUID], int] = {}
+    # 2o turno em separado — poucas candidaturas, cabe em memoria sem flush.
+    runoff_acc: dict[tuple[UUID, UUID], int] = {}
     rows_processed = 0
     skipped = 0
 
     for _, row in iter_csv_rows(zip_path):
         rows_processed += 1
-        # APENAS 1º turno — senão runoff (pres/gov/prefeito de capital) soma
-        # 1º + 2º turno na mesma linha (mesmo SQ), dobrando os votos por seção.
-        if (_i(row.get("NR_TURNO")) or 1) != 1:
+        # Cada turno no seu lugar. Somar os dois na mesma linha dobraria o voto
+        # da secao (mesmo SQ_CANDIDATO nos dois turnos); descartar o 2o, como
+        # se fazia antes, apagava a leitura por bairro justamente no turno
+        # decisivo. O 2o vai pra tse_runoff_section_votes (migration 066).
+        _turno_secao = _i(row.get("NR_TURNO")) or 1
+        if _turno_secao not in (1, 2):
             skipped += 1
             continue
         sq = _i(row.get("SQ_CANDIDATO"))
@@ -1024,7 +1045,10 @@ def _process_votacao_secao(
             continue
 
         key = (cand_id, vp_id)
-        votes_acc[key] = votes_acc.get(key, 0) + votes
+        if _turno_secao == 1:
+            votes_acc[key] = votes_acc.get(key, 0) + votes
+        else:
+            runoff_acc[key] = runoff_acc.get(key, 0) + votes
 
         if rows_processed % 100_000 == 0:
             log.info(
@@ -1084,6 +1108,29 @@ def _process_votacao_secao(
 
     job.rows_processed = rows_processed
     db.commit()
+    # 2o turno, na tabela propria. Poucas candidaturas, um chunk basta.
+    if runoff_acc:
+        from app.models.tse.runoff_section_vote import TseRunoffSectionVote
+
+        runoff_rows = [
+            {
+                "id": uuid4(), "candidate_id": cid, "voting_place_id": vp,
+                "votes": v, "created_at": now, "updated_at": now,
+            }
+            for (cid, vp), v in runoff_acc.items()
+        ]
+        for j in range(0, len(runoff_rows), CHUNK_SIZE):
+            chunk = runoff_rows[j : j + CHUNK_SIZE]
+            stmt = pg_insert(TseRunoffSectionVote.__table__).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["candidate_id", "voting_place_id"],
+                set_={"votes": stmt.excluded.votes, "updated_at": now},
+            )
+            db.execute(stmt)
+        db.commit()
+        log.info("tse_secao_2o_turno_gravado", uf=uf, linhas=len(runoff_rows))
+
+
     log.info("tse_secao_done", uf=uf, total=len(rows_out))
 
 

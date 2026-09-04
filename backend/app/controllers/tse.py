@@ -36,6 +36,7 @@ import structlog as _structlog
 
 from app.services.election_data_service import get_aggregated_votes
 from app.services.election_queries import get_elected, get_electorate_profile
+from app.services.tse_ingest import arquivos_prontos, cobertura
 
 log = _structlog.get_logger("marenostrum.controllers.tse")
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
@@ -3757,3 +3758,51 @@ def electorate_profile(
     db: Session = Depends(get_db),
 ) -> dict:
     return get_electorate_profile(db, ano=year, uf=uf, municipio=municipality)
+
+
+@router.get(
+    "/ingest/coverage",
+    summary="O que ja entrou e o que falta, por UF",
+    description="""Feito para a noite da apuracao. "O job terminou" **nao** quer dizer "o dado esta
+completo": o TSE libera a capital antes da cidade pequena, e sem este numero
+uma importacao pela metade e indistinguivel de uma inteira.
+
+`situacao` resume: `completo`, `parcial` ou `vazio`. Cada UF traz quantos
+municipios ja tem voto e quantos faltam.
+
+O esperado sai da propria tabela de municipios — nao de uma constante que
+envelheceria a cada eleicao.
+""",
+)
+def ingest_coverage(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return cobertura(db, ano=year, cargo=office_code)
+
+
+@router.get(
+    "/ingest/files",
+    summary="Arquivos do TSE prontos para ingestao",
+    description="""Lista o que ja esta na porta de entrada manual do servidor.
+
+Existe porque o **TSE bloqueia download automatizado** (403 no CDN e no portal,
+de qualquer maquina; navegador passa). Na apuracao o arquivo pode chegar baixado
+a mao — quem entrega larga o zip no diretorio com o nome do dataset e o job
+encontra pronto, sem tentar baixar.
+
+`valido` diz se o arquivo abre como zip: pega download interrompido antes de a
+ingestao comecar.
+""",
+)
+def ingest_files(ctx: CurrentTenant) -> dict:
+    from app.utils.tse_sync import CACHE_DIR
+
+    itens = arquivos_prontos(CACHE_DIR)
+    return {
+        "diretorio": str(CACHE_DIR),
+        "total": len(itens),
+        "arquivos": itens,
+    }
