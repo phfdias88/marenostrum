@@ -120,6 +120,83 @@ def ler_locais(zip_path: Path, uf: str, ano: int) -> dict[tuple[int, int, int], 
     return acc
 
 
+def importar_secoes(db, zip_path: Path, *, uf: str, ano: int) -> None:
+    """Carrega o voto por secao SEM agregar em Python.
+
+    O importador da aplicacao acumula tudo num dicionario antes de gravar. Para
+    o RJ isso coube (875 mil chaves), para SP nao caberia: o CSV tem 2,5 GB e a
+    agregacao passaria de 800 MB num container de 768 MB — e o arquivo nao vem
+    agrupado por municipio, entao nem descarregar por bloco resolveria.
+
+    Aqui as linhas cruas vao para uma tabela de trabalho via COPY e quem soma e
+    o Postgres, que faz isso em disco. A memoria fica constante, independente do
+    tamanho da UF.
+    """
+    conn = db.connection().connection            # psycopg cru, para o COPY
+    with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS tmp_secoes")
+        cur.execute(
+            "CREATE UNLOGGED TABLE tmp_secoes ("
+            " sq bigint, muni int, zona int, local int, votos int)"
+        )
+
+        z = zipfile.ZipFile(zip_path)
+        nome = next(n for n in z.namelist() if n.lower().endswith(".csv"))
+        lidas = descartadas = copiadas = 0
+
+        with z.open(nome) as f, cur.copy(
+            "COPY tmp_secoes (sq, muni, zona, local, votos) FROM STDIN"
+        ) as cp:
+            leitor = csv.DictReader(
+                io.TextIOWrapper(f, encoding="latin-1"), delimiter=";"
+            )
+            for row in leitor:
+                lidas += 1
+                # APENAS 1o turno: o mesmo SQ aparece nos dois turnos e somar os
+                # dois dobraria o voto da secao (mesma regra do importador da app).
+                if (_i(row.get("NR_TURNO")) or 1) != 1:
+                    descartadas += 1
+                    continue
+                sq = _i(row.get("SQ_CANDIDATO"))
+                mun = _i(row.get("CD_MUNICIPIO"))
+                zona = _i(row.get("NR_ZONA"))
+                loc = _i(row.get("NR_LOCAL_VOTACAO"))
+                votos = _i(row.get("QT_VOTOS"))
+                if None in (sq, mun, zona, loc, votos):
+                    descartadas += 1
+                    continue
+                cp.write_row((sq, mun, zona, loc, votos))
+                copiadas += 1
+                if copiadas % 2_000_000 == 0:
+                    print(f"    {copiadas:,} linhas copiadas".replace(",", "."), flush=True)
+
+        print(f"  lidas {lidas:,} / copiadas {copiadas:,} / descartadas {descartadas:,}"
+              .replace(",", "."), flush=True)
+
+        cur.execute("CREATE INDEX ON tmp_secoes (muni, zona, local)")
+        cur.execute("ANALYZE tmp_secoes")
+
+        print("  somando no banco...", flush=True)
+        cur.execute(
+            """
+            INSERT INTO tse_section_votes
+                (id, candidate_id, voting_place_id, votes, created_at, updated_at)
+            SELECT gen_random_uuid(), c.id, vp.id, SUM(t.votos), now(), now()
+            FROM tmp_secoes t
+            JOIN tse_municipalities m ON m.tse_code = t.muni AND m.state = %s
+            JOIN tse_voting_places vp
+              ON vp.municipality_id = m.id AND vp.year = %s
+             AND vp.zone = t.zona AND vp.local_code = t.local
+            JOIN tse_candidates c ON c.sq_candidato = t.sq
+            GROUP BY c.id, vp.id
+            """,
+            (uf, ano),
+        )
+        print(f"  {cur.rowcount:,} linhas de voto gravadas".replace(",", "."), flush=True)
+        cur.execute("DROP TABLE tmp_secoes")
+    db.commit()
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--uf", required=True)
@@ -216,22 +293,9 @@ def main() -> int:
     db.commit()
     print(f"  {len(linhas)} locais gravados, agora com zona.")
 
-    print(f"\n[{uf}] reimportando as secoes...", flush=True)
-    from app.models.tse.sync_job import TseSyncJob
-    from app.utils.tse_sync import _process_votacao_secao
-
-    job = TseSyncJob(
-        dataset=f"votacao_secao_{args.ano}_{uf}",
-        year=args.ano,          # NOT NULL na tabela
-        status="running",
-    )
-    db.add(job)
-    db.commit()
-    _process_votacao_secao(
-        db, job, Path(args.zip_secoes), uf=uf, year=args.ano,
-    )
-    job.status = "completed"
-    db.commit()
+    print("")
+    print("[" + uf + "] reimportando as secoes...", flush=True)
+    importar_secoes(db, Path(args.zip_secoes), uf=uf, ano=args.ano)
 
     depois = db.execute(
         select(func.count()).select_from(TseSectionVote)

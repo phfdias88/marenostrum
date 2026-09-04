@@ -35,6 +35,7 @@ from app.core.database import get_db
 import structlog as _structlog
 
 from app.services.election_data_service import get_aggregated_votes
+from app.services.election_queries import get_elected, get_electorate_profile
 
 log = _structlog.get_logger("marenostrum.controllers.tse")
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
@@ -3692,3 +3693,67 @@ def aggregated_votes(
         limit=limit,
     )
     return AggregatedVotesResponse(**dados)
+
+
+@router.get(
+    "/elected",
+    summary="Quem foi eleito (ou nao) numa eleicao",
+    description="""Lista os **eleitos** de um recorte de eleicao. Com `eleito=false`, devolve os
+nao eleitos (inclui suplentes — veja `situacao` em cada item).
+
+`municipality` e o **nome** do municipio, nao um id: `?uf=RJ&municipality=NITEROI`.
+Sem ele, o recorte e a UF inteira (eleicao geral).
+
+**Nao ha filtro de turno**, de proposito: a situacao ja e o resultado final.
+
+**"Eleito" nao e um valor so** no TSE — sao ELEITO, ELEITO POR QP e ELEITO POR
+MEDIA. Quem filtrasse so por `ELEITO` perderia quase todo vereador e deputado,
+que entram por quociente ou media. Este endpoint cobre os tres.
+
+`contacts=true` acrescenta `redes_sociais`. Vale saber: a fonte do TSE traz
+**apenas redes sociais**, e so em parte das candidaturas — telefone e e-mail
+nao existem no dado publico.
+
+Cargos: 1 presidente · 3 governador · 5 senador · 6 deputado federal ·
+7 deputado estadual · 11 prefeito · 13 vereador.
+""",
+)
+def elected(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    uf: str = Query(..., min_length=2, max_length=2),
+    municipality: str | None = Query(
+        None, description="Nome do municipio, ex: NITEROI. Vazio = UF inteira",
+    ),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    elected: bool = Query(True, description="false devolve os NAO eleitos"),
+    contacts: bool = Query(False, description="inclui redes sociais"),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_elected(
+        db, ano=year, uf=uf, municipio=municipality, cargo=office_code,
+        eleito=elected, meios_contato=contacts, limit=limit,
+    )
+
+
+@router.get(
+    "/electorate-profile",
+    summary="Perfil do eleitorado do recorte",
+    description="""Sexo, faixa etaria, escolaridade, estado civil e cor/raca do eleitorado.
+
+`municipality` e o **nome** do municipio; sem ele, soma a UF inteira.
+
+**Nao existe perfil por turno**: o TSE publica um eleitorado por pleito, nao um
+por turno. Hoje temos **2024** carregado (155.912.680 eleitores no pais); outros
+anos respondem vazio, com `observacao` explicando — nao e erro.
+""",
+)
+def electorate_profile(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    uf: str = Query(..., min_length=2, max_length=2),
+    municipality: str | None = Query(None, description="Nome do municipio"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_electorate_profile(db, ano=year, uf=uf, municipio=municipality)
