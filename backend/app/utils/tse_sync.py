@@ -436,6 +436,12 @@ def _process_candidato_munzona(
     # SQ_CANDIDATO → status final do 2º turno (sobrescreve "2º TURNO" no fim)
     runoff_status: dict[int, str] = {}
 
+    # Voto do 2º TURNO, que antes era descartado na entrada. Vai pra tabela
+    # propria (tse_runoff_votes, migration 065) em vez de somar no 1º turno —
+    # ver a explicacao no model. Cabe em memoria sem flush parcial: o 2º turno
+    # do pais inteiro em 2024 teve 95 candidaturas.
+    runoff_acc: dict[tuple[UUID, UUID], int] = {}
+
     # Buffers a inserir
     elections_buf: list[dict] = []
     parties_buf: list[dict] = []
@@ -537,13 +543,18 @@ def _process_candidato_munzona(
         # O resultado final (ELEITO em 2º turno) já vem de runoff_status.
         _turno = _i(row.get("NR_TURNO")) or 1
         if (
-            _turno == 1
-            and sq and muni_code
+            sq and muni_code
             and sq in candidates_by_sq and muni_code in munis_by_tse
         ):
             key = (candidates_by_sq[sq], munis_by_tse[muni_code])
             votes = _i(row.get("QT_VOTOS_NOMINAIS"))
-            vote_acc[key] = vote_acc.get(key, 0) + votes
+            # Cada turno no seu lugar. Antes o 2º era DESCARTADO aqui, entao no
+            # dia do segundo turno o sistema importava o arquivo e nao guardava
+            # voto nenhum.
+            if _turno == 1:
+                vote_acc[key] = vote_acc.get(key, 0) + votes
+            elif _turno == 2:
+                runoff_acc[key] = runoff_acc.get(key, 0) + votes
 
         # Flush periódico — economiza RAM
         if rows_processed % CHUNK_SIZE == 0:
@@ -573,6 +584,9 @@ def _process_candidato_munzona(
     # Flush final do vote_acc remanescente
     _flush_vote_results(db, vote_acc, job)
     vote_acc.clear()
+
+    _flush_runoff_votes(db, runoff_acc, job)
+    runoff_acc.clear()
 
     # Sobrescreve o result_status dos candidatos que foram a 2º turno com o
     # resultado REAL daquele turno (ELEITO / NÃO ELEITO). Sem isso, presidente
@@ -623,6 +637,43 @@ def _flush_dim_buffers(
 
     job.rows_processed = rows_processed
     db.commit()
+
+
+def _flush_runoff_votes(
+    db: Session,
+    runoff_acc: dict[tuple[UUID, UUID], int],
+    job: TseSyncJob,
+) -> None:
+    """Grava o voto de 2o turno (tse_runoff_votes, migration 065).
+
+    Aqui o upsert e de SUBSTITUICAO, nao de soma: diferente do 1o turno, este
+    acumulador nunca e flushado no meio do parse (o 2o turno do pais inteiro em
+    2024 teve 95 candidaturas, cabe em memoria), entao cada chave chega uma vez
+    so com o total ja fechado. Somar seria dobrar num re-import.
+    """
+    if not runoff_acc:
+        return
+
+    from app.models.tse.runoff_vote import TseRunoffVote
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": uuid4(), "candidate_id": cid, "municipality_id": mid,
+            "votes": votes, "created_at": now, "updated_at": now,
+        }
+        for (cid, mid), votes in runoff_acc.items()
+    ]
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        stmt = pg_insert(TseRunoffVote.__table__).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["candidate_id", "municipality_id"],
+            set_={"votes": stmt.excluded.votes, "updated_at": now},
+        )
+        db.execute(stmt)
+    db.commit()
+    log.info("tse_runoff_gravado", linhas=len(rows))
 
 
 def _flush_vote_results(
