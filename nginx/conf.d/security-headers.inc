@@ -31,10 +31,10 @@ add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 # 'unsafe-inline'/'unsafe-eval' seguem liberados pro Next hidratar (endurecer
 # com nonce é trabalho futuro, mas não afeta a trava de exfiltração acima).
 #
-# img-src inclui os tile servers dos mapas (CartoDB voyager/dark, satélite
+# img-src inclui os tile servers dos mapas (Esri: cinza claro/escuro e satélite
 # ArcGIS) + fotos/logos do TSE. Se adicionar uma nova camada de mapa, o host
 # do tile precisa entrar aqui.
 # frame-src 'self': o embed de sistema externo (EmbeddedFrame / Sonar) está em
 # placeholder (example.com, não carrega). Se um dia ligar um Looker/Metabase/
 # Sonar real, adicione o host dele em frame-src OU o iframe fica em branco.
-add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://server.arcgisonline.com https://cdn.tse.jus.br; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:" always;
+add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data: blob: https://server.arcgisonline.com https://cdn.tse.jus.br; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:" always;
