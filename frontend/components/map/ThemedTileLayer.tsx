@@ -30,12 +30,19 @@ import { useMapLayout } from "@/lib/useMapLayout";
 const ATTRIB_ESRI =
   'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
 
-const URL_LIGHT =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}";
-const URL_DARK =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}";
-const URL_SAT =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services";
+
+const URL_LIGHT = `${ESRI}/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`;
+const URL_DARK = `${ESRI}/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`;
+const URL_SAT = `${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`;
+
+// Nos mapas Canvas do Esri os RÓTULOS são uma camada à parte — nomes de rua,
+// bairro e município não vêm no fundo. Sem ela o mapa fica chapado perto do
+// CartoDB Voyager, que trazia os nomes embutidos. Entram por cima do fundo e
+// por baixo dos dados (ambos no tilePane), que é exatamente como o Voyager se
+// comportava: as bolinhas de votação cobrem o rótulo, não o contrário.
+const URL_LIGHT_LABELS = `${ESRI}/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}`;
+const URL_DARK_LABELS = `${ESRI}/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`;
 
 // Os cinzas do Esri só têm tile de verdade até o zoom 16 — do 17 em diante
 // devolvem sempre o mesmo tile vazio. `maxNativeZoom` faz o Leaflet ampliar o
@@ -57,13 +64,23 @@ export function ThemedTileLayer() {
     );
   }
 
+  const escuro = layout === "dark";
+
   return (
-    <TileLayer
-      key={layout}
-      attribution={ATTRIB_ESRI}
-      url={layout === "dark" ? URL_DARK : URL_LIGHT}
-      maxZoom={19}
-      maxNativeZoom={MAX_NATIVE_CINZA}
-    />
+    <>
+      <TileLayer
+        key={layout}
+        attribution={ATTRIB_ESRI}
+        url={escuro ? URL_DARK : URL_LIGHT}
+        maxZoom={19}
+        maxNativeZoom={MAX_NATIVE_CINZA}
+      />
+      <TileLayer
+        key={`${layout}-labels`}
+        url={escuro ? URL_DARK_LABELS : URL_LIGHT_LABELS}
+        maxZoom={19}
+        maxNativeZoom={MAX_NATIVE_CINZA}
+      />
+    </>
   );
 }
