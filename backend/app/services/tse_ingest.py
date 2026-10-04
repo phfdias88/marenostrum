@@ -144,6 +144,47 @@ def validar_estrutura(zip_path: Path, processador: str) -> dict[str, Any]:
     }
 
 
+class ArquivoSemDadosError(DomainError):
+    """O arquivo do TSE existe, tem o cabecalho certo, e nenhuma linha de dado.
+
+    Acontece de verdade: no dia do 1o turno de 2026 o zip de resultado ja estava
+    publicado com 29 CSVs e zero linhas. O importador de votos APAGA os votos do
+    ano antes de ler o arquivo — com a casca vazia ele apagaria tudo que a
+    captura ao vivo gravou, nao importaria nada e terminaria "completed".
+    """
+
+    status_code = 422
+    code = "tse_arquivo_sem_dados"
+
+
+def exigir_dados(zip_path: Path) -> int:
+    """Garante que ha pelo menos uma linha de dado. Devolve quantos CSVs tem dado.
+
+    Le so o inicio de cada arquivo: basta achar UMA linha depois do cabecalho.
+    Havendo arquivo nacional junto dos estaduais, olha so o nacional, que e o que
+    os importadores leem.
+    """
+    with zipfile.ZipFile(zip_path) as z:
+        nomes = [n for n in z.namelist() if n.lower().endswith(".csv")]
+        nacionais = [n for n in nomes if "_brasil" in n.lower()]
+        com_dado = 0
+        for nome in (nacionais or nomes):
+            with z.open(nome) as f:
+                f.readline()                       # cabecalho
+                if f.readline().strip():
+                    com_dado += 1
+
+    if com_dado == 0:
+        log.error("tse_arquivo_sem_dados", arquivo=zip_path.name, csvs=len(nomes))
+        raise ArquivoSemDadosError(
+            f"O arquivo {zip_path.name} foi publicado pelo TSE apenas com o "
+            f"cabecalho — nenhuma linha de dado. Nada foi apagado nem importado. "
+            f"O resultado consolidado costuma sair dias depois da eleicao; ate la "
+            f"os numeros vem da captura ao vivo."
+        )
+    return com_dado
+
+
 def cobertura(db: Session, *, ano: int, cargo: int | None = None) -> dict[str, Any]:
     """O que ja entrou e o que falta, por UF.
 
@@ -251,4 +292,5 @@ def arquivos_prontos(diretorio: Path) -> list[dict[str, Any]]:
 __all__ = [
     "validar_estrutura", "cobertura", "arquivos_prontos",
     "EstruturaInesperadaError", "COLUNAS_MINIMAS", "ler_cabecalho",
+    "exigir_dados", "ArquivoSemDadosError",
 ]

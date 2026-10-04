@@ -3806,3 +3806,62 @@ def ingest_files(ctx: CurrentTenant) -> dict:
         "total": len(itens),
         "arquivos": itens,
     }
+
+
+@router.post(
+    "/ingest/cache-clear",
+    summary="Esvazia o cache de agregacoes (uso da captura ao vivo)",
+    description="""O cache de agregacao vive DENTRO do processo da API e dura 4 horas. A captura
+dos resultados ao vivo roda em outro processo, entao sem este aviso a API
+continuaria respondendo o numero de antes — fatal numa apuracao, em que o dado
+muda de minutos em minutos.
+
+So responsavel da campanha ou superadmin. Chave de API nao chega aqui: ela e
+somente leitura e este e um POST.
+""",
+)
+def ingest_cache_clear(
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> dict:
+    if ctx.role != "owner":
+        _u = db.get(User, ctx.user_id)
+        if not (_u is not None and bool(getattr(_u, "is_superadmin", False))):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas o responsavel da campanha pode limpar o cache.",
+            )
+    from app.utils.agg_cache import clear_agg_cache
+
+    clear_agg_cache()
+    log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id))
+    return {"limpo": True}
+
+
+@router.get(
+    "/ingest/live",
+    summary="Andamento da captura ao vivo da apuracao",
+    description="""O que a ultima passada da captura ao vivo trouxe: quantos arquivos do TSE
+responderam, quantos candidatos foram atualizados e o percentual de secoes ja
+totalizadas em cada UF e cargo.
+
+`arquivos_sem_resposta` nao e necessariamente erro — deputado distrital so
+existe no DF e deputado estadual nao existe la, entao 27 ausencias sao
+esperadas numa eleicao geral.
+""",
+)
+def ingest_live(ctx: CurrentTenant) -> dict:
+    import json as _json
+
+    from app.utils.tse_sync import CACHE_DIR
+
+    caminho = CACHE_DIR / "_ao_vivo_status.json"
+    if not caminho.exists():
+        return {"capturando": False,
+                "observacao": "A captura ao vivo ainda nao rodou."}
+    try:
+        dado = _json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"capturando": False, "observacao": "Status ilegivel."}
+    dado["capturando"] = True
+    return dado

@@ -185,12 +185,22 @@ for _yr in (2014, 2016, 2018, 2020, 2022, 2024):
 # sempre. Para estes o job confere o tamanho no TSE antes de confiar no disco —
 # ver _cache_ainda_vale().
 #
-# ORDEM NA NOITE DA APURACAO (cada um depende do anterior):
-#   1. locais_votacao_2026      — independe da urna, pode rodar antes
-#   2. candidato_munzona_2026   — CRIA os candidatos e grava voto por municipio
+# NA NOITE DA APURACAO NAO SE RODA NADA DISTO. Estes zips sao o canal
+# CONSOLIDADO: no dia da eleicao existem mas vem vazios, e so sao preenchidos
+# dias depois. O resultado da noite vem pelo canal ao vivo — ver
+# services/tse_live.py e scripts/apuracao-ao-vivo.sh.
+#
+# Rodar candidato_munzona com o zip vazio APAGARIA os votos capturados ao vivo
+# (o importador apaga o ano antes de ler). Ha um portao contra isso
+# (exigir_dados), mas a ordem correta e outra:
+#
+# QUANDO O CONSOLIDADO SAIR (dias depois), nesta ordem:
+#   0. parar a captura ao vivo (tirar o cron)
+#   1. locais_votacao_2026      — independe da urna, ja foi carregado
+#   2. candidato_munzona_2026   — troca os votos ao vivo pelos oficiais
 #                                 (1o turno em tse_vote_results, 2o em
 #                                 tse_runoff_votes)
-#   3. consulta_cand_2026       — so acrescenta CPF a candidato ja existente
+#   3. consulta_cand_2026       — acrescenta CPF aos candidatos
 #   4. votacao_secao_2026_<UF>  — voto por bairro; precisa de 1 e 2
 _ANO_VIVO = 2026
 DATASETS[f"candidato_munzona_{_ANO_VIVO}"] = {
@@ -442,10 +452,21 @@ def run_sync_job(job_id: UUID) -> None:
             # vez de importar nulo e terminar "com sucesso". Este projeto ja
             # perdeu uma carga inteira do censo exatamente assim (V0001 virou
             # v0001 e ninguem viu).
-            from app.services.tse_ingest import validar_estrutura
+            from app.services.tse_ingest import exigir_dados, validar_estrutura
             validar_estrutura(zip_path, processor)
+            # SEGUNDO PORTAO: arquivo so com cabecalho nao dispara reimportacao.
+            # Os processadores apagam o dado do ano ANTES de ler o CSV; com a
+            # casca vazia que o TSE publica no dia da eleicao, apagariam tudo e
+            # terminariam "completed" sem ter gravado nada.
+            exigir_dados(zip_path)
             if processor == "candidato_munzona":
-                _process_candidato_munzona(db, job, zip_path)
+                # Mesma trava da captura ao vivo: este importador apaga os
+                # votos do ano e regrava SOMANDO; se a captura escrevesse no
+                # meio, a soma cairia por cima e o voto sairia em dobro.
+                from app.services.tse_live import trava_do_ano
+
+                with trava_do_ano(job.year, esperar=True):
+                    _process_candidato_munzona(db, job, zip_path)
             elif processor == "locais_votacao":
                 _process_locais_votacao(
                     db, job, zip_path, year=dataset_meta.get("year", 2024),
