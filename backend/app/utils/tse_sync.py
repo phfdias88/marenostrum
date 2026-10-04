@@ -178,6 +178,59 @@ for _yr in (2014, 2016, 2018, 2020, 2022, 2024):
         "max_mb": 600,
     }
 
+# ---- ELEICAO GERAL DE 2026 (1o turno 04/10, 2o turno 25/10) ---------------
+# "vivo": o arquivo MUDA durante a apuracao. O de resultado nasce so com o
+# cabecalho (350 KB, zero linhas) e vai crescendo ate os ~50 MB; o cache normal,
+# que reusa o zip se ele ja existe, prenderia o sistema na casca vazia pra
+# sempre. Para estes o job confere o tamanho no TSE antes de confiar no disco —
+# ver _cache_ainda_vale().
+#
+# ORDEM NA NOITE DA APURACAO (cada um depende do anterior):
+#   1. locais_votacao_2026      — independe da urna, pode rodar antes
+#   2. candidato_munzona_2026   — CRIA os candidatos e grava voto por municipio
+#                                 (1o turno em tse_vote_results, 2o em
+#                                 tse_runoff_votes)
+#   3. consulta_cand_2026       — so acrescenta CPF a candidato ja existente
+#   4. votacao_secao_2026_<UF>  — voto por bairro; precisa de 1 e 2
+_ANO_VIVO = 2026
+DATASETS[f"candidato_munzona_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "candidato_munzona",
+    "max_mb": 900,
+    "vivo": True,
+}
+DATASETS[f"zona_votos_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "zona_votos",
+    "max_mb": 900,
+    "vivo": True,
+}
+DATASETS[f"locais_votacao_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "locais_votacao",
+    "max_mb": 300,
+    "vivo": True,
+}
+DATASETS[f"consulta_cand_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/consulta_cand/consulta_cand_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "consulta_cand",
+    "max_mb": 600,
+    "vivo": True,
+}
+for _uf in ALL_UFS:
+    DATASETS[f"votacao_secao_{_ANO_VIVO}_{_uf}"] = {
+        "url": f"{TSE_BASE_URL}/votacao_secao/votacao_secao_{_ANO_VIVO}_{_uf}.zip",
+        "year": _ANO_VIVO,
+        "processor": "votacao_secao",
+        "uf": _uf,
+        "max_mb": 900,
+        "vivo": True,
+    }
+
 # Onde o ZIP do TSE fica. NAO e /tmp de proposito: o container e recriado a
 # cada deploy e levaria o arquivo junto — e, mais importante, este diretorio e
 # a PORTA DE ENTRADA MANUAL. O TSE devolve 403 a cliente automatizado desde
@@ -201,6 +254,36 @@ DOWNLOAD_TIMEOUT_S = 1800  # 30min — 2022 e' grande
 def _ensure_cache_dir() -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return CACHE_DIR
+
+
+def _cache_ainda_vale(url: str, local: Path) -> bool:
+    """O zip em disco ainda e o que o TSE esta servindo?
+
+    Compara o tamanho. Durante a apuracao o arquivo de resultado cresce a cada
+    atualizacao, entao tamanho diferente = versao nova publicada.
+
+    NA DUVIDA, CONFIA NO DISCO. Se o TSE nao responder (ja ficou semanas
+    devolvendo 403 a cliente automatizado) ou nao informar o tamanho, devolve
+    True: o arquivo em disco pode ter sido entregue a mao justamente porque o
+    download estava bloqueado, e apaga-lo deixaria o job sem nada.
+    """
+    try:
+        r = httpx.head(url, timeout=30, follow_redirects=True)
+        if r.status_code != 200:
+            log.warning("tse_head_falhou", url=url, status=r.status_code)
+            return True
+        remoto = int(r.headers.get("content-length") or 0)
+    except Exception as exc:  # rede, DNS, timeout — nada disso justifica apagar
+        log.warning("tse_head_erro", url=url, erro=str(exc)[:120])
+        return True
+
+    if not remoto:
+        return True
+    atual = local.stat().st_size
+    if remoto != atual:
+        log.info("tse_zip_mudou", url=url, em_disco=atual, no_tse=remoto)
+        return False
+    return True
 
 
 def download_zip(url: str, dest: Path, max_mb: int | None = None) -> int:
@@ -229,6 +312,35 @@ def download_zip(url: str, dest: Path, max_mb: int | None = None) -> int:
     return bytes_downloaded
 
 
+def _sem_duplicata_nacional(csv_names: list[str]) -> list[str]:
+    """Tira a contagem em dobro quando o zip traz o nacional E os estaduais.
+
+    O TSE empacota de dois jeitos. Ate 2024 o arquivo de locais vinha num CSV
+    so; em 2026 passou a vir um por UF MAIS um `_BRASIL.csv` que e a
+    concatenacao de todos (conferido: 208.710 KB o nacional, 208.730 KB a soma
+    dos outros 28 — a diferenca sao os cabecalhos). Lendo os 29, cada linha
+    conta duas vezes.
+
+    Foi o que aconteceu na primeira carga de locais de 2026: 317 milhoes de
+    eleitores num pais que tem 158. E e traicoeiro porque as colunas sao
+    identicas — a validacao de estrutura passa. Mudou a embalagem, nao o
+    conteudo.
+
+    Havendo os dois, fica so o nacional (mesmo criterio que o processador de
+    votos ja usava com `name_contains="_BRASIL"`). Sem nacional, le todos os
+    estaduais. Com um arquivo so, le ele.
+    """
+    nacionais = [n for n in csv_names if "_brasil" in n.lower()]
+    if nacionais and len(csv_names) > len(nacionais):
+        log.info(
+            "tse_zip_tem_nacional_e_estaduais",
+            usando=nacionais,
+            ignorados=len(csv_names) - len(nacionais),
+        )
+        return nacionais
+    return csv_names
+
+
 def iter_csv_rows(
     zip_path: Path, *, name_contains: str | None = None,
 ) -> Iterator[tuple[str, dict[str, str]]]:
@@ -246,6 +358,8 @@ def iter_csv_rows(
         if name_contains:
             needle = name_contains.lower()
             csv_names = [n for n in csv_names if needle in n.lower()]
+        else:
+            csv_names = _sem_duplicata_nacional(csv_names)
         log.info("tse_csv_files_found", count=len(csv_names), names=csv_names[:5])
 
         for csv_name in csv_names:
@@ -304,7 +418,17 @@ def run_sync_job(job_id: UUID) -> None:
             _ensure_cache_dir()
             zip_path = CACHE_DIR / f"{job.dataset}.zip"
 
-            # Cache: re-usa se já baixou (TSE não muda dataset histórico)
+            # Cache: dataset historico nunca muda, entao reusa. Dataset VIVO
+            # (apuracao em andamento) muda de hora em hora — confere o tamanho no
+            # TSE antes de confiar no que esta em disco.
+            if (
+                zip_path.exists()
+                and dataset_meta.get("vivo")
+                and not _cache_ainda_vale(dataset_meta["url"], zip_path)
+            ):
+                log.info("tse_zip_desatualizado", path=str(zip_path))
+                zip_path.unlink()
+
             if not zip_path.exists():
                 download_zip(dataset_meta["url"], zip_path, max_mb=dataset_meta.get("max_mb"))
             else:
