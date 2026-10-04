@@ -20,6 +20,15 @@ cd "$(dirname "$0")/.."
 
 UFS_MUNICIPIO="${UFS_MUNICIPIO:-RJ}"
 DATA_PLEITO="${DATA_PLEITO:-04/10/2026}"
+# Prazo de validade. Um cron de apuracao esquecido ligado bateria no TSE e
+# ocuparia o servidor para sempre, capturando um resultado que ja fechou. Depois
+# desta data o script sai sem fazer nada; para o 2o turno, basta chamar com
+# DATA_PLEITO=25/10/2026 VALIDADE=2026-10-28.
+VALIDADE="${VALIDADE:-2026-10-07}"
+if [[ "$(date +%F)" > "$VALIDADE" ]]; then
+  exit 0
+fi
+
 TRAVA="/tmp/apuracao-ao-vivo.lock"
 LOG="${LOG:-$HOME/apuracao-ao-vivo.log}"
 
