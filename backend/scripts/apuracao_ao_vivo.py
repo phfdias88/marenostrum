@@ -31,11 +31,12 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core.database import SessionLocal
 from app.services import tse_live as live
@@ -43,6 +44,59 @@ from app.utils.tse_sync import ALL_UFS, CACHE_DIR, DATASETS, download_zip
 
 ANO = 2026
 ESTADO = CACHE_DIR / "_ao_vivo_status.json"
+
+
+@contextmanager
+def trava_compartilhada(ano: int):
+    """Trava que as capturas ao vivo dividem entre si e a carga consolidada nao.
+
+    Os totais (32s) e os municipios (4,5 min) gravam em tabelas diferentes e
+    podem rodar juntos. Com a trava exclusiva os totais eram pulados enquanto a
+    passada de municipios rodava, e o placar ficava ate 12 minutos atrasado —
+    medido na noite do 1o turno, com a apuracao ja correndo.
+
+    A carga consolidada pega a MESMA chave em modo exclusivo
+    (tse_live.trava_do_ano), entao continua nunca escrevendo junto com a gente:
+    no Postgres, trava compartilhada e trava exclusiva se excluem.
+    """
+    from app.core.database import engine
+
+    if engine.dialect.name != "postgresql":
+        yield True
+        return
+    chave = 7_400_000 + ano                      # mesma chave de tse_live
+    conn = engine.connect()
+    pegou = False
+    try:
+        pegou = bool(conn.execute(
+            text("SELECT pg_try_advisory_lock_shared(:k)"), {"k": chave}).scalar())
+        yield pegou
+    finally:
+        if pegou:
+            conn.execute(text("SELECT pg_advisory_unlock_shared(:k)"), {"k": chave})
+        conn.close()
+
+
+def gravar_status(novo: dict) -> None:
+    """Junta o resultado desta passada ao que ja estava gravado.
+
+    Totais e municipios rodam em cadencias diferentes. Se cada um sobrescrevesse
+    o arquivo inteiro, quem consulta o andamento veria ora um, ora outro.
+    """
+    atual: dict = {}
+    try:
+        atual = json.loads(ESTADO.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    for chave in ("totais", "municipios", "candidatos", "eleicoes"):
+        if chave in novo:
+            atual[chave] = novo[chave]
+            atual[f"{chave}_em"] = novo["quando"]
+    atual["quando"] = novo["quando"]
+    atual["data"] = novo["data"]
+    tmp = ESTADO.with_suffix(".tmp")
+    tmp.write_text(json.dumps(atual, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(ESTADO)            # troca atomica: quem le nunca ve arquivo pela metade
 
 # Cargo -> em que arquivo o TOTAL do candidato esta. Presidente e nacional;
 # os demais sao por UF.
@@ -205,8 +259,9 @@ def main() -> int:
             print("ERRO: nenhum candidato de 2026 no banco. Rode --candidatos antes.",
                   file=sys.stderr)
             return 2
-        with live.trava_do_ano(ANO, esperar=False) as livre,                 httpx.Client(timeout=30, headers=live.CABECALHOS,
-                             follow_redirects=True) as cliente:
+        cliente_http = httpx.Client(
+            timeout=30, headers=live.CABECALHOS, follow_redirects=True)
+        with trava_compartilhada(ANO) as livre, cliente_http as cliente:
             if not livre:
                 print("PULADO: a carga consolidada esta gravando agora. "
                       "Tento de novo na proxima passada.")
@@ -226,8 +281,7 @@ def main() -> int:
 
     saida["segundos"] = round(time.time() - inicio, 1)
     try:
-        ESTADO.write_text(json.dumps(saida, ensure_ascii=False, indent=1),
-                          encoding="utf-8")
+        gravar_status(saida)
     except OSError as exc:
         print(f"AVISO: nao gravei o status ({exc})", file=sys.stderr)
 

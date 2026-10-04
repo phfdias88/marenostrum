@@ -18,6 +18,12 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
+# MODO=totais      placar por candidato, Brasil inteiro — 32s, roda de 2 em 2 min
+# MODO=municipios  voto por municipio das UFs escolhidas — 4,5 min, de 10 em 10
+# MODO=tudo        os dois em sequencia (comportamento original)
+# Separados porque o placar e barato e e o que as pessoas olham primeiro: junto
+# com os municipios ele ficava ate 12 minutos atrasado.
+MODO="${MODO:-tudo}"
 UFS_MUNICIPIO="${UFS_MUNICIPIO:-RJ}"
 DATA_PLEITO="${DATA_PLEITO:-04/10/2026}"
 # Prazo de validade. Um cron de apuracao esquecido ligado bateria no TSE e
@@ -29,22 +35,30 @@ if [[ "$(date +%F)" > "$VALIDADE" ]]; then
   exit 0
 fi
 
-TRAVA="/tmp/apuracao-ao-vivo.lock"
+# Uma trava por MODO: totais e municipios podem rodar ao mesmo tempo, mas dois
+# do mesmo tipo nao.
+TRAVA="/tmp/apuracao-ao-vivo-${MODO}.lock"
 LOG="${LOG:-$HOME/apuracao-ao-vivo.log}"
+
+case "$MODO" in
+  totais)     ARGS=(--totais) ;;
+  municipios) ARGS=(--municipios "$UFS_MUNICIPIO") ;;
+  *)          ARGS=(--totais --municipios "$UFS_MUNICIPIO") ;;
+esac
 
 exec 9>"$TRAVA"
 if ! flock -n 9; then
-  echo "$(date '+%F %T') passada anterior ainda rodando — pulando" >> "$LOG"
+  echo "$(date '+%F %T') [$MODO] passada anterior ainda rodando — pulando" >> "$LOG"
   exit 0
 fi
 
 {
-  echo "===== $(date '+%F %T') inicio (municipios: $UFS_MUNICIPIO, pleito: $DATA_PLEITO)"
+  echo "===== $(date '+%F %T') inicio [$MODO] (municipios: $UFS_MUNICIPIO, pleito: $DATA_PLEITO)"
 
   # O script entra por stdin: o arquivo mora no host, entao sobrevive quando o
   # container da API e recriado por um deploy (o /tmp de dentro dele nao).
   docker compose exec -T -e PYTHONPATH=/app api \
-    python - --totais --municipios "$UFS_MUNICIPIO" --data "$DATA_PLEITO" \
+    python - "${ARGS[@]}" --data "$DATA_PLEITO" \
     < backend/scripts/apuracao_ao_vivo.py
   rc=$?
   echo "captura terminou com codigo $rc"
@@ -78,5 +92,5 @@ print('cache da API:', r.status_code, r.text[:60])
       && echo "cache do nginx (tse) limpo"
   fi
 
-  echo "===== $(date '+%F %T') fim"
+  echo "===== $(date '+%F %T') fim [$MODO]"
 } >> "$LOG" 2>&1
