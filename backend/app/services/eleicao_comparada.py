@@ -41,7 +41,9 @@ from app.models.tse.election import Election
 from app.models.tse.party import Party
 from app.services import senado as senado_federal
 from app.utils.agg_cache import cached_agg
-from app.utils.partidos import normalizar_sigla, numero_sucessor, sigla_no_ano
+from app.utils.partidos import (
+    normalizar_sigla, numero_sucessor, partido_atual, sigla_no_ano,
+)
 
 log = structlog.get_logger("marenostrum.services.eleicao_comparada")
 
@@ -229,6 +231,20 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
         sigla_de.setdefault(numero_sucessor(r.number, ano_de_antes), r.abbreviation)
     for r in do_ano:
         sigla_de[numero_sucessor(r.number, ano)] = r.abbreviation
+    # A linha soma por SUCESSOR, entao o nome e o de quem sucedeu — sempre que
+    # os candidatos do ano nao decidem sozinhos: ou porque o partido nao lancou
+    # ninguem agora (o senador do PSC de 2022 rotulava a linha do Podemos), ou
+    # porque dois partidos do ano caem no mesmo sucessor (em 2022, Podemos/19 e
+    # PSC/20 somam no 20, e o rotulo dependia da ordem em que o banco lia).
+    de_hoje: dict[int, list] = defaultdict(list)
+    for p in db.execute(select(Party)).scalars():
+        de_hoje[p.number].append(p)
+    for numero in list(sigla_de):
+        rotulos_do_ano = {
+            r.abbreviation for r in do_ano if numero_sucessor(r.number, ano) == numero
+        }
+        if numero in de_hoje and len(rotulos_do_ano) != 1:
+            sigla_de[numero] = partido_atual(de_hoje[numero]).abbreviation
 
     partidos: dict[int, dict[str, Any]] = {}
     cadeiras: list[dict[str, Any]] = []

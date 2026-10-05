@@ -85,6 +85,28 @@ def test_eleito_cobre_os_tres_valores_do_tse(client, tenant_a, db_session):
     assert nomes == {"ELEITA DIRETA", "ELEITO POR QUOCIENTE", "ELEITO POR MEDIA"}
 
 
+def test_eleito_traz_o_numero_do_partido_e_o_da_linhagem(client, tenant_a, db_session):
+    """A sigla e a da epoca (DEM em 2016, PRD em 2024): quem cruza anos pela
+    sigla perderia a chave. O numero e o da linhagem vao junto."""
+    _, _, token = tenant_a
+    e20 = Election(tse_code=426, year=2020, round=1, name="Municipal 2020")
+    dem = Party(number=25, abbreviation="DEM", name="Democratas", valid_from=2007)
+    db_session.add_all([e20, dem])
+    db_session.flush()
+    db_session.add(Candidate(
+        election_id=e20.id, party_id=dem.id, sq_candidato=600001, number=25,
+        name="PREFEITA DO DEM", urn_name="PREFEITA DO DEM", office_code=11,
+        office_name="PREFEITO", state="ZZ", result_status="ELEITO", total_votes=10,
+    ))
+    db_session.commit()
+
+    r = client.get("/api/v1/tse/elected?year=2020&uf=ZZ&office_code=11", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    item = r.json()["itens"][0]
+    # O DEM de 2020 e do Uniao (44) hoje.
+    assert (item["partido"], item["partido_numero"], item["partido_linhagem"]) == ("DEM", 25, 44)
+
+
 def test_nao_eleito_traz_o_resto_inclusive_suplente(client, tenant_a, db_session):
     _, _, token = tenant_a
     _seed(db_session)

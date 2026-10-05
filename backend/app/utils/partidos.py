@@ -21,6 +21,7 @@ ORDEM DA BUSCA em `IndiceDePartidos.achar`:
 from __future__ import annotations
 
 import unicodedata
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -67,13 +68,22 @@ class IndiceDePartidos:
     def conhece(self, numero: int) -> bool:
         return bool(self._por_numero.get(numero))
 
-    def achar_exato(self, numero: int, sigla: str | None) -> UUID | None:
-        """So a linha com esta mesma sigla — sem cair na que vale no ano."""
+    def achar_exato(
+        self, numero: int, sigla: str | None, ano: int | None = None,
+    ) -> UUID | None:
+        """So a linha com esta mesma sigla — sem cair na que vale no ano.
+
+        Um numero pode ter DUAS linhas com a mesma sigla: o 22 foi PL, virou PR
+        e voltou a ser PL. Entre elas o ano decide — sem ele, o candidato do PL
+        de 2002 caia na linha do PL de hoje.
+        """
         alvo = normalizar_sigla(sigla)
         if not alvo:
             return None
         mesma_sigla = [l for l in self._por_numero.get(numero, []) if l[1] == alvo]
-        return max(mesma_sigla)[2] if mesma_sigla else None
+        if not mesma_sigla:
+            return None
+        return self._vigente(mesma_sigla, ano)
 
     def achar(
         self, numero: int, sigla: str | None = None, ano: int | None = None,
@@ -81,7 +91,7 @@ class IndiceDePartidos:
         linhas = self._por_numero.get(numero)
         if not linhas:
             return None
-        return self.achar_exato(numero, sigla) or self._vigente(linhas, ano)
+        return self.achar_exato(numero, sigla, ano) or self._vigente(linhas, ano)
 
     @staticmethod
     def _vigente(linhas: list[tuple[int, str, UUID]], ano: int | None) -> UUID:
@@ -182,42 +192,129 @@ def trechos_da_linhagem(numero: int) -> list[tuple[int, int | None, int | None]]
     return trechos
 
 
-# ------------------------------------------------------- sigla de cada epoca
+# ------------------------------------------------------- as epocas de cada numero
 #
-# Sigla com que cada numero concorreu ATE certo ano. As linhas de `tse_parties`
-# ainda guardam so o nome de hoje para a maior parte dos numeros (25 = "PRD",
-# 44 = "UNIÃO"), entao um mapa de 2018 pintava o DEM como "PRD" e o PRP como
-# "UNIÃO". Enquanto as epocas nao viram linhas no banco, quem mostra partido de
-# ano antigo corrige o ROTULO por aqui. So o rotulo: as somas continuam por
-# numero e por `numero_sucessor`.
+# O mesmo numero ja teve mais de um nome — e as vezes mais de um dono. A tabela
+# diz, para cada numero que mudou, as epocas PASSADAS (da mais antiga para a
+# mais nova) e desde quando vale a de HOJE. E a fonte unica de tres coisas:
 #
-# Fonte: consulta_coligacao do TSE, 2002 a 2024, eleicao ordinaria (uma sigla
-# por numero e ano). 14 (PTB -> MISSAO) e 35 (PMB -> DEMOCRATA) nao estao aqui
-# porque ja tem linha propria no banco. Quando as epocas forem criadas la,
-# esta tabela e a semente delas.
-_SIGLA_ATE: dict[int, tuple[tuple[int, str], ...]] = {
-    10: ((2018, "PRB"),),                  # REPUBLICANOS desde 2019
-    11: ((2002, "PPB"),),                  # PP desde 2003
-    15: ((2016, "PMDB"),),                 # MDB desde 2018
-    18: ((2002, "PST"),),                  # REDE desde 2015
-    19: ((2016, "PTN"),),                  # PODE de 2017 a 2022
-    20: ((2022, "PSC"),),                  # PODE desde 2023
-    22: ((2006, "PL"), (2018, "PR")),      # PL de novo desde 2019
-    23: ((2018, "PPS"),),                  # CIDADANIA desde 2019
-    25: ((2006, "PFL"), (2020, "DEM")),    # PRD desde 2023
-    27: ((2016, "PSDC"),),                 # DC desde 2018
-    30: ((2002, "PGT"),),                  # NOVO desde 2015
-    33: ((2022, "PMN"),),                  # MOBILIZA desde 2023
-    36: ((2020, "PTC"),),                  # AGIR desde 2022
-    44: ((2018, "PRP"),),                  # UNIÃO desde 2022
-    70: ((2016, "PT do B"),),              # AVANTE desde 2017
-    77: ((2016, "SD"),),                   # SOLIDARIEDADE (mesma legenda, sigla nova)
+#   * as linhas de `tse_parties`: uma por epoca (services/epocas_de_partido.py
+#     cria as que faltam e reponta as candidaturas antigas);
+#   * o rotulo de telas que guardam a sigla copiada (`sigla_no_ano`);
+#   * as siglas antigas pelas quais um partido de hoje pode ser buscado.
+#
+# Fonte: consulta_coligacao do TSE, 2002 a 2024, eleicao ordinaria — uma sigla
+# por numero e ano, e o nome que o TSE publicou. `desde` e o ano seguinte ao
+# ultimo em que a epoca anterior concorreu (ou ao corte de `_SUCESSOES`, quando
+# o numero mudou de dono), para sigla e linhagem nunca discordarem num ano.
+#
+# 14 (PTB -> MISSAO) e 35 (PMB -> DEMOCRATA) nao estao aqui: ja nasceram com
+# linha por epoca (migration 067). Eleicao suplementar leva a sigla do CICLO em
+# que foi registrada (a de 2019 do ciclo de 2016 sai como PMDB): quem decide a
+# epoca e o ano, para um numero nunca ficar em duas linhas no mesmo ano.
+@dataclass(frozen=True)
+class Epoca:
+    desde: int | None          # None = desde sempre (a mais antiga)
+    sigla: str
+    nome: str
+
+
+@dataclass(frozen=True)
+class EpocasDoNumero:
+    passadas: tuple[Epoca, ...]
+    desde_atual: int
+    sigla_atual: str
+
+
+def _ep(passadas: list[tuple[int | None, str, str]], desde_atual: int, atual: str) -> EpocasDoNumero:
+    return EpocasDoNumero(tuple(Epoca(*p) for p in passadas), desde_atual, atual)
+
+
+EPOCAS: dict[int, EpocasDoNumero] = {
+    10: _ep([(None, "PRB", "Partido Republicano Brasileiro")], 2019, "REPUBLICANOS"),
+    11: _ep([(None, "PPB", "Partido Progressista Brasileiro")], 2003, "PP"),
+    15: _ep([(None, "PMDB", "Partido do Movimento Democrático Brasileiro")], 2017, "MDB"),
+    18: _ep([(None, "PST", "Partido Social Trabalhista")], 2003, "REDE"),
+    19: _ep([(None, "PTN", "Partido Trabalhista Nacional")], 2017, "PODE"),
+    20: _ep([(None, "PSC", "Partido Social Cristão")], 2023, "PODE"),
+    # PL, depois PR, depois PL de novo: a epoca do meio obriga a ter duas
+    # linhas "PL" (a antiga, sem data, e a de hoje).
+    22: _ep([(None, "PL", "Partido Liberal"),
+             (2007, "PR", "Partido da República")], 2019, "PL"),
+    23: _ep([(None, "PPS", "Partido Popular Socialista")], 2019, "CIDADANIA"),
+    # O DEM concorreu ate 2020 e o corte da linhagem e 2021: o PRD comeca em 2022.
+    25: _ep([(None, "PFL", "Partido da Frente Liberal"),
+             (2007, "DEM", "Democratas")], 2022, "PRD"),
+    27: _ep([(None, "PSDC", "Partido Social Democrata Cristão")], 2017, "DC"),
+    30: _ep([(None, "PGT", "Partido Geral dos Trabalhadores")], 2003, "NOVO"),
+    33: _ep([(None, "PMN", "Partido da Mobilização Nacional")], 2023, "MOBILIZA"),
+    36: _ep([(None, "PTC", "Partido Trabalhista Cristão")], 2021, "AGIR"),
+    44: _ep([(None, "PRP", "Partido Republicano Progressista")], 2019, "UNIÃO"),
+    # O arquivo do TSE (regerado em 2021) traz a sigla "PATRIOTA" ja em 2014 e
+    # 2016, mas com o NOME "Partido Ecológico Nacional" na mesma linha: quem
+    # concorreu naqueles anos foi o PEN. O Patriota so existe desde 2018.
+    51: _ep([(None, "PEN", "Partido Ecológico Nacional")], 2017, "PATRIOTA"),
+    70: _ep([(None, "PT do B", "Partido Trabalhista do Brasil")], 2017, "AVANTE"),
+    # Mesma legenda; o TSE passou a publicar a sigla por extenso.
+    77: _ep([(None, "SD", "Solidariedade")], 2017, "SOLIDARIEDADE"),
 }
 
 
 def sigla_no_ano(numero: int, ano: int, sigla_do_banco: str) -> str:
-    """A sigla que aquele numero usava naquele ano; a do banco, se era a mesma."""
-    for ate, sigla in _SIGLA_ATE.get(numero, ()):
-        if ano <= ate:
-            return sigla
-    return sigla_do_banco
+    """A sigla que aquele numero usava naquele ano; a do banco, se era a mesma.
+
+    Para quem guarda a sigla COPIADA (o mapa de vencedores materializado): a
+    copia e a de hoje, e um mapa de 2018 pintava o DEM como "PRD". Depois que
+    as candidaturas apontam para a linha da epoca, a resposta e a propria sigla
+    do banco — a funcao so confirma.
+    """
+    epocas = EPOCAS.get(numero)
+    if epocas is None or ano >= epocas.desde_atual:
+        return sigla_do_banco
+    vigente = epocas.passadas[0]
+    for e in epocas.passadas:
+        if e.desde is not None and e.desde <= ano:
+            vigente = e
+    return vigente.sigla
+
+
+def siglas_anteriores(
+    numero: int, linhas_por_numero: dict[int, list[Any]],
+) -> list[str]:
+    """Siglas antigas da LINHAGEM do partido que hoje usa `numero`, da mais
+    recente para a mais antiga.
+
+    E o que permite achar o Uniao digitando "DEM": a candidatura de 2016
+    aparece como DEM, e o partido de hoje que a herdou e o 44. Sai da lista o
+    que confundiria em vez de ajudar: a sigla de hoje do proprio partido (o PL
+    antigo do 22 e "PL") e a sigla que hoje e de OUTRO partido (o PSD antigo,
+    41, foi parar no PRD — mas "PSD" hoje e o 55).
+    """
+    atual = partido_atual(linhas_por_numero.get(numero, []))
+    if atual is None:
+        return []
+    propria = normalizar_sigla(atual.abbreviation)
+    # Siglas de partidos que EXISTEM hoje. Numero extinto (17, 51...) tambem
+    # tem "linha atual" — a ultima que teve —, e ela e justamente sigla antiga.
+    extintos = frozenset(_SUCESSOES) - _REAPROVEITADOS
+    de_hoje = {
+        normalizar_sigla(partido_atual(linhas).abbreviation)
+        for num, linhas in linhas_por_numero.items() if linhas and num not in extintos
+    }
+    # sigla -> ultimo ano em que respondeu por um numero desta linhagem
+    ultimo_ano: dict[str, int] = {}
+    for num, depois_de, ate in trechos_da_linhagem(numero):
+        linhas = sorted(linhas_por_numero.get(num, []), key=lambda l: l.valid_from or 0)
+        for i, linha in enumerate(linhas):
+            inicio = linha.valid_from or 0
+            # A epoca vai ate a vespera da proxima linha do mesmo numero.
+            fim = (linhas[i + 1].valid_from or 0) - 1 if i + 1 < len(linhas) else 9999
+            if ate is not None:
+                fim = min(fim, ate)
+            if depois_de is not None:
+                inicio = max(inicio, depois_de + 1)
+            chave = normalizar_sigla(linha.abbreviation)
+            if inicio > fim or chave == propria or chave in de_hoje:
+                continue
+            ultimo_ano[linha.abbreviation] = max(ultimo_ano.get(linha.abbreviation, 0), fim)
+    return [s for s, _ in sorted(ultimo_ano.items(), key=lambda x: (-x[1], x[0]))]

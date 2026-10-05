@@ -32,6 +32,8 @@ from sqlalchemy import text
 from app.core.database import SessionLocal
 from app.core.security import create_access_token
 from app.models import User
+from app.services import epocas_de_partido
+from app.utils.partidos import EPOCAS, sigla_no_ano
 
 ANO = 2026
 BASE = "http://localhost:8000/api/v1"
@@ -375,6 +377,49 @@ def main() -> int:
     if zonas_2026 is not None and not zonas_2026.get("zones"):
         aviso(f"voto por secao de {ANO} ainda nao existe: as telas de BAIRRO e ZONA "
               f"continuam em 2024 ate o TSE publicar o arquivo (votacao_secao_{ANO})")
+
+    # ================================================== 5. PARTIDO POR EPOCA
+    print("\n5. SIGLA DA EPOCA NOS ANOS ANTIGOS")
+    for problema in epocas_de_partido.conferir(db):
+        falhou(f"linhas de partido: {problema}")
+    pendentes = epocas_de_partido.planejar(db)
+    confere(
+        not pendentes,
+        "toda candidatura antiga esta na linha da sua epoca",
+        f"{sum(m.quantidade for m in pendentes)} candidaturas ainda na linha de hoje "
+        f"(rodar scripts/epocas_de_partido.py --aplicar)",
+    )
+    for ano, cargo in ((2016, 11), (2018, 6), (2022, 6)):
+        pp = pega(f"/tse/stats/party-performance?year={ano}&office_code={cargo}",
+                  f"Partidos ({ano})")
+        if not pp:
+            continue
+        numeros = [i["party"]["number"] for i in pp["items"]]
+        repetidos = sorted({n for n in numeros if numeros.count(n) > 1})
+        confere(
+            not repetidos,
+            f"ranking de {ano}: uma linha por numero de partido ({len(numeros)})",
+            f"ranking de {ano}: numero repetido em duas linhas {repetidos}",
+        )
+        errados = [
+            (i["party"]["number"], i["party"]["abbreviation"])
+            for i in pp["items"]
+            if i["party"]["number"] in EPOCAS
+            and i["party"]["abbreviation"]
+            != sigla_no_ano(i["party"]["number"], ano, i["party"]["abbreviation"])
+        ]
+        confere(
+            not errados,
+            f"ranking de {ano}: sigla da epoca em todos os partidos que mudaram de nome",
+            f"ranking de {ano}: sigla de hoje em ano antigo {errados}",
+        )
+    if partidos:
+        uniao = next((p for p in partidos if p["number"] == 44), None)
+        confere(
+            bool(uniao) and "DEM" in (uniao.get("former_abbreviations") or []),
+            "busca: o Uniao (44) e encontrado pela sigla antiga DEM",
+            "busca: /parties nao traz DEM entre as siglas antigas do 44",
+        )
 
     # ---------------------------------------------------------------- resumo
     print("\n" + "=" * 62)

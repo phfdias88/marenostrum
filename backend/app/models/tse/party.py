@@ -1,5 +1,5 @@
 """Partido político (TSE)."""
-from sqlalchemy import Index, Integer, String
+from sqlalchemy import Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -22,5 +22,13 @@ class Party(Base, TimestampMixin):
 
     __table_args__ = (
         Index("ix_tse_parties_number", "number"),
-        Index("ix_tse_parties_number_sigla", "number", "abbreviation", unique=True),
+        # Unico por (numero, sigla, EPOCA): o 22 tem duas linhas "PL" (a de
+        # 2002-2006 e a de hoje, com o PR no meio). O coalesce faz a linha sem
+        # data colidir com outra sem data — num indice simples NULL nunca e
+        # igual a NULL, e duas linhas "desde sempre" passariam caladas.
+        Index(
+            "ix_tse_parties_number_sigla",
+            "number", "abbreviation", text("coalesce(valid_from, 0)"),
+            unique=True,
+        ),
     )

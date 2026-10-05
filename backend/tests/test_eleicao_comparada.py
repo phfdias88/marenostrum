@@ -125,6 +125,65 @@ def test_senador_do_partido_fundido_aparece_no_sucessor(client, tenant_a, db_ses
     assert (prd["numero"], prd["antes"], prd["a_frente"], prd["total"]) == (25, 1, 1, 2)
 
 
+def test_linha_do_sucessor_leva_o_nome_de_hoje_mesmo_sem_candidato_agora(
+    client, tenant_a, db_session,
+):
+    """O senador eleito pelo PSC em 2022 esta na bancada do Podemos (mesmo
+    numero, 20). Se o Podemos nao lanca senador em 2026, a linha nao pode sair
+    com a sigla extinta."""
+    _, _, token = tenant_a
+    e22 = Election(tse_code=546, year=2022, round=1, name="Geral 2022")
+    e26 = Election(tse_code=6259, year=2026, round=1, name="Geral 2026")
+    psc = Party(number=20, abbreviation="PSC", name="Partido Social Cristão")
+    pode = Party(number=20, abbreviation="PODE", name="Podemos", valid_from=2023)
+    pt = Party(number=13, abbreviation="PT", name="Partido dos Trabalhadores")
+    db_session.add_all([e22, e26, psc, pode, pt])
+    db_session.flush()
+    for sq, eleicao, partido, nome, situacao in (
+        (1, e22, psc, "SENADOR DO PSC", "ELEITO"), (2, e26, pt, "ELEITO DO PT", "ELEITO"),
+        (3, e26, pt, "OUTRO DO PT", "ELEITO"),
+    ):
+        db_session.add(Candidate(
+            election_id=eleicao.id, party_id=partido.id, sq_candidato=sq,
+            number=partido.number * 10, name=nome, urn_name=nome, office_code=5,
+            office_name="SENADOR", state="RJ", total_votes=100, result_status=situacao,
+        ))
+    db_session.commit()
+
+    b = _bancada(client, token)
+    do_20 = next(p for p in b["partidos"] if p["numero"] == 20)
+    assert (do_20["sigla"], do_20["antes"]) == ("PODE", 1)
+
+
+def test_dois_partidos_do_ano_no_mesmo_sucessor_levam_o_nome_de_hoje(
+    client, tenant_a, db_session,
+):
+    """Em 2022 o Podemos (19) e o PSC (20) somam na linha do 20. Com a sigla da
+    epoca em cada candidatura, o rotulo saia 'PSC' ou 'PODE' conforme a ordem
+    em que o banco devolvia as linhas."""
+    _, _, token = tenant_a
+    e22 = Election(tse_code=546, year=2022, round=1, name="Geral 2022")
+    pode19 = Party(number=19, abbreviation="PODE", name="Podemos", valid_from=2017)
+    psc = Party(number=20, abbreviation="PSC", name="Partido Social Cristão")
+    pode20 = Party(number=20, abbreviation="PODE", name="Podemos", valid_from=2023)
+    db_session.add_all([e22, pode19, psc, pode20])
+    db_session.flush()
+    # O PSC por ultimo: e a ordem em que o rotulo errado vencia.
+    for sq, partido, nome in ((1, pode19, "DO PODEMOS"), (2, psc, "DO PSC")):
+        db_session.add(Candidate(
+            election_id=e22.id, party_id=partido.id, sq_candidato=sq,
+            number=partido.number * 100, name=nome, urn_name=nome, office_code=6,
+            office_name="DEPUTADO FEDERAL", state="RJ", total_votes=100,
+            result_status="ELEITO",
+        ))
+    db_session.commit()
+
+    r = client.get("/api/v1/tse/stats/bancada?year=2022&office_code=6", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    do_20 = [p for p in r.json()["partidos"] if p["numero"] == 20]
+    assert [(p["sigla"], p["eleitos"]) for p in do_20] == [("PODE", 2)]
+
+
 def test_camara_nao_soma_a_bancada_que_sai(client, tenant_a, db_session):
     """Na Camara todo mundo e trocado. Somar 2022 com 2026 daria uma casa com
     o dobro de cadeiras."""

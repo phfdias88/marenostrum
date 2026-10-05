@@ -40,7 +40,8 @@ from app.services.comparecimento import get_turnout
 from app.services.eleicao_comparada import get_bancada, get_virada
 from app.utils import apuracao
 from app.utils.partidos import (
-    numero_sucessor, partido_atual, sigla_no_ano, trechos_da_linhagem,
+    numero_sucessor, partido_atual, sigla_no_ano, siglas_anteriores,
+    trechos_da_linhagem,
 )
 from app.services.tse_ingest import arquivos_prontos, cobertura
 
@@ -320,8 +321,10 @@ def list_parties(
     for p in db.execute(select(Party).order_by(Party.number)).scalars():
         por_numero.setdefault(p.number, []).append(p)
     return [
-        PartyRead.model_validate(partido_atual(linhas))
-        for linhas in por_numero.values()
+        PartyRead.model_validate(partido_atual(linhas)).model_copy(
+            update={"former_abbreviations": siglas_anteriores(numero, por_numero)}
+        )
+        for numero, linhas in por_numero.items()
     ]
 
 

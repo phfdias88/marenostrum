@@ -42,6 +42,7 @@ from app.models.tse.municipality import Municipality
 from app.models.tse.party import Party
 from app.models.tse.vote_result import VoteResult
 from app.utils.agg_cache import cached_agg
+from app.utils.partidos import numero_sucessor
 
 log = structlog.get_logger("marenostrum.services.election_queries")
 
@@ -139,6 +140,7 @@ def _calcular_eleitos(
             Candidate.office_name, Candidate.office_code,
             Candidate.result_status, Candidate.total_votes,
             Candidate.social_links, Party.abbreviation.label("partido"),
+            Party.number.label("partido_numero"),
         )
         .select_from(Candidate)
         .join(Election, Election.id == Candidate.election_id)
@@ -169,6 +171,10 @@ def _calcular_eleitos(
             "nome_urna": r.urn_name,
             "numero": r.number,
             "partido": r.partido,
+            # A sigla e a da EPOCA (DEM em 2016, PRD em 2024): quem cruza anos
+            # usa `partido_linhagem`, o numero do partido de hoje que a herdou.
+            "partido_numero": r.partido_numero,
+            "partido_linhagem": numero_sucessor(r.partido_numero, ano),
             "cargo": r.office_name,
             "cargo_codigo": r.office_code,
             "situacao": r.result_status,

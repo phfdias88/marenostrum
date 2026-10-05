@@ -160,7 +160,7 @@ def importar_candidatos_do_registro(
                         })
                     sigla = (row.get("SG_PARTIDO") or "").strip()[:20]
                     pid = (
-                        partidos.achar_exato(num_partido, sigla) if sigla
+                        partidos.achar_exato(num_partido, sigla, ano) if sigla
                         else partidos.achar(num_partido, None, ano)
                     )
                     if pid is None:

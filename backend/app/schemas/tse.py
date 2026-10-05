@@ -23,6 +23,10 @@ class PartyRead(BaseModel):
     number: int
     abbreviation: str
     name: str
+    # So em GET /parties: siglas antigas da linhagem do partido (44/UNIÃO traz
+    # DEM, PSL, PFL), da mais recente para a mais antiga. E por elas que se acha
+    # o partido de hoje digitando o nome que aparece nas candidaturas antigas.
+    former_abbreviations: list[str] | None = None
 
 
 class MunicipalityRead(BaseModel):

@@ -1511,8 +1511,11 @@ def _process_filiacao_partidaria(
         rows_processed += 1
         if not period:
             period = _i(row.get("NR_ANO_MES"))
-        # Filiacao e retrato de HOJE: sem ano, vale a epoca mais recente.
-        pid = partidos.achar(_i(row.get("NR_PARTIDO")), row.get("SG_PARTIDO"))
+        # Filiacao e retrato de HOJE: vale a linha ATUAL do numero. A sigla do
+        # arquivo fica de fora de proposito — se ele trouxer a grafia de uma
+        # epoca antiga ("SD" no 77), os filiados de hoje iriam para a linha
+        # antiga e a pagina do municipio os mostraria com a sigla extinta.
+        pid = partidos.achar(_i(row.get("NR_PARTIDO")))
         mid = munis_by_tse.get(_i(row.get("CD_MUNICIPIO")))
         qt = _i(row.get("QT_FILIADO"))
         if pid is None or mid is None or qt <= 0:

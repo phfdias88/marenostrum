@@ -374,3 +374,41 @@ def test_sigla_no_ano_devolve_o_nome_que_o_numero_tinha():
     assert sigla_no_ano(13, 2002, "PT") == "PT"
     # 14 e 35 ja tem linha por epoca no banco: a tabela nao mexe.
     assert sigla_no_ano(14, 2018, "PTB") == "PTB"
+    # 51: o arquivo do TSE traz "PATRIOTA" ja em 2014, mas com o nome do PEN.
+    assert [sigla_no_ano(51, a, "PATRIOTA") for a in (2014, 2016, 2018, 2022)] == [
+        "PEN", "PEN", "PATRIOTA", "PATRIOTA",
+    ]
+
+
+def test_siglas_antigas_seguem_a_linhagem_e_nao_o_numero():
+    """Busca por sigla antiga: "DEM" tem de achar o Uniao (44), que o herdou —
+    e nao o PRD, que so ficou com o NUMERO 25."""
+    from types import SimpleNamespace as L
+
+    from app.utils.partidos import siglas_anteriores
+
+    linhas = {
+        13: [L(abbreviation="PT", valid_from=None)],
+        14: [L(abbreviation="PTB", valid_from=None), L(abbreviation="MISSÃO", valid_from=2025)],
+        17: [L(abbreviation="PSL", valid_from=None)],
+        22: [L(abbreviation="PL", valid_from=None), L(abbreviation="PR", valid_from=2007),
+             L(abbreviation="PL", valid_from=2019)],
+        25: [L(abbreviation="PFL", valid_from=None), L(abbreviation="DEM", valid_from=2007),
+             L(abbreviation="PRD", valid_from=2022)],
+        41: [L(abbreviation="PSD", valid_from=None)],
+        44: [L(abbreviation="PRP", valid_from=None), L(abbreviation="UNIÃO", valid_from=2019)],
+        51: [L(abbreviation="PEN", valid_from=None), L(abbreviation="PATRIOTA", valid_from=2017)],
+        55: [L(abbreviation="PSD", valid_from=None)],
+    }
+    assert siglas_anteriores(44, linhas) == ["DEM", "PSL", "PFL"]
+    # O PRD herdou PTB e Patriota (e, por eles, PRP e PEN). O PSD antigo (41)
+    # tambem foi parar nele, mas "PSD" hoje e outro partido: fica de fora.
+    assert siglas_anteriores(25, linhas) == ["PATRIOTA", "PTB", "PRP", "PEN"]
+    # O PL antigo do 22 tem a MESMA sigla de hoje: nao e "sigla antiga".
+    assert siglas_anteriores(22, linhas) == ["PR"]
+    # O Missao so ficou com o numero do PTB, nao com a historia.
+    assert siglas_anteriores(14, linhas) == []
+    assert siglas_anteriores(13, linhas) == []
+    # Partido extinto: a ultima sigla dele e "a de hoje" do numero.
+    assert siglas_anteriores(51, linhas) == ["PEN"]
+    assert siglas_anteriores(99, linhas) == []
