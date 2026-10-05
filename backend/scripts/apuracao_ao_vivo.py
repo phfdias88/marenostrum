@@ -116,6 +116,8 @@ def cargo_existe_na_uf(cargo: int, uf: str) -> bool:
     la. Pedir a combinacao impossivel e um 404 garantido — 119 requisicoes
     jogadas fora por passada."""
     uf = uf.upper()
+    if uf == "ZZ":                      # exterior: so se vota para presidente
+        return cargo == 1
     if cargo == 8:
         return uf == "DF"
     if cargo == 7:
@@ -236,6 +238,27 @@ def passo_municipios(db, cliente, eleicoes, candidatos, ufs, so_cargos=None) -> 
     traz a lista inteira da UF em CADA municipio (mais de mil nomes), e o Brasil
     todo passaria de dez milhoes de linhas.
     """
+    # Antes de varrer: o banco conhece todo lugar em que esta eleicao acontece?
+    # Se a lista nao vier, a varredura segue com o que o banco ja conhece — mas
+    # avisa: "nenhum municipio criado" e "nao deu para conferir" nao podem sair
+    # iguais no resumo.
+    criados = listas_sem_resposta = 0
+    for el in eleicoes:
+        lista = live.baixar(cliente, live.url_dos_municipios(ANO, el["codigo"]))
+        try:
+            if not lista:
+                raise ValueError("sem resposta")
+            criados += live.criar_municipios_que_faltam(db, lista, ufs)
+            db.commit()
+        except Exception as exc:  # noqa: BLE001 — a varredura nao para por isso
+            db.rollback()
+            listas_sem_resposta += 1
+            print(f"  AVISO: lista de municipios da eleicao {el['codigo']} nao pode "
+                  f"ser conferida ({type(exc).__name__}: {exc}); municipio novo, se "
+                  f"houver, fica sem voto nesta passada", flush=True)
+    if criados:
+        print(f"  {criados} municipio(s) que o TSE lista e o banco nao tinha", flush=True)
+
     ok = falhou = gravados = sem_candidato = 0
     for uf in ufs:
         munis = list(live.mapa_de_municipios(db, uf).items())
@@ -272,7 +295,9 @@ def passo_municipios(db, cliente, eleicoes, candidatos, ufs, so_cargos=None) -> 
                 print(f"  {uf} eleicao {el['codigo']} cargo {cargo}: "
                       f"{ok} arquivos, {gravados} linhas", flush=True)
     return {"arquivos_ok": ok, "arquivos_sem_resposta": falhou,
-            "linhas_gravadas": gravados, "votos_sem_candidato": sem_candidato}
+            "linhas_gravadas": gravados, "votos_sem_candidato": sem_candidato,
+            "municipios_criados": criados,
+            "listas_de_municipios_sem_resposta": listas_sem_resposta}
 
 
 def main() -> int:
@@ -328,7 +353,9 @@ def main() -> int:
                 saida["totais"] = passo_totais(db, cliente, eleicoes, candidatos)
             if args.municipios:
                 if args.municipios.strip().upper() == "TODAS":
-                    ufs = list(ALL_UFS)
+                    # ZZ = exterior. Nao esta em ALL_UFS (nao e UF), e sem ele
+                    # a varredura nacional nunca pedia o voto de fora do pais.
+                    ufs = list(ALL_UFS) + ["ZZ"]
                 else:
                     ufs = [u.strip().upper() for u in args.municipios.split(",")
                            if u.strip()]

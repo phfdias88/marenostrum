@@ -238,6 +238,52 @@ def url_do_arquivo(
     )
 
 
+def url_dos_municipios(ano: int, eleicao: int) -> str:
+    """Lista de municipios (e cidades do exterior) em que aquela eleicao acontece."""
+    return f"{BASE}/ele{ano}/{eleicao}/config/mun-e{eleicao:06d}-cm.json"
+
+
+def criar_municipios_que_faltam(
+    db: Session, config: dict, ufs: Iterable[str],
+) -> int:
+    """Cadastra o municipio que o TSE lista e o banco ainda nao tem.
+
+    A captura percorre os municipios QUE O BANCO CONHECE. Lugar novo — cidade
+    do exterior que passou a ter secao, municipio recem-criado — nao estava na
+    lista, e o voto dele nunca era pedido: em 2026 seis cidades do exterior
+    ficaram de fora e faltavam 19 mil votos na soma de presidente por
+    municipio. Ninguem nota o que nao e pedido, entao a lista de quem pedir
+    vem do proprio TSE.
+
+    So cria; nao renomeia nem apaga. Devolve quantos criou.
+    """
+    from sqlalchemy import insert
+
+    alvo = {u.upper() for u in ufs}
+    existentes = set(db.execute(select(Municipality.tse_code)).scalars())
+    agora = datetime.now(timezone.utc)
+    novos: list[dict[str, Any]] = []
+    for abr in config.get("abr") or []:
+        uf = str(abr.get("cd") or "").upper()
+        if uf not in alvo:
+            continue
+        for mu in abr.get("mu") or []:
+            codigo = _i(mu.get("cd"))
+            if not codigo or codigo in existentes:
+                continue
+            existentes.add(codigo)
+            novos.append({
+                "id": uuid4(), "tse_code": codigo,
+                "name": str(mu.get("nm") or "").strip().upper()[:120],
+                "state": uf, "created_at": agora, "updated_at": agora,
+            })
+    if novos:
+        db.execute(insert(Municipality), novos)
+        log.info("tse_live_municipios_criados", total=len(novos),
+                 exemplos=[n["name"] for n in novos[:5]])
+    return len(novos)
+
+
 def extrair_candidatos(dado: dict) -> list[dict[str, Any]]:
     """Achata carg -> agr -> par -> cand numa lista simples.
 
@@ -478,6 +524,7 @@ def mapa_de_municipios(db: Session, uf: str) -> dict[int, UUID]:
 __all__ = [
     "importar_candidatos_do_registro", "url_do_arquivo", "extrair_candidatos",
     "andamento", "baixar", "gravar_votos_do_municipio",
+    "url_dos_municipios", "criar_municipios_que_faltam",
     "gravar_totais_do_candidato", "mapa_de_candidatos", "mapa_de_municipios",
     "CARGOS_COM_VOTO", "trava_do_ano", "consolidado_ja_entrou",
 ]

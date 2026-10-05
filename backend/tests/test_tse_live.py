@@ -353,3 +353,38 @@ def test_registro_nao_grava_situacao_lixo(tmp_path, db_session):
     importar_candidatos_do_registro(
         db_session, _zip_registro(tmp_path, [linha]), ano=2026)
     assert db_session.query(Candidate).one().situation is None
+
+
+# ------------------------------------------- municipio que o banco nao tinha
+
+def test_municipio_listado_pelo_tse_e_ausente_no_banco_e_criado(db_session):
+    """Seis cidades do exterior de 2026 nao existiam no banco: a captura nunca
+    pedia o voto delas, e 19 mil votos de presidente sumiam da soma."""
+    from app.services.tse_live import criar_municipios_que_faltam, url_dos_municipios
+
+    db_session.add(Municipality(tse_code=29254, name="ABIDJÃ", state="ZZ"))
+    db_session.commit()
+    config = {"abr": [
+        {"cd": "zz", "mu": [{"cd": "29254", "nm": "ABIDJÃ"},
+                            {"cd": "99999", "nm": "Cidade Nova"}]},
+        {"cd": "rj", "mu": [{"cd": "60011", "nm": "RIO DE JANEIRO"}]},
+    ]}
+
+    assert criar_municipios_que_faltam(db_session, config, ["ZZ"]) == 1
+    db_session.commit()
+
+    novo = db_session.query(Municipality).filter_by(tse_code=99999).one()
+    assert (novo.name, novo.state) == ("CIDADE NOVA", "ZZ")
+    # A UF que nao foi pedida fica como estava.
+    assert db_session.query(Municipality).filter_by(tse_code=60011).count() == 0
+    # Rodar de novo nao duplica.
+    assert criar_municipios_que_faltam(db_session, config, ["zz"]) == 0
+    assert url_dos_municipios(2026, 6257).endswith(
+        "/ele2026/6257/config/mun-e006257-cm.json")
+
+
+def test_lista_de_municipios_em_formato_inesperado_nao_cria_nada(db_session):
+    from app.services.tse_live import criar_municipios_que_faltam
+
+    assert criar_municipios_que_faltam(db_session, {"abr": None}, ["ZZ"]) == 0
+    assert criar_municipios_que_faltam(db_session, {}, ["ZZ"]) == 0
