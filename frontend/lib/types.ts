@@ -784,3 +784,87 @@ export type Interaction = {
   received_at: string; // ISO
   created_at: string;  // ISO
 };
+
+// ---------- Bancada (quem fica x quem entra) ----------
+
+/** "antes" = eleito 4 anos atrás; "a_frente" = lidera onde o TSE ainda não proclamou. */
+export type TseBancadaSituacao = "antes" | "eleitos" | "a_frente";
+
+export type TseBancadaPartido = {
+  numero: number;
+  sigla: string;
+  antes: number;
+  eleitos: number;
+  a_frente: number;
+  total: number;
+};
+
+export type TseBancadaCadeira = {
+  uf: string;
+  nome: string;
+  numero: number;
+  sigla: string;
+  situacao: TseBancadaSituacao;
+  votos: number;
+};
+
+export type TseBancadaResponse = {
+  ano: number;
+  ano_anterior: number;
+  cargo: number;
+  casa: string;
+  /** "soma": quem estava continua (Senado). "troca": a casa inteira é renovada (Câmara). */
+  modo: "soma" | "troca";
+  vagas_por_uf: number | null;
+  em_disputa: number;
+  antes: number;
+  eleitos: number;
+  a_frente: number;
+  ufs: number;
+  ufs_pendentes: string[];
+  observacao: string;
+  partidos: TseBancadaPartido[];
+  cadeiras: TseBancadaCadeira[];
+};
+
+// ---------- Virada (o que mudou entre duas eleições) ----------
+
+export type TseViradaLado = {
+  party_number: number;
+  party_abbreviation: string;
+  winner_name: string;
+  votes: number;
+};
+
+export type TseViradaPoint = {
+  municipality_id: string;
+  name: string;
+  state: string;
+  lat: number;
+  lng: number;
+  /** Chave "numeroAntes>numeroDepois" — a mesma de TseViradaTransicao.chave. */
+  transicao: string;
+  virou: boolean;
+  antes: TseViradaLado;
+  depois: TseViradaLado;
+};
+
+export type TseViradaTransicao = {
+  chave: string;
+  virou: boolean;
+  municipios: number;
+  de: { numero: number; sigla: string };
+  para: { numero: number; sigla: string };
+};
+
+export type TseViradaResponse = {
+  cargo: number;
+  de: number;
+  para: number;
+  municipios: number;
+  viraram: number;
+  mantiveram: number;
+  sem_comparacao: number;
+  transicoes: TseViradaTransicao[];
+  pontos: TseViradaPoint[];
+};

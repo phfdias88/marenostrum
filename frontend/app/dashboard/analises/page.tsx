@@ -24,7 +24,9 @@ import {
   MapPin,
   Calculator,
   Calendar,
+  Landmark,
   Map as MapIcon,
+  Repeat2,
   Swords,
   RefreshCw,
   ScanSearch,
@@ -114,7 +116,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/candidato",
     label: "Candidatos",
     icon: Users,
-    description: "Busque por UF, cargo, partido, nome (candidaturas de 2002 a 2024). Votos por município de 2014 a 2024.",
+    description: "Busque por UF, cargo, partido, nome (candidaturas de 2002 a 2026). Votos por município de 2014 a 2026.",
     group: "Explorar",
   },
   {
@@ -135,7 +137,21 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/mapa",
     label: "Mapa partidário",
     icon: MapIcon,
-    description: "Mapa do Brasil colorido pelo partido vencedor em cada cidade.",
+    description: "Mapa do Brasil colorido pelo partido vencedor em cada cidade. Já com 2026.",
+    group: "Explorar",
+  },
+  {
+    href: "/dashboard/analises/virada",
+    label: "Mapa da virada",
+    icon: Repeat2,
+    description: "Onde o partido mais votado mudou de 2022 para 2026, cidade por cidade.",
+    group: "Explorar",
+  },
+  {
+    href: "/dashboard/analises/bancada",
+    label: "Bancada 2026",
+    icon: Landmark,
+    description: "Senado e Câmara por partido: quem já está no mandato e quem está entrando agora.",
     group: "Explorar",
   },
   {
@@ -149,7 +165,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/eleicoes",
     label: "Eleições",
     icon: FileBarChart,
-    description: "Eleições de 2002 a 2024 (municipais e gerais): presidente, governador, deputados.",
+    description: "Eleições de 2002 a 2026 (municipais e gerais): presidente, governador, deputados.",
     group: "Explorar",
   },
   {
@@ -192,7 +208,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/projecao",
     label: "Projeção eleitoral",
     icon: Calculator,
-    description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base no resultado da última eleição. Modo 'e se' com edição de votos por partido.",
+    description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base nas eleições de 2022 e 2024. Modo 'e se' com edição de votos por partido.",
     group: "Ferramentas de campanha",
   },
   {
@@ -227,8 +243,9 @@ export default function AnalisesHubPage() {
     // ao abrir o hub, Partidos/Painel/Mapa já abrem instantâneos no clique.
     const warm = [
       "/v1/tse/stats/party-performance?year=2024&office_code=11",
-      "/v1/tse/stats/winners-map?year=2024&office_code=11",
-      "/v1/tse/stats/top-candidates?year=2024&office_code=13&limit=50",
+      // Mapa e ranking abrem em 2026: aquece o que eles pedem primeiro.
+      "/v1/tse/stats/winners-map?year=2026&office_code=1",
+      "/v1/tse/stats/top-candidates?year=2026&office_code=6&limit=50",
     ];
     warm.forEach((u) => {
       api(u).catch(() => {});
@@ -280,7 +297,7 @@ export default function AnalisesHubPage() {
           </p>
           <h1 className="text-3xl font-bold mt-1">Análises (TSE)</h1>
           <p className="text-muted-foreground mt-1 max-w-xl">
-            Brasil inteiro: candidaturas de 2002 a 2024; resultados detalhados por cidade de 2014 a 2024.
+            Brasil inteiro: candidaturas de 2002 a 2026; resultados por cidade de 2014 a 2026.
           </p>
         </div>
 
@@ -297,7 +314,7 @@ export default function AnalisesHubPage() {
           <Stat
             label="Candidatos"
             value={stats?.candidates ?? 0}
-            hint="de 2002 a 2024"
+            hint="de 2002 a 2026"
             gradient="from-blue-600/20 to-blue-500/5"
             accent="text-blue-700 dark:text-blue-400"
           />

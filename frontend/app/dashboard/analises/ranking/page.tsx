@@ -18,7 +18,7 @@ import { StateFlag } from "@/components/tse/StateFlag";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
 import { VoteBar } from "@/components/ui/VoteBar";
-import { YEAR_OPTIONS, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { ANO_EM_APURACAO, YEAR_OPTIONS, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -32,11 +32,13 @@ const MUNI = [
 const FED = [
   { value: "6", label: "Deputado Federal" },
   { value: "7", label: "Deputado Estadual" },
+  { value: "8", label: "Deputado Distrital" },
   { value: "5", label: "Senador" },
   { value: "3", label: "Governador" },
   { value: "1", label: "Presidente" },
 ];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2026": FED,
   "2024": MUNI,
   "2022": FED,
   "2020": MUNI,
@@ -46,10 +48,13 @@ const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
 };
 
 export default function RankingPage() {
-  const [year, setYear] = useState("2024");
-  const [office, setOffice] = useState("13");
+  // Abre na eleição mais recente. Ano e cargo andam JUNTOS: 2026 com
+  // Vereador (cargo municipal) viria vazio.
+  const [year, setYear] = useState("2026");
+  const [office, setOffice] = useState("6");
   const [state, setState] = useState("");
   const [electedOnly, setElectedOnly] = useState(false);
+  const cargosDoAno = OFFICES_BY_YEAR[year] ?? FED;
   const [data, setData] = useState<TseTopCandidatesResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -82,7 +87,7 @@ export default function RankingPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">Ranking nacional</h1>
           <p className="text-sm text-muted-foreground">
-            Os mais votados · {OFFICES_BY_YEAR[year].find((o) => o.value === office)?.label ?? "todos os cargos"} · {state || "Brasil (todas)"} · {year}
+            Os mais votados · {cargosDoAno.find((o) => o.value === office)?.label ?? "todos os cargos"} · {state || "Brasil (todas)"} · {year}
           </p>
         </div>
         <button
@@ -131,7 +136,9 @@ export default function RankingPage() {
           value={year}
           onChange={(v) => {
             setYear(v);
-            setOffice(OFFICES_BY_YEAR[v][0].value);
+            // Os anos vêm do catálogo central e os cargos desta tabela local:
+            // um ano que só exista lá não pode derrubar a tela.
+            setOffice((OFFICES_BY_YEAR[v] ?? FED)[0].value);
           }}
           options={YEAR_OPTIONS}
           className="md:col-span-3"
@@ -140,7 +147,7 @@ export default function RankingPage() {
           label="Cargo"
           value={office}
           onChange={setOffice}
-          options={OFFICES_BY_YEAR[year]}
+          options={cargosDoAno}
           className="md:col-span-4"
         />
         <Select
@@ -173,7 +180,11 @@ export default function RankingPage() {
           <EmptyState
             icon={SearchX}
             title="Sem dados para esse filtro"
-            hint="Tente outro ano, cargo ou UF."
+            hint={
+              electedOnly && String(ANO_EM_APURACAO) === year
+                ? "Nesta eleição a situação só aparece quando o TSE fecha o cargo, e quem foi a 2º turno ainda não tem eleito. Desmarque 'Só eleitos' para ver a votação."
+                : "Tente outro ano, cargo ou UF."
+            }
           />
         </div>
       ) : (

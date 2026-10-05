@@ -19,7 +19,7 @@ import type {
   TseTopCandidatesResponse,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
-import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 import { partyTheme } from "@/lib/partyColors";
 import { VoteBar } from "@/components/ui/VoteBar";
 import { PartyLogo } from "@/components/tse/PartyLogo";
@@ -30,6 +30,7 @@ import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -45,6 +46,7 @@ const _FED = [
   { value: "1", label: "Presidente" },
 ];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2026": _FED,
   "2024": _MUNI,
   "2022": _FED,
   "2020": _MUNI,
@@ -152,7 +154,10 @@ export default function PartyDetailPage() {
       .filter((i) => i.elected_count > 0 || i.total_votes > 0)
       .sort((a, b) => b.elected_count - a.elected_count || b.total_votes - a.total_votes);
     const idx = ranked.findIndex((i) => i.party.number === num);
-    return { mine: idx >= 0 ? ranked[idx] : null, rank: idx >= 0 ? idx + 1 : null };
+    // Os números do partido NÃO passam pelo filtro do ranking: partido sem
+    // eleito e sem voto carregado ainda tem candidatos, e o card dizia "0".
+    const mine = (perf?.items ?? []).find((i) => i.party.number === num) ?? null;
+    return { mine, rank: idx >= 0 ? idx + 1 : null };
   }, [perf, num]);
 
   const maxVotes = top?.items[0]?.total_votes ?? 1;
@@ -279,7 +284,9 @@ export default function PartyDetailPage() {
         <p className="text-[11px] text-muted-foreground mt-2">
           {year} · {OFFICES_BY_YEAR[year]?.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Brasil"}
         </p>
-        {!perfLoading && rank && (
+        <AvisoApuracao year={year} office={office} className="mt-1" />
+        {/* Com a apuração aberta o ranking "em eleitos" seria por dado parcial. */}
+        {!perfLoading && rank && String(ANO_EM_APURACAO) !== year && (
           <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
             <Trophy className="w-3.5 h-3.5 text-primary shrink-0" />
             {rank}º partido em eleitos {state ? `em ${state}` : "no Brasil"} para esse cargo/ano.
@@ -445,10 +452,15 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
   // Tendência HONESTA: compara a última eleição com a anterior do MESMO tipo
   // (municipal×municipal ou geral×geral) — senão 2014 federal vs 2024
   // municipal daria número sem sentido.
-  const sameType = evolution.items.filter((i) => isMuni(i.year) === isMuni(last.year));
+  //
+  // E só entre eleições FECHADAS: com a apuração aberta, "eleitos" está pela
+  // metade e a frase diria "caiu N eleitos" sobre um número que ainda sobe.
+  const fechadas = evolution.items.filter((i) => i.year !== ANO_EM_APURACAO);
+  const ref = fechadas[fechadas.length - 1] ?? last;
+  const sameType = fechadas.filter((i) => isMuni(i.year) === isMuni(ref.year));
   const prevSame = sameType.length >= 2 ? sameType[sameType.length - 2] : null;
-  const delta = prevSame ? last.elected_count - prevSame.elected_count : 0;
-  const tipo = isMuni(last.year) ? "municipais" : "gerais";
+  const delta = prevSame ? ref.elected_count - prevSame.elected_count : 0;
+  const tipo = isMuni(ref.year) ? "municipais" : "gerais";
 
   return (
     <div className="mt-6">
@@ -464,7 +476,11 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
                 <span className="flex items-center gap-2">
                   <span className="font-bold tabular-nums text-primary w-12">{it.year}</span>
                   <span className="text-[10px] text-muted-foreground uppercase">
-                    {muni ? "Municipal" : "Geral"}
+                    {muni
+                      ? "Municipal"
+                      : it.year === ANO_EM_APURACAO
+                        ? "Geral · apuração parcial"
+                        : "Geral"}
                   </span>
                 </span>
                 <span className="text-sm">
@@ -483,14 +499,14 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
           <p className="text-xs text-muted-foreground pt-1">
             {delta > 0 ? (
               <span className="text-emerald-600">
-                ▲ Cresceu {fmt.format(delta)} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+                ▲ Cresceu {fmt.format(delta)} eleitos nas eleições {tipo} ({prevSame.year}→{ref.year}).
               </span>
             ) : delta < 0 ? (
               <span className="text-rose-500">
-                ▼ Caiu {fmt.format(Math.abs(delta))} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+                ▼ Caiu {fmt.format(Math.abs(delta))} eleitos nas eleições {tipo} ({prevSame.year}→{ref.year}).
               </span>
             ) : (
-              <span>Estável nas eleições {tipo} ({prevSame.year}→{last.year}).</span>
+              <span>Estável nas eleições {tipo} ({prevSame.year}→{ref.year}).</span>
             )}
           </p>
         )}

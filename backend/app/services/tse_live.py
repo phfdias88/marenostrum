@@ -56,6 +56,7 @@ from app.models.tse.municipality import Municipality
 from app.models.tse.party import Party
 from app.models.tse.runoff_vote import TseRunoffVote
 from app.models.tse.vote_result import VoteResult
+from app.utils.partidos import IndiceDePartidos
 
 log = structlog.get_logger("marenostrum.services.tse_live")
 
@@ -109,7 +110,7 @@ def importar_candidatos_do_registro(
     `sq_candidato` e segue sem duplicar. Idempotente: quem ja existe e pulado.
     """
     eleicoes = {e.tse_code: e.id for e in db.execute(select(Election)).scalars()}
-    partidos = {p.number: p.id for p in db.execute(select(Party)).scalars()}
+    partidos = IndiceDePartidos.do_banco(db)
     ja_existe = set(
         db.execute(
             select(Candidate.sq_candidato)
@@ -157,13 +158,26 @@ def importar_candidatos_do_registro(
                             "type_name": (row.get("NM_TIPO_ELEICAO") or "")[:80],
                             "created_at": agora, "updated_at": agora,
                         })
-                    if num_partido not in partidos:
+                    sigla = (row.get("SG_PARTIDO") or "").strip()[:20]
+                    pid = (
+                        partidos.achar_exato(num_partido, sigla) if sigla
+                        else partidos.achar(num_partido, None, ano)
+                    )
+                    if pid is None:
+                        # Sigla que este numero nunca teve: ou o numero foi
+                        # dado a outro partido (14: PTB -> MISSAO), ou o mesmo
+                        # partido mudou de nome (35: PMB -> DEMOCRATA). Este e
+                        # o registro da eleicao mais recente, entao abre uma
+                        # epoca nova em vez de herdar a sigla antiga — foi
+                        # assim que o candidato do Missao saiu como "PTB".
                         pid = uuid4()
-                        partidos[num_partido] = pid
+                        desde = ano if partidos.conhece(num_partido) else None
+                        partidos.registrar(num_partido, sigla, pid, desde)
                         novos_partidos.append({
                             "id": pid, "number": num_partido,
-                            "abbreviation": (row.get("SG_PARTIDO") or "")[:20],
+                            "abbreviation": sigla,
                             "name": (row.get("NM_PARTIDO") or "")[:180],
+                            "valid_from": desde,
                             "created_at": agora, "updated_at": agora,
                         })
                     if sq in ja_existe:
@@ -175,7 +189,7 @@ def importar_candidatos_do_registro(
                         "number": _i(row.get("NR_CANDIDATO")),
                         "name": (row.get("NM_CANDIDATO") or "")[:180],
                         "urn_name": (row.get("NM_URNA_CANDIDATO") or "")[:180],
-                        "party_id": partidos[num_partido],
+                        "party_id": pid,
                         "office_code": cargo,
                         "office_name": (row.get("DS_CARGO") or "")[:40],
                         "state": (row.get("SG_UF") or "")[:2].upper(),

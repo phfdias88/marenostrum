@@ -89,7 +89,8 @@ function MarkersLayer({
       const marker = L.circleMarker([p.lat, p.lng], { radius, ...path });
       const color = partyColor(p.party_number);
       marker.bindTooltip(
-        `${p.name}/${p.state} · <b style="color:${color}">${p.party_abbreviation}</b> · ${numberFmt.format(p.votes)}`,
+        `${p.name}/${p.state} · <b style="color:${color}">${p.party_abbreviation}</b> ` +
+          `${p.winner_name} · ${numberFmt.format(p.votes)}`,
         { direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1 },
       );
       marker.addTo(group);

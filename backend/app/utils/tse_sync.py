@@ -51,6 +51,7 @@ from app.models.tse import (
     TseVotingPlace,
     VoteResult,
 )
+from app.utils.partidos import IndiceDePartidos
 
 # UFs do Brasil — usado pra gerar entries no DATASETS dict
 ALL_UFS = [
@@ -551,9 +552,12 @@ def _process_candidato_munzona(
     elections_by_tse: dict[int, UUID] = {
         e.tse_code: e.id for e in db.execute(select(Election)).scalars()
     }
-    parties_by_number: dict[int, UUID] = {
-        p.number: p.id for p in db.execute(select(Party)).scalars()
-    }
+    # Partido NAO se acha so pelo numero: o TSE reaproveita numero e partido
+    # muda de nome (ver app/utils/partidos.py).
+    partidos = IndiceDePartidos.do_banco(db)
+    # (numero, sigla) -> id ja resolvido. O arquivo tem milhoes de linhas e
+    # umas 30 combinacoes: resolver uma vez por combinacao, nao por linha.
+    partido_da_linha: dict[tuple[int, str], UUID] = {}
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
     }
@@ -635,17 +639,32 @@ def _process_candidato_munzona(
 
         # ---------- Party ----------
         party_number = _i(row.get("NR_PARTIDO"))
-        if party_number and party_number not in parties_by_number:
-            pid = uuid4()
-            parties_by_number[party_number] = pid
-            parties_buf.append({
-                "id": pid,
-                "number": party_number,
-                "abbreviation": _s(row.get("SG_PARTIDO"), 20),
-                "name": _s(row.get("NM_PARTIDO"), 180),
-                "created_at": now,
-                "updated_at": now,
-            })
+        party_sigla = _s(row.get("SG_PARTIDO"), 20)
+        party_id = partido_da_linha.get((party_number, party_sigla))
+        if party_number and party_id is None:
+            party_id = partidos.achar(party_number, party_sigla, job.year)
+            if party_id is None:
+                party_id = uuid4()
+                partidos.registrar(party_number, party_sigla, party_id)
+                parties_buf.append({
+                    "id": party_id,
+                    "number": party_number,
+                    "abbreviation": party_sigla,
+                    "name": _s(row.get("NM_PARTIDO"), 180),
+                    "created_at": now,
+                    "updated_at": now,
+                })
+            elif partidos.achar_exato(party_number, party_sigla) is None:
+                # O arquivo chama este numero por uma sigla que o banco nao
+                # tem. Aqui NAO abrimos epoca nova sozinhos (reimportar um ano
+                # antigo baguncaria a ordem das epocas), mas o aviso nao pode
+                # faltar: foi em silencio que o Missao virou "PTB".
+                log.warning(
+                    "tse_partido_sigla_diverge", numero=party_number,
+                    sigla_no_arquivo=party_sigla, ano=job.year,
+                    acao="conferir se o numero mudou de dono (app/utils/partidos.py)",
+                )
+            partido_da_linha[(party_number, party_sigla)] = party_id
 
         # ---------- Municipality ----------
         muni_code = _i(row.get("CD_MUNICIPIO"))
@@ -685,7 +704,7 @@ def _process_candidato_munzona(
                 "number": _i(row.get("NR_CANDIDATO")),
                 "name": _s(row.get("NM_CANDIDATO"), 180),
                 "urn_name": _s(row.get("NM_URNA_CANDIDATO"), 180),
-                "party_id": parties_by_number[party_number],
+                "party_id": party_id,
                 "office_code": _i(row.get("CD_CARGO")),
                 "office_name": _s(row.get("DS_CARGO"), 40),
                 "state": _s(row.get("SG_UF"), 2).upper(),
@@ -1479,9 +1498,7 @@ def _process_filiacao_partidaria(
     O CSV é nacional (~3,5GB descomprimido) → streaming, acumulando em memória
     por (partido, município) (~167k chaves, cabe nos 4GB do VPS).
     """
-    parties_by_number: dict[int, UUID] = {
-        p.number: p.id for p in db.execute(select(Party)).scalars()
-    }
+    partidos = IndiceDePartidos.do_banco(db)
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
     }
@@ -1494,7 +1511,8 @@ def _process_filiacao_partidaria(
         rows_processed += 1
         if not period:
             period = _i(row.get("NR_ANO_MES"))
-        pid = parties_by_number.get(_i(row.get("NR_PARTIDO")))
+        # Filiacao e retrato de HOJE: sem ano, vale a epoca mais recente.
+        pid = partidos.achar(_i(row.get("NR_PARTIDO")), row.get("SG_PARTIDO"))
         mid = munis_by_tse.get(_i(row.get("CD_MUNICIPIO")))
         qt = _i(row.get("QT_FILIADO"))
         if pid is None or mid is None or qt <= 0:

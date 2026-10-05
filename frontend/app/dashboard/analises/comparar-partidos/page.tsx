@@ -21,6 +21,7 @@ const MAX = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
 import { OFFICES_BY_YEAR, YEAR_OPTIONS } from "@/lib/elections";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 
 export default function CompararPartidosPage() {
   const [year, setYear] = useState("2024");
@@ -37,8 +38,20 @@ export default function CompararPartidosPage() {
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     const ids = sp.get("ids")?.split(",").map(Number).filter((n) => !Number.isNaN(n)).slice(0, MAX);
-    if (sp.get("year")) setYear(sp.get("year")!);
-    if (sp.get("office")) setOffice(sp.get("office")!);
+    // Só aceita ano que o catálogo conhece e cargo que exista naquele ano:
+    // um link com ano desconhecido derrubava a tela, e ano geral com o
+    // cargo padrão (Prefeito) abria tudo zerado.
+    const anoDaUrl = sp.get("year");
+    const cargosDaUrl = anoDaUrl ? OFFICES_BY_YEAR[anoDaUrl] : undefined;
+    if (anoDaUrl && cargosDaUrl) {
+      const cargoDaUrl = sp.get("office");
+      setYear(anoDaUrl);
+      setOffice(
+        cargosDaUrl.some((o) => o.value === cargoDaUrl)
+          ? cargoDaUrl!
+          : cargosDaUrl[0].value,
+      );
+    }
     if (ids && ids.length) setSelected(ids);
     setHydrating(false);
   }, []);
@@ -134,7 +147,7 @@ export default function CompararPartidosPage() {
           label="Cargo"
           value={office}
           onChange={setOffice}
-          options={OFFICES_BY_YEAR[year]}
+          options={OFFICES_BY_YEAR[year] ?? []}
           className="md:col-span-5"
         />
         <Select
@@ -145,6 +158,7 @@ export default function CompararPartidosPage() {
           className="md:col-span-3"
         />
       </section>
+      <AvisoApuracao year={year} office={office} className="mb-4 -mt-1" />
 
       {/* Seletor de partidos (chips) */}
       <section className="mb-6">

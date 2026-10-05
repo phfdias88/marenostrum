@@ -200,13 +200,22 @@ def passo_totais(db, cliente, eleicoes, candidatos) -> dict:
             "candidatos_atualizados": atualizados, "andamento": andamento_por_uf}
 
 
-def passo_municipios(db, cliente, eleicoes, candidatos, ufs) -> dict:
-    """Voto por municipio. Um arquivo por municipio por cargo."""
+def passo_municipios(db, cliente, eleicoes, candidatos, ufs, so_cargos=None) -> dict:
+    """Voto por municipio. Um arquivo por municipio por cargo.
+
+    `so_cargos` restringe aos cargos pedidos. Existe porque o custo e muito
+    desigual: presidente, governador e senador sao arquivos de poucos KB e uma
+    duzia de candidatos — da para varrer os 5.570 municipios do pais. Deputado
+    traz a lista inteira da UF em CADA municipio (mais de mil nomes), e o Brasil
+    todo passaria de dez milhoes de linhas.
+    """
     ok = falhou = gravados = sem_candidato = 0
     for uf in ufs:
         munis = list(live.mapa_de_municipios(db, uf).items())
         for el in eleicoes:
             for cargo in el["cargos"]:
+                if so_cargos and cargo not in so_cargos:
+                    continue
                 if not cargo_existe_na_uf(cargo, uf):
                     continue
                 urls = [live.url_do_arquivo(ANO, el["codigo"], uf, cargo, cod)
@@ -234,7 +243,10 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--candidatos", action="store_true")
     p.add_argument("--totais", action="store_true")
-    p.add_argument("--municipios", default="", help="UFs separadas por virgula")
+    p.add_argument("--municipios", default="",
+                   help="UFs separadas por virgula, ou TODAS")
+    p.add_argument("--cargos", default="",
+                   help="so estes cargos na passada de municipios, ex: 1,3,5")
     p.add_argument("--data", default="04/10/2026", help="data do pleito no TSE")
     p.add_argument("--forcar", action="store_true",
                    help="grava mesmo se a carga consolidada ja entrou")
@@ -275,9 +287,14 @@ def main() -> int:
             if args.totais:
                 saida["totais"] = passo_totais(db, cliente, eleicoes, candidatos)
             if args.municipios:
-                ufs = [u.strip().upper() for u in args.municipios.split(",") if u.strip()]
+                if args.municipios.strip().upper() == "TODAS":
+                    ufs = list(ALL_UFS)
+                else:
+                    ufs = [u.strip().upper() for u in args.municipios.split(",")
+                           if u.strip()]
+                so_cargos = {int(c) for c in args.cargos.split(",") if c.strip().isdigit()}
                 saida["municipios"] = passo_municipios(
-                    db, cliente, eleicoes, candidatos, ufs)
+                    db, cliente, eleicoes, candidatos, ufs, so_cargos or None)
 
     saida["segundos"] = round(time.time() - inicio, 1)
     try:

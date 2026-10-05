@@ -32,6 +32,9 @@ const WinnersMap = dynamic(() => import("@/components/map/WinnersMap"), {
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
 const OPTIONS = [
+  { value: "2026-1", label: "Presidente 2026", year: "2026", office: "1" },
+  { value: "2026-3", label: "Governadores 2026", year: "2026", office: "3" },
+  { value: "2026-5", label: "Senadores 2026", year: "2026", office: "5" },
   { value: "2024-11", label: "Prefeitos 2024", year: "2024", office: "11" },
   { value: "2022-1", label: "Presidente 2022", year: "2022", office: "1" },
   { value: "2022-3", label: "Governadores 2022", year: "2022", office: "3" },
@@ -50,7 +53,7 @@ const UF_CHIPS: { uf: string; label: string; lat: number; lng: number; zoom: num
 ];
 
 export default function MapaPage() {
-  const [sel, setSel] = useState("2024-11");
+  const [sel, setSel] = useState("2026-1");
   const [data, setData] = useState<TseWinnersMapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [highlightedParty, setHighlightedParty] = useState<number | null>(null);
@@ -123,7 +126,19 @@ export default function MapaPage() {
           <div>
             <h1 className="text-2xl font-bold">Mapa partidário do Brasil</h1>
             <p className="text-sm text-muted-foreground">
-              Cada município pintado pela cor do partido mais votado.
+              Cada município pintado pela cor do partido mais votado
+              {opt.year === "2024" ? "" : " no 1º turno"}.
+              {opt.year === "2026" && opt.office !== "5" && (
+                <>
+                  {" "}
+                  <Link
+                    href="/dashboard/analises/virada"
+                    className="text-primary hover:underline"
+                  >
+                    Ver o que mudou desde 2022 →
+                  </Link>
+                </>
+              )}
             </p>
           </div>
         </div>

@@ -17,7 +17,7 @@ import type {
   TseMunicipalityTimeline,
   TseMunicipalityZones,
 } from "@/lib/types";
-import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -43,6 +43,7 @@ const _FED = [
   { value: "1", label: "Presidente" },
 ];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2026": _FED,
   "2024": _MUNI,
   "2022": _FED,
   "2020": _MUNI,
@@ -122,6 +123,11 @@ export default function MunicipioDetailPage() {
   const muni = data?.municipality;
   const maxVotes = data?.results[0]?.votes ?? 1;
   const totalVotes = data?.total_votes ?? 0;
+  // Na eleição em apuração, o voto de deputado por município entra depois do
+  // de presidente, governador e senador. Vazio aqui é "ainda não carregou",
+  // não "ninguém teve voto".
+  const deputadoPendente =
+    String(ANO_EM_APURACAO) === year && ["6", "7"].includes(office);
 
   if (error) {
     return (
@@ -267,8 +273,16 @@ export default function MunicipioDetailPage() {
             <div className="rounded-lg border bg-card">
               <EmptyState
                 icon={SearchX}
-                title="Sem votação pra esse filtro"
-                hint="Tente outro ano ou cargo neste município."
+                title={
+                  deputadoPendente
+                    ? `Votos de deputado de ${year} ainda não carregados aqui`
+                    : "Sem votação pra esse filtro"
+                }
+                hint={
+                  deputadoPendente
+                    ? "O voto de deputado por município ainda está sendo carregado. Presidente, Governador e Senador já estão disponíveis."
+                    : "Tente outro ano ou cargo neste município."
+                }
               />
             </div>
           ) : (

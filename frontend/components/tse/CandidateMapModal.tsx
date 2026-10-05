@@ -36,6 +36,7 @@ import type {
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
 } from "@/lib/types";
+import { ANO_EM_APURACAO } from "@/lib/elections";
 import type {
   PlacesControl,
   VotingPlacePoint,
@@ -349,7 +350,9 @@ export function CandidateMapModal({ results, onClose }: Props) {
         // FALLBACK: eleição sem votação por seção (ex.: 2014/2016) devolve
         // vazio — com um município focado, cai pra base geográfica 2024
         // (escolas mudam pouco; sem votos, mas o mapa não fica "sem camada").
-        if (d.items.length === 0 && placesMuniId) {
+        // Menos na eleição em apuração: ali a seção ainda vai chegar, e
+        // mostrar os locais de 2024 com "0 votos" pareceria resultado.
+        if (d.items.length === 0 && placesMuniId && c.election.year !== ANO_EM_APURACAO) {
           const fb = await api<VotingPlacePoint[]>(
             `/v1/tse/voting-places/map?municipality_id=${placesMuniId}&year=2024`,
           );
@@ -383,7 +386,7 @@ export function CandidateMapModal({ results, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [mode, placesMuniId, placesMuniName, showPlaces, c.id, placesRetry]);
+  }, [mode, placesMuniId, placesMuniName, showPlaces, c.id, c.election.year, placesRetry]);
 
   const filteredPlaces = useMemo(() => {
     if (!places) return undefined;

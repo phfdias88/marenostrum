@@ -36,6 +36,8 @@ import structlog as _structlog
 
 from app.services.election_data_service import get_aggregated_votes
 from app.services.election_queries import get_elected, get_electorate_profile
+from app.services.eleicao_comparada import get_bancada, get_virada
+from app.utils.partidos import partido_atual, trechos_da_linhagem
 from app.services.tse_ingest import arquivos_prontos, cobertura
 
 log = _structlog.get_logger("marenostrum.controllers.tse")
@@ -307,8 +309,16 @@ def list_parties(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> list[PartyRead]:
-    items = db.execute(select(Party).order_by(Party.number)).scalars().all()
-    return [PartyRead.model_validate(p) for p in items]
+    # Um numero pode ter mais de uma linha (14: PTB e depois MISSAO). A lista
+    # mostra um cartao por numero, com o nome que vale HOJE — duas entradas
+    # com o mesmo numero levariam para a mesma pagina do partido.
+    por_numero: dict[int, list[Party]] = {}
+    for p in db.execute(select(Party).order_by(Party.number)).scalars():
+        por_numero.setdefault(p.number, []).append(p)
+    return [
+        PartyRead.model_validate(partido_atual(linhas))
+        for linhas in por_numero.values()
+    ]
 
 
 @router.get(
@@ -325,19 +335,33 @@ def party_evolution(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> PartyEvolutionResponse:
-    party = db.execute(
+    # O cabecalho usa o partido que responde pelo numero HOJE.
+    linhas = db.execute(
         select(Party).where(Party.number == number)
-    ).scalars().first()
+    ).scalars().all()
+    party = partido_atual(linhas)
     if party is None:
         raise NotFoundError("Partido não encontrado")
 
-    # Todos os party_ids com essa sigla/numero (migrações históricas podem ter
-    # gerado >1 registro pro mesmo número). Agrega todos.
-    party_ids = [
-        p.id for p in db.execute(
-            select(Party).where(Party.number == number)
-        ).scalars()
-    ]
+    # A serie segue a LINHAGEM, nao o numero. Somar tudo que ja usou o numero
+    # poria a historia do PTB na pagina do Missao (os dois foram 14), e
+    # deixaria o PRD sem o passado do PTB e do Patriota, que se fundiram nele.
+    trechos = trechos_da_linhagem(number)
+    ids_por_numero: dict[int, list[UUID]] = {}
+    for p in db.execute(
+        select(Party).where(Party.number.in_({n for n, _, _ in trechos}))
+    ).scalars():
+        ids_por_numero.setdefault(p.number, []).append(p.id)
+    da_linhagem = []
+    for n, depois_de, ate in trechos:
+        if n not in ids_por_numero:
+            continue
+        cond = [Candidate.party_id.in_(ids_por_numero[n])]
+        if depois_de is not None:
+            cond.append(Election.year > depois_de)
+        if ate is not None:
+            cond.append(Election.year <= ate)
+        da_linhagem.append(and_(*cond))
 
     rows = db.execute(
         select(
@@ -349,7 +373,7 @@ def party_evolution(
             func.coalesce(func.sum(Candidate.total_votes), 0).label("votos"),
         )
         .join(Election, Candidate.election_id == Election.id)
-        .where(Candidate.party_id.in_(party_ids))
+        .where(or_(*da_linhagem))
         .group_by(Election.year)
         .order_by(Election.year.asc())
     ).all()
@@ -1223,6 +1247,10 @@ def candidate_results(
             social_links=candidate.social_links,
             revenue_total=candidate.revenue_total,
             expense_total=candidate.expense_total,
+            # Total oficial do candidato. `total_votes` la embaixo soma o voto
+            # por municipio, que pode ainda nao estar carregado (deputado em
+            # 2026): sem este campo a tela mostraria "0 votos" para quem teve.
+            total_votes=candidate.total_votes,
             party=PartyRead.model_validate(party),
             election=ElectionRead.model_validate(election),
         ),
@@ -1731,15 +1759,20 @@ def party_membership(
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict:
-    party = db.execute(
+    # scalar_one_or_none() estouraria aqui: um numero pode ter mais de uma
+    # linha (14: PTB e depois MISSAO). A filiacao fica presa na linha que
+    # existia quando foi importada, entao a busca vale para todas.
+    linhas = db.execute(
         select(Party).where(Party.number == number)
-    ).scalar_one_or_none()
+    ).scalars().all()
+    party = partido_atual(linhas)
     if party is None:
         raise NotFoundError("Partido não encontrado")
+    party_ids = [p.id for p in linhas]
 
     period = db.execute(
         select(func.max(PartyMembership.period)).where(
-            PartyMembership.party_id == party.id
+            PartyMembership.party_id.in_(party_ids)
         )
     ).scalar()
     if period is None:
@@ -1755,7 +1788,7 @@ def party_membership(
             PartyMembership.total.label("total"),
         )
         .join(Municipality, Municipality.id == PartyMembership.municipality_id)
-        .where(PartyMembership.party_id == party.id, PartyMembership.period == period)
+        .where(PartyMembership.party_id.in_(party_ids), PartyMembership.period == period)
     )
     if uf:
         q = q.where(Municipality.state == uf.upper())
@@ -2041,10 +2074,23 @@ def municipality_zones(
     if muni is None:
         raise NotFoundError("Município não encontrado")
 
+    # A tabela de zona nao tem coluna de ano: o ano vem do candidato. Sem
+    # este recorte o `year` entrava so na chave do cache, e duas eleicoes do
+    # mesmo cargo (governador 2022 e 2026) sairiam SOMADAS na mesma zona, com
+    # candidatos das duas no mesmo ranking.
+    do_ano = (
+        select(Candidate.id)
+        .join(Election, Election.id == Candidate.election_id)
+        .where(Election.year == year, Candidate.office_code == office_code)
+    )
+    if office_code != 1:  # presidente e nacional: a UF do registro e arbitraria
+        do_ano = do_ano.where(Candidate.state == muni.state)
+
     # Filtro base (índice municipality_id, office_code, votes)
     base_filter = (
         CandidateZoneVote.municipality_id == municipality_id,
         CandidateZoneVote.office_code == office_code,
+        CandidateZoneVote.candidate_id.in_(do_ano),
     )
 
     # Total de votos por zona (soma de TODOS) — agregação leve sobre o índice.
@@ -2475,7 +2521,10 @@ def stats_counts(
             select(func.count()).select_from(Municipality).where(Municipality.state != "ZZ")
         ).scalar_one()
     )
-    parties = int(db.execute(select(func.count()).select_from(Party)).scalar_one())
+    # distinct: um numero pode ter mais de uma linha (sigla por epoca).
+    parties = int(db.execute(
+        select(func.count(func.distinct(Party.number)))
+    ).scalar_one())
     elections = int(db.execute(select(func.count()).select_from(Election)).scalar_one())
     _result = {
         "candidates": candidates,
@@ -3736,6 +3785,57 @@ def elected(
         db, ano=year, uf=uf, municipio=municipality, cargo=office_code,
         eleito=elected, meios_contato=contacts, limit=limit,
     )
+
+
+@router.get(
+    "/stats/bancada",
+    summary="Bancada por partido: quem fica e quem entra",
+    description="""Quadro da casa legislativa por partido, comparando com a eleicao de 4 anos antes.
+
+**Senado (`office_code=5`)**: `antes` sao os senadores eleitos ha 4 anos, que
+seguem no mandato; `eleitos` sao os proclamados agora; `total` soma os dois.
+
+**Camara (`office_code=6`)**: a casa e renovada inteira, entao `antes` e a
+bancada eleita ha 4 anos (que sai) e `total` conta so quem entra.
+
+`a_frente` existe so no Senado: os mais votados nas UFs em que o TSE ainda nao
+proclamou o resultado. **Nao sao eleitos** e vem separados de proposito.
+
+O partido de `antes` e o da eleicao em que a pessoa foi eleita — o TSE nao
+publica troca de partido durante o mandato.
+""",
+)
+def bancada(
+    ctx: CurrentTenant,
+    year: int = Query(2026, ge=1998, le=2100),
+    office_code: int = Query(5, description="5=senador, 6=deputado federal"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_bancada(db, ano=year, cargo=office_code)
+
+
+@router.get(
+    "/stats/virada",
+    summary="O que mudou em cada municipio entre duas eleicoes",
+    description="""Para cada municipio, o partido mais votado em `from_year` e em `to_year`
+no mesmo cargo, e se ele mudou (`virou`).
+
+Partido que se fundiu ou foi incorporado conta como o sucessor: quem votou no
+PTB em 2022 e no PRD em 2026 **manteve**. Numero reaproveitado por outro
+partido conta como mudanca (o 14 era PTB e hoje e Missao).
+
+Sempre 1o turno dos dois lados. So entram municipios com vencedor nos dois
+anos; os demais vem contados em `sem_comparacao`.
+""",
+)
+def virada(
+    ctx: CurrentTenant,
+    office_code: int = Query(1, description="1=presidente, 3=governador, 5=senador"),
+    from_year: int = Query(2022, ge=1998, le=2100),
+    to_year: int = Query(2026, ge=1998, le=2100),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_virada(db, cargo=office_code, de=from_year, para=to_year)
 
 
 @router.get(
