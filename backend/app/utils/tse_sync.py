@@ -18,6 +18,8 @@ URLs dataset 2024:
 """
 from __future__ import annotations
 
+import os
+
 import csv
 import io
 import logging
@@ -30,7 +32,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import structlog
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,7 @@ from app.models.tse import (
     TseVotingPlace,
     VoteResult,
 )
+from app.utils.partidos import IndiceDePartidos
 
 # UFs do Brasil — usado pra gerar entries no DATASETS dict
 ALL_UFS = [
@@ -151,7 +154,8 @@ for _uf in ALL_UFS:
 # Voto por bairro de anos anteriores (PDF item #4) — locais + seções por ANO.
 # Limitado ao RJ (estado do cliente) pra não estourar o VPS. Rodar o
 # locais_votacao_<ano> ANTES do votacao_secao_<ano>_<UF> (precisa do mapping).
-for _yr in (2020, 2022):
+# 2018 confirmado compatível (arquivo tem NM_BAIRRO + coords reais).
+for _yr in (2018, 2020, 2022):
     DATASETS[f"locais_votacao_{_yr}"] = {
         "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_{_yr}.zip",
         "year": _yr,
@@ -175,7 +179,76 @@ for _yr in (2014, 2016, 2018, 2020, 2022, 2024):
         "max_mb": 600,
     }
 
-CACHE_DIR = Path("/tmp/tse_cache")
+# ---- ELEICAO GERAL DE 2026 (1o turno 04/10, 2o turno 25/10) ---------------
+# "vivo": o arquivo MUDA durante a apuracao. O de resultado nasce so com o
+# cabecalho (350 KB, zero linhas) e vai crescendo ate os ~50 MB; o cache normal,
+# que reusa o zip se ele ja existe, prenderia o sistema na casca vazia pra
+# sempre. Para estes o job confere o tamanho no TSE antes de confiar no disco —
+# ver _cache_ainda_vale().
+#
+# NA NOITE DA APURACAO NAO SE RODA NADA DISTO. Estes zips sao o canal
+# CONSOLIDADO: no dia da eleicao existem mas vem vazios, e so sao preenchidos
+# dias depois. O resultado da noite vem pelo canal ao vivo — ver
+# services/tse_live.py e scripts/apuracao-ao-vivo.sh.
+#
+# Rodar candidato_munzona com o zip vazio APAGARIA os votos capturados ao vivo
+# (o importador apaga o ano antes de ler). Ha um portao contra isso
+# (exigir_dados), mas a ordem correta e outra:
+#
+# QUANDO O CONSOLIDADO SAIR (dias depois), nesta ordem:
+#   0. parar a captura ao vivo (tirar o cron)
+#   1. locais_votacao_2026      — independe da urna, ja foi carregado
+#   2. candidato_munzona_2026   — troca os votos ao vivo pelos oficiais
+#                                 (1o turno em tse_vote_results, 2o em
+#                                 tse_runoff_votes)
+#   3. consulta_cand_2026       — acrescenta CPF aos candidatos
+#   4. votacao_secao_2026_<UF>  — voto por bairro; precisa de 1 e 2
+_ANO_VIVO = 2026
+DATASETS[f"candidato_munzona_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "candidato_munzona",
+    "max_mb": 900,
+    "vivo": True,
+}
+DATASETS[f"zona_votos_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/votacao_candidato_munzona/votacao_candidato_munzona_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "zona_votos",
+    "max_mb": 900,
+    "vivo": True,
+}
+DATASETS[f"locais_votacao_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/eleitorado_locais_votacao/eleitorado_local_votacao_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "locais_votacao",
+    "max_mb": 300,
+    "vivo": True,
+}
+DATASETS[f"consulta_cand_{_ANO_VIVO}"] = {
+    "url": f"{TSE_BASE_URL}/consulta_cand/consulta_cand_{_ANO_VIVO}.zip",
+    "year": _ANO_VIVO,
+    "processor": "consulta_cand",
+    "max_mb": 600,
+    "vivo": True,
+}
+for _uf in ALL_UFS:
+    DATASETS[f"votacao_secao_{_ANO_VIVO}_{_uf}"] = {
+        "url": f"{TSE_BASE_URL}/votacao_secao/votacao_secao_{_ANO_VIVO}_{_uf}.zip",
+        "year": _ANO_VIVO,
+        "processor": "votacao_secao",
+        "uf": _uf,
+        "max_mb": 900,
+        "vivo": True,
+    }
+
+# Onde o ZIP do TSE fica. NAO e /tmp de proposito: o container e recriado a
+# cada deploy e levaria o arquivo junto — e, mais importante, este diretorio e
+# a PORTA DE ENTRADA MANUAL. O TSE devolve 403 a cliente automatizado desde
+# 31/08/2026 (CDN e portal, de qualquer maquina); navegador passa. Entao quem
+# baixa a mao larga o arquivo aqui com o nome do dataset e o job encontra
+# pronto, sem tentar baixar. Ver ARQUIVOS_PRONTOS em tse_ingest.py.
+CACHE_DIR = Path(os.getenv("TSE_DROP_DIR", "/var/marenostrum/tse_drop"))
 MAX_ZIP_MB = 700  # candidato_munzona_2022 tem 583MB
 CHUNK_SIZE = 5_000  # linhas por bulk insert
 # Flush parcial do vote_acc quando passar disso (evita OOM).
@@ -192,6 +265,36 @@ DOWNLOAD_TIMEOUT_S = 1800  # 30min — 2022 e' grande
 def _ensure_cache_dir() -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return CACHE_DIR
+
+
+def _cache_ainda_vale(url: str, local: Path) -> bool:
+    """O zip em disco ainda e o que o TSE esta servindo?
+
+    Compara o tamanho. Durante a apuracao o arquivo de resultado cresce a cada
+    atualizacao, entao tamanho diferente = versao nova publicada.
+
+    NA DUVIDA, CONFIA NO DISCO. Se o TSE nao responder (ja ficou semanas
+    devolvendo 403 a cliente automatizado) ou nao informar o tamanho, devolve
+    True: o arquivo em disco pode ter sido entregue a mao justamente porque o
+    download estava bloqueado, e apaga-lo deixaria o job sem nada.
+    """
+    try:
+        r = httpx.head(url, timeout=30, follow_redirects=True)
+        if r.status_code != 200:
+            log.warning("tse_head_falhou", url=url, status=r.status_code)
+            return True
+        remoto = int(r.headers.get("content-length") or 0)
+    except Exception as exc:  # rede, DNS, timeout — nada disso justifica apagar
+        log.warning("tse_head_erro", url=url, erro=str(exc)[:120])
+        return True
+
+    if not remoto:
+        return True
+    atual = local.stat().st_size
+    if remoto != atual:
+        log.info("tse_zip_mudou", url=url, em_disco=atual, no_tse=remoto)
+        return False
+    return True
 
 
 def download_zip(url: str, dest: Path, max_mb: int | None = None) -> int:
@@ -220,6 +323,35 @@ def download_zip(url: str, dest: Path, max_mb: int | None = None) -> int:
     return bytes_downloaded
 
 
+def _sem_duplicata_nacional(csv_names: list[str]) -> list[str]:
+    """Tira a contagem em dobro quando o zip traz o nacional E os estaduais.
+
+    O TSE empacota de dois jeitos. Ate 2024 o arquivo de locais vinha num CSV
+    so; em 2026 passou a vir um por UF MAIS um `_BRASIL.csv` que e a
+    concatenacao de todos (conferido: 208.710 KB o nacional, 208.730 KB a soma
+    dos outros 28 — a diferenca sao os cabecalhos). Lendo os 29, cada linha
+    conta duas vezes.
+
+    Foi o que aconteceu na primeira carga de locais de 2026: 317 milhoes de
+    eleitores num pais que tem 158. E e traicoeiro porque as colunas sao
+    identicas — a validacao de estrutura passa. Mudou a embalagem, nao o
+    conteudo.
+
+    Havendo os dois, fica so o nacional (mesmo criterio que o processador de
+    votos ja usava com `name_contains="_BRASIL"`). Sem nacional, le todos os
+    estaduais. Com um arquivo so, le ele.
+    """
+    nacionais = [n for n in csv_names if "_brasil" in n.lower()]
+    if nacionais and len(csv_names) > len(nacionais):
+        log.info(
+            "tse_zip_tem_nacional_e_estaduais",
+            usando=nacionais,
+            ignorados=len(csv_names) - len(nacionais),
+        )
+        return nacionais
+    return csv_names
+
+
 def iter_csv_rows(
     zip_path: Path, *, name_contains: str | None = None,
 ) -> Iterator[tuple[str, dict[str, str]]]:
@@ -237,6 +369,8 @@ def iter_csv_rows(
         if name_contains:
             needle = name_contains.lower()
             csv_names = [n for n in csv_names if needle in n.lower()]
+        else:
+            csv_names = _sem_duplicata_nacional(csv_names)
         log.info("tse_csv_files_found", count=len(csv_names), names=csv_names[:5])
 
         for csv_name in csv_names:
@@ -295,7 +429,17 @@ def run_sync_job(job_id: UUID) -> None:
             _ensure_cache_dir()
             zip_path = CACHE_DIR / f"{job.dataset}.zip"
 
-            # Cache: re-usa se já baixou (TSE não muda dataset histórico)
+            # Cache: dataset historico nunca muda, entao reusa. Dataset VIVO
+            # (apuracao em andamento) muda de hora em hora — confere o tamanho no
+            # TSE antes de confiar no que esta em disco.
+            if (
+                zip_path.exists()
+                and dataset_meta.get("vivo")
+                and not _cache_ainda_vale(dataset_meta["url"], zip_path)
+            ):
+                log.info("tse_zip_desatualizado", path=str(zip_path))
+                zip_path.unlink()
+
             if not zip_path.exists():
                 download_zip(dataset_meta["url"], zip_path, max_mb=dataset_meta.get("max_mb"))
             else:
@@ -303,8 +447,27 @@ def run_sync_job(job_id: UUID) -> None:
 
             # Despacha pro processor adequado
             processor = dataset_meta.get("processor", "candidato_munzona")
+
+            # PORTAO: confere o cabecalho ANTES de escrever qualquer coisa. Se
+            # o TSE mudar o layout, o job morre dizendo qual coluna sumiu — em
+            # vez de importar nulo e terminar "com sucesso". Este projeto ja
+            # perdeu uma carga inteira do censo exatamente assim (V0001 virou
+            # v0001 e ninguem viu).
+            from app.services.tse_ingest import exigir_dados, validar_estrutura
+            validar_estrutura(zip_path, processor)
+            # SEGUNDO PORTAO: arquivo so com cabecalho nao dispara reimportacao.
+            # Os processadores apagam o dado do ano ANTES de ler o CSV; com a
+            # casca vazia que o TSE publica no dia da eleicao, apagariam tudo e
+            # terminariam "completed" sem ter gravado nada.
+            exigir_dados(zip_path)
             if processor == "candidato_munzona":
-                _process_candidato_munzona(db, job, zip_path)
+                # Mesma trava da captura ao vivo: este importador apaga os
+                # votos do ano e regrava SOMANDO; se a captura escrevesse no
+                # meio, a soma cairia por cima e o voto sairia em dobro.
+                from app.services.tse_live import trava_do_ano
+
+                with trava_do_ano(job.year, esperar=True):
+                    _process_candidato_munzona(db, job, zip_path)
             elif processor == "locais_votacao":
                 _process_locais_votacao(
                     db, job, zip_path, year=dataset_meta.get("year", 2024),
@@ -389,9 +552,12 @@ def _process_candidato_munzona(
     elections_by_tse: dict[int, UUID] = {
         e.tse_code: e.id for e in db.execute(select(Election)).scalars()
     }
-    parties_by_number: dict[int, UUID] = {
-        p.number: p.id for p in db.execute(select(Party)).scalars()
-    }
+    # Partido NAO se acha so pelo numero: o TSE reaproveita numero e partido
+    # muda de nome (ver app/utils/partidos.py).
+    partidos = IndiceDePartidos.do_banco(db)
+    # (numero, sigla) -> id ja resolvido. O arquivo tem milhoes de linhas e
+    # umas 30 combinacoes: resolver uma vez por combinacao, nao por linha.
+    partido_da_linha: dict[tuple[int, str], UUID] = {}
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
     }
@@ -414,11 +580,32 @@ def _process_candidato_munzona(
     else:
         candidates_by_sq = {}
 
+    # IDEMPOTENCIA (anti vote-doubling): apaga os VoteResult dos candidatos
+    # DESTE ano antes de re-agregar. _flush_vote_results usa upsert-ADD
+    # (votes = votes + excluded.votes), entao re-sincronizar o mesmo dataset
+    # (clicar sync de novo, ou o TSE corrigir o arquivo) SOMAVA sobre os votos
+    # ja gravados, dobrando/triplicando os totais em silencio. Mesmo padrao
+    # idempotente do zona_votos/votacao_secao. No 1o import e' no-op (nao ha
+    # VoteResult ainda); no re-import limpa antes de regravar.
+    _cand_ids_year = select(Candidate.id).where(
+        Candidate.election_id.in_(
+            select(Election.id).where(Election.year == job.year)
+        )
+    )
+    db.execute(delete(VoteResult).where(VoteResult.candidate_id.in_(_cand_ids_year)))
+    db.commit()
+
     # Vote results agregado em memória: (candidate_id, municipality_id) → votes
     vote_acc: dict[tuple[UUID, UUID], int] = {}
 
     # SQ_CANDIDATO → status final do 2º turno (sobrescreve "2º TURNO" no fim)
     runoff_status: dict[int, str] = {}
+
+    # Voto do 2º TURNO, que antes era descartado na entrada. Vai pra tabela
+    # propria (tse_runoff_votes, migration 065) em vez de somar no 1º turno —
+    # ver a explicacao no model. Cabe em memoria sem flush parcial: o 2º turno
+    # do pais inteiro em 2024 teve 95 candidaturas.
+    runoff_acc: dict[tuple[UUID, UUID], int] = {}
 
     # Buffers a inserir
     elections_buf: list[dict] = []
@@ -452,17 +639,32 @@ def _process_candidato_munzona(
 
         # ---------- Party ----------
         party_number = _i(row.get("NR_PARTIDO"))
-        if party_number and party_number not in parties_by_number:
-            pid = uuid4()
-            parties_by_number[party_number] = pid
-            parties_buf.append({
-                "id": pid,
-                "number": party_number,
-                "abbreviation": _s(row.get("SG_PARTIDO"), 20),
-                "name": _s(row.get("NM_PARTIDO"), 180),
-                "created_at": now,
-                "updated_at": now,
-            })
+        party_sigla = _s(row.get("SG_PARTIDO"), 20)
+        party_id = partido_da_linha.get((party_number, party_sigla))
+        if party_number and party_id is None:
+            party_id = partidos.achar(party_number, party_sigla, job.year)
+            if party_id is None:
+                party_id = uuid4()
+                partidos.registrar(party_number, party_sigla, party_id)
+                parties_buf.append({
+                    "id": party_id,
+                    "number": party_number,
+                    "abbreviation": party_sigla,
+                    "name": _s(row.get("NM_PARTIDO"), 180),
+                    "created_at": now,
+                    "updated_at": now,
+                })
+            elif partidos.achar_exato(party_number, party_sigla) is None:
+                # O arquivo chama este numero por uma sigla que o banco nao
+                # tem. Aqui NAO abrimos epoca nova sozinhos (reimportar um ano
+                # antigo baguncaria a ordem das epocas), mas o aviso nao pode
+                # faltar: foi em silencio que o Missao virou "PTB".
+                log.warning(
+                    "tse_partido_sigla_diverge", numero=party_number,
+                    sigla_no_arquivo=party_sigla, ano=job.year,
+                    acao="conferir se o numero mudou de dono (app/utils/partidos.py)",
+                )
+            partido_da_linha[(party_number, party_sigla)] = party_id
 
         # ---------- Municipality ----------
         muni_code = _i(row.get("CD_MUNICIPIO"))
@@ -502,7 +704,7 @@ def _process_candidato_munzona(
                 "number": _i(row.get("NR_CANDIDATO")),
                 "name": _s(row.get("NM_CANDIDATO"), 180),
                 "urn_name": _s(row.get("NM_URNA_CANDIDATO"), 180),
-                "party_id": parties_by_number[party_number],
+                "party_id": party_id,
                 "office_code": _i(row.get("CD_CARGO")),
                 "office_name": _s(row.get("DS_CARGO"), 40),
                 "state": _s(row.get("SG_UF"), 2).upper(),
@@ -521,13 +723,18 @@ def _process_candidato_munzona(
         # O resultado final (ELEITO em 2º turno) já vem de runoff_status.
         _turno = _i(row.get("NR_TURNO")) or 1
         if (
-            _turno == 1
-            and sq and muni_code
+            sq and muni_code
             and sq in candidates_by_sq and muni_code in munis_by_tse
         ):
             key = (candidates_by_sq[sq], munis_by_tse[muni_code])
             votes = _i(row.get("QT_VOTOS_NOMINAIS"))
-            vote_acc[key] = vote_acc.get(key, 0) + votes
+            # Cada turno no seu lugar. Antes o 2º era DESCARTADO aqui, entao no
+            # dia do segundo turno o sistema importava o arquivo e nao guardava
+            # voto nenhum.
+            if _turno == 1:
+                vote_acc[key] = vote_acc.get(key, 0) + votes
+            elif _turno == 2:
+                runoff_acc[key] = runoff_acc.get(key, 0) + votes
 
         # Flush periódico — economiza RAM
         if rows_processed % CHUNK_SIZE == 0:
@@ -557,6 +764,9 @@ def _process_candidato_munzona(
     # Flush final do vote_acc remanescente
     _flush_vote_results(db, vote_acc, job)
     vote_acc.clear()
+
+    _flush_runoff_votes(db, runoff_acc, job)
+    runoff_acc.clear()
 
     # Sobrescreve o result_status dos candidatos que foram a 2º turno com o
     # resultado REAL daquele turno (ELEITO / NÃO ELEITO). Sem isso, presidente
@@ -609,6 +819,43 @@ def _flush_dim_buffers(
     db.commit()
 
 
+def _flush_runoff_votes(
+    db: Session,
+    runoff_acc: dict[tuple[UUID, UUID], int],
+    job: TseSyncJob,
+) -> None:
+    """Grava o voto de 2o turno (tse_runoff_votes, migration 065).
+
+    Aqui o upsert e de SUBSTITUICAO, nao de soma: diferente do 1o turno, este
+    acumulador nunca e flushado no meio do parse (o 2o turno do pais inteiro em
+    2024 teve 95 candidaturas, cabe em memoria), entao cada chave chega uma vez
+    so com o total ja fechado. Somar seria dobrar num re-import.
+    """
+    if not runoff_acc:
+        return
+
+    from app.models.tse.runoff_vote import TseRunoffVote
+
+    now = datetime.now(timezone.utc)
+    rows = [
+        {
+            "id": uuid4(), "candidate_id": cid, "municipality_id": mid,
+            "votes": votes, "created_at": now, "updated_at": now,
+        }
+        for (cid, mid), votes in runoff_acc.items()
+    ]
+    for i in range(0, len(rows), CHUNK_SIZE):
+        chunk = rows[i : i + CHUNK_SIZE]
+        stmt = pg_insert(TseRunoffVote.__table__).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["candidate_id", "municipality_id"],
+            set_={"votes": stmt.excluded.votes, "updated_at": now},
+        )
+        db.execute(stmt)
+    db.commit()
+    log.info("tse_runoff_gravado", linhas=len(rows))
+
+
 def _flush_vote_results(
     db: Session,
     vote_acc: dict[tuple[UUID, UUID], int],
@@ -620,8 +867,9 @@ def _flush_vote_results(
     Por que upsert-add: pra datasets grandes (2022) o vote_acc e' flushado
     PARCIALMENTE varias vezes durante o parse. A mesma (candidate, municipio)
     pode aparecer em flushes diferentes (zonas processadas em momentos
-    distintos) — o upsert-add soma corretamente. Pre-condicao: TRUNCATE
-    tse_vote_results antes de re-importar (senao soma sobre dado antigo).
+    distintos) — o upsert-add soma corretamente. A pre-condicao de re-import
+    limpo (senao soma sobre dado antigo) e' garantida por _process_candidato_munzona,
+    que apaga os VoteResult do ano ANTES do parse (delete-por-ano idempotente).
     """
     if not vote_acc:
         return
@@ -668,11 +916,17 @@ def _process_locais_votacao(
 ) -> None:
     """
     Parseia eleitorado_local_votacao_2024.csv.
-    Cada linha = uma SECAO. Agregamos por (municipio, local_code) — bairro
+    Cada linha = uma SECAO. Agregamos por (municipio, ZONA, local_code) — bairro
     e endereco sao do local, nao da secao. electors_total = SUM secoes.
 
+    A ZONA e obrigatoria na chave: no TSE o NR_LOCAL_VOTACAO so e unico dentro
+    da zona eleitoral. Sem ela, o "local 12" da 1a zona e o "local 12" da 5a
+    colidem e viram uma linha so, e o bairro de um deles leva os votos de
+    todos. Foi o que aconteceu na carga de ago/2026: o Rio ficou com 163
+    locais para uma cidade de mais de 1.400.
+
     Esquema das colunas relevantes:
-      CD_MUNICIPIO, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
+      CD_MUNICIPIO, NR_ZONA, NR_LOCAL_VOTACAO, NM_LOCAL_VOTACAO, DS_ENDERECO,
       NM_BAIRRO, NR_LATITUDE, NR_LONGITUDE, QT_ELEITOR_SECAO
     """
     # Cache: tse_code → municipality_id + centroide do município (pro fallback
@@ -684,21 +938,22 @@ def _process_locais_votacao(
         if _coord_in_brazil(m.latitude, m.longitude):
             muni_centroid_by_id[m.id] = (m.latitude, m.longitude)
 
-    # Cache em memoria: (municipality_id, local_code) → dict do local
-    places_acc: dict[tuple[UUID, int], dict] = {}
+    # Cache em memoria: (municipality_id, zone, local_code) → dict do local
+    places_acc: dict[tuple[UUID, int, int], dict] = {}
     rows_processed = 0
 
     for _, row in iter_csv_rows(zip_path):
         rows_processed += 1
         muni_code = _i(row.get("CD_MUNICIPIO"))
+        zone = _i(row.get("NR_ZONA"))
         local_code = _i(row.get("NR_LOCAL_VOTACAO"))
-        if not muni_code or not local_code:
+        if not muni_code or not local_code or not zone:
             continue
         muni_id = munis_by_tse.get(muni_code)
         if muni_id is None:
             continue  # municipio nao importado ainda
 
-        key = (muni_id, local_code)
+        key = (muni_id, zone, local_code)
         electors = _i(row.get("QT_ELEITOR_SECAO"))
 
         if key in places_acc:
@@ -709,13 +964,23 @@ def _process_locais_votacao(
         lng = _to_float(row.get("NR_LONGITUDE"))
         # TSE manda -1,-1 (ou lixo) quando o local não tem coordenada — isso
         # jogava o local "no meio do Atlântico". Cai no centroide do município
-        # (cidade certa) em vez de uma coord inválida.
-        if not _coord_in_brazil(lat, lng):
+        # (cidade certa) em vez de uma coord inválida. `geo_source` marca a
+        # ORIGEM da coord (migration 050) pro pipeline de enriquecimento saber
+        # o que reprocessar e pra lista de "Não Mapeados".
+        if _coord_in_brazil(lat, lng):
+            geo_source = "tse"
+        else:
             centroid = muni_centroid_by_id.get(muni_id)
-            lat, lng = centroid if centroid else (None, None)
+            if centroid:
+                lat, lng = centroid
+                geo_source = "centroid"
+            else:
+                lat, lng = None, None
+                geo_source = "unmapped"
         places_acc[key] = {
             "id": uuid4(),
             "year": year,
+            "zone": zone,
             "local_code": local_code,
             "municipality_id": muni_id,
             "name": _s(row.get("NM_LOCAL_VOTACAO"), 200),
@@ -723,6 +988,7 @@ def _process_locais_votacao(
             "neighborhood": _s(row.get("NM_BAIRRO"), 120) or None,
             "latitude": lat,
             "longitude": lng,
+            "geo_source": geo_source,
             "electors_total": electors,
         }
 
@@ -739,6 +1005,28 @@ def _process_locais_votacao(
     rows = [
         {**v, "created_at": now, "updated_at": now} for v in places_acc.values()
     ]
+
+    # Purga o ANO antes de inserir. Sao dois motivos:
+    #  1. a insercao e um INSERT puro (sem upsert), entao rodar de novo
+    #     esbarraria na chave unica;
+    #  2. reimportar depois da migration 064 tem de APAGAR as linhas antigas
+    #     (zona nula, locais fundidos) — deixa-las ao lado das novas faria o
+    #     mesmo voto aparecer duas vezes na soma por bairro.
+    # tse_section_votes referencia o local com ON DELETE CASCADE: as secoes do
+    # ano caem junto e PRECISAM ser reimportadas na sequencia.
+    antigos = db.execute(
+        select(func.count()).select_from(TseVotingPlace)
+        .where(TseVotingPlace.year == year)
+    ).scalar() or 0
+    if antigos:
+        log.warning(
+            "tse_locais_purgando_ano",
+            year=year, locais_removidos=antigos, novos=len(rows),
+            aviso="as secoes deste ano caem por cascata e precisam ser reimportadas",
+        )
+        db.execute(delete(TseVotingPlace).where(TseVotingPlace.year == year))
+        db.commit()
+
     log.info("tse_locais_inserting", total_places=len(rows))
 
     for i in range(0, len(rows), CHUNK_SIZE):
@@ -839,10 +1127,12 @@ def _process_votacao_secao(
     Parseia votacao_secao_<year>_<UF>.csv. Cada linha = (candidato, secao, votos).
     Agregamos por (candidate_id, voting_place_id) → SUM(votos).
 
-    Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_LOCAL_VOTACAO, QT_VOTOS
+    Colunas relevantes: SQ_CANDIDATO, CD_MUNICIPIO, NR_ZONA, NR_LOCAL_VOTACAO,
+    QT_VOTOS
 
     Pre-condicao: locais_votacao_<year> ja sincronizado (precisamos do mapping
-    (muni, local_code) → voting_place_id daquele ANO) E candidatos do UF/ano.
+    (muni, zona, local_code) → voting_place_id daquele ANO) E candidatos do
+    UF/ano.
     """
     # Cache 1: SQ_CANDIDATO → candidate_id (pre-filtrado por UF+ANO pra RAM e
     # pra não casar com candidato homônimo de outro ano).
@@ -856,20 +1146,21 @@ def _process_votacao_secao(
     }
     log.info("tse_secao_candidates_loaded", uf=uf, year=year, count=len(candidates_by_sq))
 
-    # Cache 2: (municipality_id, local_code) → voting_place_id (só do UF, ANO certo)
+    # Cache 2: (municipality_id, zone, local_code) → voting_place_id (só do UF,
+    # ANO certo). A zona faz parte da chave — ver a nota em _process_locais.
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(
             select(Municipality).where(Municipality.state == uf)
         ).scalars()
     }
-    voting_places_lookup: dict[tuple[UUID, int], UUID] = {}
+    voting_places_lookup: dict[tuple[UUID, int | None, int], UUID] = {}
     for vp in db.execute(
         select(TseVotingPlace).where(
             TseVotingPlace.municipality_id.in_(list(munis_by_tse.values())),
             TseVotingPlace.year == year,
         )
     ).scalars():
-        voting_places_lookup[(vp.municipality_id, vp.local_code)] = vp.id
+        voting_places_lookup[(vp.municipality_id, vp.zone, vp.local_code)] = vp.id
     log.info(
         "tse_secao_places_loaded", uf=uf, count=len(voting_places_lookup),
     )
@@ -882,18 +1173,24 @@ def _process_votacao_secao(
     # Agregacao em memoria: (candidate_id, voting_place_id) → votes
     # Estimativa MG: ~8k locais × ~150 candidates = ~1.2M entries. Cabe.
     votes_acc: dict[tuple[UUID, UUID], int] = {}
+    # 2o turno em separado — poucas candidaturas, cabe em memoria sem flush.
+    runoff_acc: dict[tuple[UUID, UUID], int] = {}
     rows_processed = 0
     skipped = 0
 
     for _, row in iter_csv_rows(zip_path):
         rows_processed += 1
-        # APENAS 1º turno — senão runoff (pres/gov/prefeito de capital) soma
-        # 1º + 2º turno na mesma linha (mesmo SQ), dobrando os votos por seção.
-        if (_i(row.get("NR_TURNO")) or 1) != 1:
+        # Cada turno no seu lugar. Somar os dois na mesma linha dobraria o voto
+        # da secao (mesmo SQ_CANDIDATO nos dois turnos); descartar o 2o, como
+        # se fazia antes, apagava a leitura por bairro justamente no turno
+        # decisivo. O 2o vai pra tse_runoff_section_votes (migration 066).
+        _turno_secao = _i(row.get("NR_TURNO")) or 1
+        if _turno_secao not in (1, 2):
             skipped += 1
             continue
         sq = _i(row.get("SQ_CANDIDATO"))
         muni_code = _i(row.get("CD_MUNICIPIO"))
+        zone = _i(row.get("NR_ZONA"))
         local_code = _i(row.get("NR_LOCAL_VOTACAO"))
         votes = _i(row.get("QT_VOTOS"))
 
@@ -902,13 +1199,20 @@ def _process_votacao_secao(
         if cand_id is None or muni_id is None or not local_code:
             skipped += 1
             continue
-        vp_id = voting_places_lookup.get((muni_id, local_code))
+        vp_id = voting_places_lookup.get((muni_id, zone, local_code))
+        if vp_id is None:
+            # Linha legada (carga anterior a migration 064, sem zona gravada):
+            # cai na chave antiga pra nao perder voto num banco meio migrado.
+            vp_id = voting_places_lookup.get((muni_id, None, local_code))
         if vp_id is None:
             skipped += 1
             continue
 
         key = (cand_id, vp_id)
-        votes_acc[key] = votes_acc.get(key, 0) + votes
+        if _turno_secao == 1:
+            votes_acc[key] = votes_acc.get(key, 0) + votes
+        else:
+            runoff_acc[key] = runoff_acc.get(key, 0) + votes
 
         if rows_processed % 100_000 == 0:
             log.info(
@@ -968,6 +1272,29 @@ def _process_votacao_secao(
 
     job.rows_processed = rows_processed
     db.commit()
+    # 2o turno, na tabela propria. Poucas candidaturas, um chunk basta.
+    if runoff_acc:
+        from app.models.tse.runoff_section_vote import TseRunoffSectionVote
+
+        runoff_rows = [
+            {
+                "id": uuid4(), "candidate_id": cid, "voting_place_id": vp,
+                "votes": v, "created_at": now, "updated_at": now,
+            }
+            for (cid, vp), v in runoff_acc.items()
+        ]
+        for j in range(0, len(runoff_rows), CHUNK_SIZE):
+            chunk = runoff_rows[j : j + CHUNK_SIZE]
+            stmt = pg_insert(TseRunoffSectionVote.__table__).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["candidate_id", "voting_place_id"],
+                set_={"votes": stmt.excluded.votes, "updated_at": now},
+            )
+            db.execute(stmt)
+        db.commit()
+        log.info("tse_secao_2o_turno_gravado", uf=uf, linhas=len(runoff_rows))
+
+
     log.info("tse_secao_done", uf=uf, total=len(rows_out))
 
 
@@ -1171,9 +1498,7 @@ def _process_filiacao_partidaria(
     O CSV é nacional (~3,5GB descomprimido) → streaming, acumulando em memória
     por (partido, município) (~167k chaves, cabe nos 4GB do VPS).
     """
-    parties_by_number: dict[int, UUID] = {
-        p.number: p.id for p in db.execute(select(Party)).scalars()
-    }
+    partidos = IndiceDePartidos.do_banco(db)
     munis_by_tse: dict[int, UUID] = {
         m.tse_code: m.id for m in db.execute(select(Municipality)).scalars()
     }
@@ -1186,7 +1511,8 @@ def _process_filiacao_partidaria(
         rows_processed += 1
         if not period:
             period = _i(row.get("NR_ANO_MES"))
-        pid = parties_by_number.get(_i(row.get("NR_PARTIDO")))
+        # Filiacao e retrato de HOJE: sem ano, vale a epoca mais recente.
+        pid = partidos.achar(_i(row.get("NR_PARTIDO")), row.get("SG_PARTIDO"))
         mid = munis_by_tse.get(_i(row.get("CD_MUNICIPIO")))
         qt = _i(row.get("QT_FILIADO"))
         if pid is None or mid is None or qt <= 0:

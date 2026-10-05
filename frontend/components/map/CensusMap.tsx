@@ -6,9 +6,9 @@
  * e destaque do selecionado. Client-only (Leaflet usa window) — importar via
  * next/dynamic({ssr:false}).
  */
-import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import L from "leaflet";
-import { GeoJSON, MapContainer, useMap } from "react-leaflet";
+import { GeoJSON, MapContainer, Pane, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { ThemedTileLayer } from "./ThemedTileLayer";
@@ -33,7 +33,7 @@ type FC = {
 
 // Rampa sequencial quente (ouro → carmim). A cor mais clara é um ouro nítido
 // (não creme) pra não sumir no tile claro do mapa.
-const RAMP = ["#fdd692", "#f9bb5b", "#f09a3c", "#e0742e", "#c44a2a", "#8f1d2c"];
+const RAMP = ["#ffd98a", "#f9b64d", "#f0902f", "#df6a2b", "#c53f2a", "#8f1d2c"];
 const NO_DATA = "#9aa0a6";
 
 const numFmt = new Intl.NumberFormat("pt-BR");
@@ -57,13 +57,38 @@ function computeBreaks(values: number[]): number[] {
   return [Math.min(...v), q(0.2), q(0.4), q(0.6), q(0.8), q(0.95)];
 }
 
+// Bounds a partir das coordenadas cruas do FeatureCollection — SEM instanciar
+// um segundo L.geoJSON só pra getBounds() (aquilo duplicava o parse dos ~13k
+// setores e comia o orçamento do render de mosaico). Varre os arrays de coords
+// sem alocar L.LatLng por vértice.
+function boundsFromFC(fc: FC): L.LatLngBounds | null {
+  let minLat = Infinity, minLng = Infinity, maxLat = -Infinity, maxLng = -Infinity;
+  const scan = (c: unknown): void => {
+    if (!Array.isArray(c)) return;
+    if (typeof c[0] === "number" && typeof c[1] === "number") {
+      const lng = c[0] as number, lat = c[1] as number;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      return;
+    }
+    for (const x of c) scan(x);
+  };
+  for (const f of fc.features) {
+    scan((f.geometry as { coordinates?: unknown } | null)?.coordinates);
+  }
+  if (minLat === Infinity) return null;
+  return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+}
+
 function FitBounds({ data }: { data: FC }) {
   const map = useMap();
   useEffect(() => {
     if (!data.features.length) return;
-    const layer = L.geoJSON(data as unknown as GeoJSON.GeoJsonObject);
-    const b = layer.getBounds();
-    if (b.isValid()) map.fitBounds(b, { padding: [16, 16] });
+    const b = boundsFromFC(data);
+    // animate:false — senão o fit é engolido na init do mapa (gotcha do projeto).
+    if (b && b.isValid()) map.fitBounds(b, { padding: [16, 16], animate: false });
   }, [data, map]);
   return null;
 }
@@ -98,7 +123,7 @@ function FocusController({
     if (!layers.length) return;
     let bounds: L.LatLngBounds | null = null;
     for (const lyr of layers) {
-      lyr.setStyle({ weight: 1.4, color: "#e8c879", fillOpacity: 0.95 });
+      lyr.setStyle({ weight: 1.6, color: "#ffe6a3", fillOpacity: 0.92 });
       lyr.bringToFront();
       const b = (lyr as unknown as { getBounds?: () => L.LatLngBounds }).getBounds?.();
       if (b && b.isValid()) bounds = bounds ? bounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast());
@@ -116,6 +141,8 @@ export function CensusMap({
   onSelect,
   focusIds,
   dataVersion,
+  bairroContours,
+  distritoContours,
 }: {
   data: FC;
   indicator: CensusIndicator;
@@ -124,6 +151,9 @@ export function CensusMap({
   // Muda quando a MALHA muda (setor/distrito/bairro) com os MESMOS setores —
   // força recriar o layer (senão a repintura in-place lê as props antigas).
   dataVersion?: string;
+  // Contornos (setores dissolvidos) sobrepostos nas panes mn-bairros/mn-distritos.
+  bairroContours?: FC | null;
+  distritoContours?: FC | null;
 }) {
   const breaks = useMemo(
     () => computeBreaks(data.features.map((f) => f.properties[indicator] as number)),
@@ -133,6 +163,9 @@ export function CensusMap({
   const layerReg = useRef<Map<string, L.Path>>(new Map());
   const geoRef = useRef<L.GeoJSON | null>(null);
   const fmt = FMT[indicator];
+  // Legenda no mobile: compacta (barra de gradiente) por padrão; o toque
+  // expande a lista completa de faixas. No desktop a lista fica sempre aberta.
+  const [legendOpen, setLegendOpen] = useState(false);
   // key NÃO inclui o indicador: trocar de indicador repinta os polígonos
   // in-place (setStyle) em vez de recriar o layer inteiro (caro no Rio).
   const key = `${String(data.features[0]?.properties?.cd_setor ?? data.features[0]?.properties?.cd_mun ?? "")}-${data.features.length}-${dataVersion ?? ""}`;
@@ -141,6 +174,9 @@ export function CensusMap({
     fillColor: colorFor(v, breaks),
     weight: 0.6,
     color: "#7a5b1e",
+    // Semi-transparente: deixa o mapa-base (ruas/rótulos) aparecer sob o
+    // choropleth e não "esconde" o que estiver embaixo. O realce de
+    // hover/clique sobe pra ~0.92 pra manter o contraste na interação.
     fillOpacity: v == null ? 0.55 : 0.86,
   });
   // refs: handlers de evento e FocusController leem sempre o estado ATUAL
@@ -163,6 +199,12 @@ export function CensusMap({
     }
     return (
       `<div style="font-weight:700;margin-bottom:2px">${p.nm_mun || ""}</div>` +
+      // Distrito no tooltip da CAMADA BASE (malha dissolvida por bairro): os
+      // contornos viraram decoração (pointer-events none) e este é o único
+      // lugar onde o distrito consegue aparecer no hover.
+      (p.nm_dist
+        ? `<div style="opacity:.75;font-size:10px;margin-bottom:2px">Distrito: ${p.nm_dist}</div>`
+        : "") +
       `<div style="opacity:.9">${LABEL[indicator]}: ${v != null ? fmt(v) : "sem dado"}</div>`
     );
   };
@@ -204,6 +246,20 @@ export function CensusMap({
         preferCanvas
       >
         <ThemedTileLayer />
+        {/* Panes ordenados (zIndex) — força a ordem das camadas por cima do
+            tilePane (200). Hoje só a malha de setores existe; as bandas 420/430
+            ficam RESERVADAS para, quando houver, sobrepor contornos de bairro e
+            distrito (fillOpacity 0, bordas grossas) sem que os setores os
+            escondam. É a infraestrutura de MapPanes pedida. */}
+        <Pane name="mn-setores" style={{ zIndex: 410 }} />
+        {/* pointerEvents:none nas panes de CONTORNO: elas ficam ACIMA da
+            camada clicável e, com preferCanvas, o canvas da pane superior
+            intercepta o clique — inclusive VAZIO (depois de desligar o toggle
+            de contornos o canvas órfão continuava engolindo cliques e o
+            usuário não conseguia mais selecionar bairro). Contorno é
+            decoração: o clique deve SEMPRE cair na camada base. */}
+        <Pane name="mn-bairros" style={{ zIndex: 420, pointerEvents: "none" }} />
+        <Pane name="mn-distritos" style={{ zIndex: 430, pointerEvents: "none" }} />
         <FitBounds data={data} />
         <FocusController
           focusIds={focusIds}
@@ -214,12 +270,16 @@ export function CensusMap({
         <GeoJSON
           key={key}
           ref={geoRef as never}
+          pane="mn-setores"
           data={data as unknown as GeoJSON.GeoJsonObject}
           style={(feature) => baseStyle((feature?.properties?.[indicator] ?? null) as number | null)}
           onEachFeature={(feature, layer) => {
             const p = feature.properties as Record<string, number | string | null>;
             const path = layer as L.Path;
-            const regKey = String(p.cd_setor ?? p.cd_mun ?? "");
+            // Registra por cd_setor (modo setor) OU por nome (modo dissolvido:
+            // 1 polígono por bairro/distrito, sem cd_setor) — assim o
+            // FocusController acha a camada e o mapa VOA até o bairro na busca.
+            const regKey = String(p.cd_setor ?? p.nome ?? p.cd_mun ?? "");
             if (regKey) layerReg.current.set(regKey, path);
             // Valor do indicador ATUAL (via ref — o layer sobrevive à troca).
             const curV = () => (p[indicatorRef.current] ?? null) as number | null;
@@ -234,7 +294,7 @@ export function CensusMap({
                   const pv = (prevFeat?.properties?.[indicatorRef.current] ?? null) as number | null;
                   selectedRef.current.setStyle(baseStyleRef.current(pv));
                 }
-                path.setStyle({ weight: 2.5, color: "#e8c879", fillOpacity: 0.95 });
+                path.setStyle({ weight: 2.8, color: "#ffe6a3", fillOpacity: 0.95 });
                 path.bringToFront();
                 selectedRef.current = path;
                 onSelect(p);
@@ -249,7 +309,10 @@ export function CensusMap({
                   tipBound = true;
                   layer.openTooltip();
                 }
-                if (path !== selectedRef.current) path.setStyle({ weight: 1.6, color: "#fff", fillOpacity: 0.92 });
+                if (path !== selectedRef.current) {
+                  path.setStyle({ weight: 1.8, color: "#fdf3dd", fillOpacity: 0.92 });
+                  path.bringToFront();
+                }
               },
               mouseout: () => {
                 if (path !== selectedRef.current) path.setStyle(baseStyleRef.current(curV()));
@@ -257,32 +320,103 @@ export function CensusMap({
             });
           }}
         />
+
+        {/* Contorno de BAIRROS (setores dissolvidos) — pane mn-bairros (zIndex
+            420), acima dos setores; sem preenchimento, borda destacada.
+            interactive={false}: contorno NUNCA captura clique/hover (o clique
+            pertence à camada base, que já mostra o nome no tooltip). Sem isso,
+            o fill transparente interceptava o clique do bairro. */}
+        {bairroContours && bairroContours.features.length > 0 && (
+          <GeoJSON
+            key={`bairro-${bairroContours.features.length}-${String(bairroContours.features[0]?.properties?.nome ?? "")}`}
+            data={bairroContours as unknown as GeoJSON.GeoJsonObject}
+            pane="mn-bairros"
+            interactive={false}
+            style={{ fillOpacity: 0, weight: 1.6, color: "#8fcddb", opacity: 0.85, interactive: false }}
+          />
+        )}
+
+        {/* Contorno de DISTRITOS — pane mn-distritos (zIndex 430), no topo;
+            borda mais grossa e tracejada. Também interactive={false}. */}
+        {distritoContours && distritoContours.features.length > 0 && (
+          <GeoJSON
+            key={`distrito-${distritoContours.features.length}-${String(distritoContours.features[0]?.properties?.nome ?? "")}`}
+            data={distritoContours as unknown as GeoJSON.GeoJsonObject}
+            pane="mn-distritos"
+            interactive={false}
+            style={{ fillOpacity: 0, weight: 3, color: "#3f9cb5", opacity: 0.95, dashArray: "6 3", interactive: false }}
+          />
+        )}
       </MapContainer>
 
-      {/* Legenda */}
-      <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-black/75 backdrop-blur-md px-3.5 py-2.5 border border-amber-200/15 shadow-2xl shadow-black/50 text-[11px] text-white ring-1 ring-white/5">
-        <p className="font-semibold mb-2 tracking-wide text-amber-100/90">{LABEL[indicator]}</p>
-        <ul className="space-y-1">
-          {RAMP.map((c, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <span
-                className="inline-block w-4 h-3.5 rounded ring-1 ring-white/15"
-                style={{ background: c, boxShadow: `0 0 6px ${c}55` }}
-              />
-              <span className="tabular-nums text-white/85">
-                {i === RAMP.length - 1
-                  ? `≥ ${fmt(breaks[i])}`
-                  : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`}
-              </span>
-            </li>
-          ))}
-          {hasNoData && (
-            <li className="flex items-center gap-2 pt-1 mt-1 border-t border-white/10">
-              <span className="inline-block w-4 h-3.5 rounded ring-1 ring-white/15" style={{ background: NO_DATA }} />
-              <span className="text-white/70">sem dado / não residencial</span>
-            </li>
-          )}
-        </ul>
+      {/* Legenda — tokens do tema (bg-card/border/foreground) pra funcionar no
+          claro E no escuro; antes era bg-black/75 com texto branco fixo, que
+          destoava no tema claro. */}
+      <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-card/85 backdrop-blur-md px-3.5 py-2.5 border border-border shadow-xl shadow-black/20 text-[11px] text-foreground">
+        {(() => {
+          // Faixas com o MESMO texto viram uma só. Com poucos valores
+          // distintos os quantis colapsam e a legenda repetia a mesma linha
+          // seis vezes — no Distrito Federal, que tem um único município,
+          // saía "2.817.381 – 2.817.381" em todas as seis faixas.
+          const faixas = RAMP.map((cor, i) => ({
+            cor,
+            texto:
+              i === RAMP.length - 1
+                ? `≥ ${fmt(breaks[i])}`
+                : `${fmt(breaks[i])} – ${fmt(breaks[i + 1])}`,
+          })).filter((f, i, todas) => todas.findIndex((o) => o.texto === f.texto) === i);
+
+          const legendList = (
+            <ul className="space-y-1">
+              {faixas.map((f) => (
+                <li key={f.texto} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-4 h-3.5 rounded ring-1 ring-border"
+                    style={{ background: f.cor, boxShadow: `0 0 6px ${f.cor}55` }}
+                  />
+                  <span className="tabular-nums text-foreground/85">{f.texto}</span>
+                </li>
+              ))}
+              {hasNoData && (
+                <li className="flex items-center gap-2 pt-1 mt-1 border-t border-border">
+                  <span className="inline-block w-4 h-3.5 rounded ring-1 ring-border" style={{ background: NO_DATA }} />
+                  <span className="text-muted-foreground">sem dado / não residencial</span>
+                </li>
+              )}
+            </ul>
+          );
+          return (
+            <>
+              {/* Mobile (< sm): versão compacta — barra única com o gradiente
+                  do RAMP e min/max nas pontas; o toque expande a lista. */}
+              <div className="sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setLegendOpen((o) => !o)}
+                  aria-expanded={legendOpen}
+                  aria-label={legendOpen ? "Recolher a legenda de cores" : "Expandir a legenda de cores"}
+                  className="block w-44 min-h-[40px] text-left"
+                >
+                  <span className="font-semibold tracking-wide block truncate">{LABEL[indicator]}</span>
+                  <span
+                    className="block h-2 rounded mt-1.5"
+                    style={{ background: `linear-gradient(to right, ${RAMP.join(", ")})` }}
+                  />
+                  <span className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
+                    <span>{fmt(breaks[0])}</span>
+                    <span>≥ {fmt(breaks[RAMP.length - 1])}</span>
+                  </span>
+                </button>
+                {legendOpen && <div className="mt-2">{legendList}</div>}
+              </div>
+              {/* Desktop (≥ sm): lista completa, sempre visível. */}
+              <div className="hidden sm:block">
+                <p className="font-semibold mb-2 tracking-wide">{LABEL[indicator]}</p>
+                {legendList}
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

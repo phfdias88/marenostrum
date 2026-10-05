@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import type { BirthdayContact } from "@/lib/types";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 
 // Apenas dígitos — pra urls wa.me/<n>
 function digits(phone: string | null): string | null {
@@ -91,19 +92,22 @@ export function BirthdaysCard() {
             return (
               <li
                 key={b.id}
-                className="flex items-center gap-2 rounded-md border border-border/60 bg-background/30 px-2.5 py-2"
+                className="flex items-center gap-2.5 rounded-md border border-border/60 bg-background/30 px-2.5 py-2"
               >
-                <span
-                  className={`inline-flex shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    b.days_until === 0
-                      ? "bg-rose-500/20 text-rose-600"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {dayLabel(b.days_until).toUpperCase()}
-                </span>
+                <ContactAvatar name={b.full_name} size="md" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{b.full_name}</p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-sm font-medium truncate">{b.full_name}</p>
+                    <span
+                      className={`inline-flex shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        b.days_until === 0
+                          ? "bg-rose-500/20 text-rose-600"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {dayLabel(b.days_until).toUpperCase()}
+                    </span>
+                  </div>
                   {b.age_turning && (
                     <p className="text-[11px] text-muted-foreground">
                       Faz {b.age_turning} anos

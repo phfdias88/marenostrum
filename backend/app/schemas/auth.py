@@ -3,13 +3,53 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+# ---------------------------------------------------------------------------
+# Politica de senha (aplicada a senhas NOVAS: troca e definicao pelo admin).
+# Nao se aplica ao LOGIN — la aceitamos qualquer coisa pra nao vazar a politica
+# nem travar quem ja tem senha antiga.
+# ---------------------------------------------------------------------------
+PASSWORD_MIN_LENGTH = 10
+
+# Senhas obvias barradas independentemente do tamanho. Inclui as que ja
+# vazaram em defaults/exemplos do proprio projeto.
+_PASSWORD_DENYLIST = {
+    "senha123456", "1234567890", "12345678", "123456789", "senha12345",
+    "password", "password1", "qwertyuiop", "mudeess@senha123",
+    "senhab@123456", "marenostrum", "eleitoai", "admin12345",
+}
+# Substrings que, se dominarem a senha, indicam senha fraca/previsivel.
+_PASSWORD_WEAK_SUBSTRINGS = ("marenostrum", "eleitoai")
+
+
+def validate_password_strength(value: str) -> str:
+    """
+    Regras minimas p/ senha nova. Levanta ValueError (Pydantic -> 422) com
+    mensagem amigavel em PT-BR quando reprovada.
+    """
+    v = (value or "").strip()
+    if len(v) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"A senha deve ter pelo menos {PASSWORD_MIN_LENGTH} caracteres.")
+    low = v.lower()
+    if low in _PASSWORD_DENYLIST:
+        raise ValueError("Essa senha é muito comum. Escolha uma senha mais forte.")
+    if low.isdigit():
+        raise ValueError("A senha não pode ser só números.")
+    if any(s in low for s in _PASSWORD_WEAK_SUBSTRINGS):
+        raise ValueError("A senha não pode conter o nome do sistema.")
+    return v
 
 
 class ChangePasswordRequest(BaseModel):
     """Troca de senha pelo próprio usuário autenticado."""
     current_password: str = Field(..., min_length=1)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class LoginRequest(BaseModel):
@@ -22,16 +62,21 @@ class LoginRequest(BaseModel):
             "example": {
                 "tenant_slug": "marenostrum-admin",
                 "email": "admin@marenostrum.com.br",
-                "password": "MudeEss@Senha123",
+                "password": "sua-senha-aqui",
             }
         }
     )
 
-    tenant_slug: str = Field(
-        ...,
-        min_length=1,
+    # OPCIONAL desde jul/2026: o formulário público não pede a campanha (o
+    # cliente não conhece o slug dele). Sem o campo, o login resolve a campanha
+    # pelo e-mail + senha. Informar o slug continua valendo e é o caminho
+    # determinístico quando o mesmo e-mail existe em mais de uma campanha.
+    tenant_slug: str | None = Field(
+        None,
         max_length=60,
-        description="Apelido único da campanha (`marenostrum-admin`, `candidato-joao-2026`...)",
+        description=(
+            "Apelido da campanha. Opcional: se omitido, é resolvido pelo e-mail."
+        ),
         examples=["marenostrum-admin"],
     )
     email: EmailStr = Field(
@@ -104,6 +149,9 @@ class MeResponse(BaseModel):
     tenant_name: str
     # Super-acesso Mare Nostrum (auditoria cross-tenant). Default false.
     is_superadmin: bool = False
+    # A sessão atual é um ACESSO MARE NOSTRUM a um cliente ("entrar como")?
+    # O frontend usa pra mostrar a faixa de aviso do ambiente visitado.
+    impersonating: bool = False
     census_enabled: bool = False
     # Acesso por área (configurável pelo owner). Default amplo.
     analytics_enabled: bool = True
@@ -116,6 +164,9 @@ class MeResponse(BaseModel):
     # quem usa o sistema regularmente nunca é derrubado pro /login.
     refreshed_token: str | None = None
     refreshed_expires_in: int | None = None
+    # Acesso temporário (trial): instante absoluto de expiração (NULL = sem
+    # limite). O frontend usa pra avisar o usuário; o /me usa pra capar o refresh.
+    trial_expires_at: datetime | None = None
 
 
 # ---------------------------------------------------- Team management
@@ -134,8 +185,24 @@ class ChangeRoleRequest(BaseModel):
 
 
 class SetPasswordRequest(BaseModel):
-    """Admin define uma senha específica pra um membro (mín. 8 caracteres)."""
-    password: str = Field(..., min_length=8, max_length=128)
+    """Admin define uma senha específica pra um membro."""
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password_strength(v)
+
+
+class PublicSetPasswordRequest(BaseModel):
+    """Comprador define a PRÓPRIA senha via link de uso único (pós-compra)."""
+    token: str = Field(..., min_length=10, description="Token do link do e-mail.")
+    password: str = Field(..., min_length=PASSWORD_MIN_LENGTH, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password_strength(v)
 
 
 class CreateUserRequest(BaseModel):
@@ -153,6 +220,10 @@ class CreateUserRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=150)
     role: TeamRole = "staff"
+    # Acesso temporário (trial): horas de uso permitidas a partir do 1º login.
+    # None ou 0 = ilimitado (conta normal). Aceita frações (2.5 = 2h30). Teto de
+    # 1 ano (8760h) evita valores absurdos.
+    usage_limit_hours: float | None = Field(default=None, ge=0, le=8760)
 
 
 class CreateUserResponse(BaseModel):
@@ -173,6 +244,8 @@ class UserListItem(BaseModel):
     full_name: str
     role: str
     is_active: bool
+    # Titular da assinatura (quem comprou/paga) — badge na UI de equipe.
+    is_account_owner: bool = False
     census_enabled: bool = False
     analytics_enabled: bool = True
     panel_enabled: bool = True
@@ -180,6 +253,12 @@ class UserListItem(BaseModel):
     demands_enabled: bool = True
     agenda_enabled: bool = True
     created_at: datetime
+    # Acesso temporário (trial): horas concedidas + carimbos de início/fim.
+    # NULL = conta normal (ilimitada). first_login_at NULL = trial ainda não
+    # começou (o relógio só conta a partir do 1º login).
+    usage_limit_hours: float | None = None
+    first_login_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 class CensusFlagRequest(BaseModel):

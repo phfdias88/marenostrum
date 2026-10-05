@@ -2,8 +2,11 @@
 Usuario do sistema (membro da equipe de um candidato).
 Sempre vinculado a um tenant.
 """
+from datetime import datetime
+
+from sqlalchemy import DateTime
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Index, String, UniqueConstraint
+from sqlalchemy import Float, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
@@ -37,6 +40,11 @@ class User(Base, TenantMixin, TimestampMixin):
         default=UserRole.STAFF,
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # TITULAR da assinatura (quem comprou/paga a plataforma). Setado APENAS
+    # pelo provisionamento do billing (webhook Asaas) ou pelo seed. Convidados
+    # do painel de equipe SEMPRE nascem False — mesmo promovidos a owner
+    # depois (role = permissão; esta flag = titularidade da conta).
+    is_account_owner: Mapped[bool] = mapped_column(default=False, nullable=False)
     # Super-acesso da consultoria Mare Nostrum: vê a auditoria de TODAS as
     # campanhas (cross-tenant). Setado só direto no banco (sem endpoint, anti-
     # escalonamento). Default false.
@@ -52,6 +60,22 @@ class User(Base, TenantMixin, TimestampMixin):
     map_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)        # Mapa da Campanha
     demands_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)    # Demandas
     agenda_enabled: Mapped[bool] = mapped_column(default=True, nullable=False)     # Agenda
+
+    # ------------------------------------------------ Acesso temporário (trial)
+    # Conta de teste/demonstração com tempo de uso limitado. O relógio NÃO conta
+    # da criação: só começa no PRIMEIRO login real (first_login_at), e a partir
+    # daí corre de forma absoluta até expires_at.
+    #   - usage_limit_hours: horas permitidas (ex: 2.5 = 2h30). NULL/0 = ilimitado.
+    #   - first_login_at: carimbo do 1º login (NULL até logar pela 1ª vez).
+    #   - expires_at: first_login_at + usage_limit_hours (materializado no 1º login).
+    # O JWT emitido nunca vive além de expires_at (cap no login e no refresh).
+    usage_limit_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    first_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Quando o subclass define __table_args__, ele substitui o do mixin.
     # Aqui combinamos: indice composto + unicidade do email por tenant.

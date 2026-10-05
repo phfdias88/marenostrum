@@ -12,6 +12,8 @@
  */
 import { ArrowLeft, Download, Loader2, Search, Vote, X } from "lucide-react";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
+import { ANO_EM_APURACAO } from "@/lib/elections";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -20,7 +22,7 @@ import { downloadCsv } from "@/lib/csv";
 import type {
   Page,
   TseMunicipality,
-  TseMunicipalityResults,
+  TseElectionResults,
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
@@ -61,7 +63,16 @@ const FED_OFFICES = [
   { value: "7", label: "Deputado Estadual" },
   { value: "8", label: "Deputado Distrital" },
 ];
+// Cargos MUNICIPAIS: o resultado só existe dentro de uma cidade, então o
+// município continua OBRIGATÓRIO. Os demais (governador, senador, deputados,
+// presidente) são disputados na UF/país — município vira filtro OPCIONAL.
+const MUNICIPAL_OFFICE_CODES = new Set(["11", "13"]);
+const isMunicipalOffice = (office: string) => MUNICIPAL_OFFICE_CODES.has(office);
+// Presidente é nacional: dispensa até a UF (agrega o país inteiro).
+const PRESIDENT_OFFICE = "1";
+
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2026": FED_OFFICES,
   "2024": MUNI_OFFICES,
   "2022": FED_OFFICES,
   "2020": MUNI_OFFICES,
@@ -70,6 +81,7 @@ const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
   "2014": FED_OFFICES,
 };
 const YEAR_OPTIONS = [
+  { value: "2026", label: "2026 (Federal/Estadual)" },
   { value: "2024", label: "2024 (Municipal)" },
   { value: "2022", label: "2022 (Federal/Estadual)" },
   { value: "2020", label: "2020 (Municipal)" },
@@ -78,20 +90,26 @@ const YEAR_OPTIONS = [
   { value: "2014", label: "2014 (Federal/Estadual)" },
 ];
 
+// A tela abre na eleição mais recente, já com resultado na tela: Presidente
+// no Brasil inteiro não depende de escolher UF nem cidade. Ano e cargo andam
+// JUNTOS — 2026 com Prefeito não existe.
+const ANO_PADRAO = "2026";
+const CARGO_PADRAO = PRESIDENT_OFFICE;
+
 export default function EleicaoAnalysisPage() {
-  const [year, setYear] = useState("2024");
-  const [state, setState] = useState("MG");
-  const [office, setOffice] = useState("11");
+  const [year, setYear] = useState(ANO_PADRAO);
+  const [state, setState] = useState("");
+  const [office, setOffice] = useState(CARGO_PADRAO);
   const [muniSearch, setMuniSearch] = useState("");
   const debounced = useDebounce(muniSearch, 300);
 
-  const officeOptions = OFFICES_BY_YEAR[year];
+  const officeOptions = OFFICES_BY_YEAR[year] ?? [];
 
   const [munis, setMunis] = useState<TseMunicipality[]>([]);
   const [muniLoading, setMuniLoading] = useState(false);
   const [selectedMuni, setSelectedMuni] = useState<TseMunicipality | null>(null);
 
-  const [results, setResults] = useState<TseMunicipalityResults | null>(null);
+  const [results, setResults] = useState<TseElectionResults | null>(null);
   const [resultsLoading, setResultsLoading] = useState(false);
 
   // URL compartilhável: hidrata estado a partir de ?ano=&uf=&cargo=&muni=
@@ -100,9 +118,16 @@ export default function EleicaoAnalysisPage() {
     const sp = new URLSearchParams(window.location.search);
     const a = sp.get("ano"); const u = sp.get("uf");
     const c = sp.get("cargo"); const m = sp.get("muni");
-    if (a) setYear(a);
+    // Só aceita ano que a tela conhece e cargo que exista naquele ano. Um
+    // link com ano desconhecido derrubava a tela; ano sem cargo ficava com o
+    // cargo padrão de outro tipo de eleição (2022 + Prefeito).
+    const cargosDoAno = OFFICES_BY_YEAR[a ?? ANO_PADRAO];
+    if (cargosDoAno) {
+      if (a) setYear(a);
+      if (cargosDoAno.some((o) => o.value === c)) setOffice(c!);
+      else if (a) setOffice(cargosDoAno[0].value);
+    }
     if (u) setState(u);
-    if (c) setOffice(c);
     if (m) {
       api<TseMunicipality>(`/v1/tse/municipalities/${m}`)
         .then((muni) => setSelectedMuni(muni))
@@ -139,22 +164,37 @@ export default function EleicaoAnalysisPage() {
       .finally(() => setMuniLoading(false));
   }, [debounced, state, selectedMuni]);
 
-  // Carrega resultados quando muni + cargo selecionados
+  // Regra de negócio do filtro: município só é OBRIGATÓRIO em cargo municipal.
+  // Nos demais, Ano + UF + Cargo já bastam (o município apenas afunila).
+  const municipalityRequired = isMunicipalOffice(office);
+  const canSearch = municipalityRequired
+    ? Boolean(selectedMuni)
+    : // Cidade escolhida basta: antes, "UF: Todas" + cidade + governador não
+      // buscava nada e a tela dizia "Sem resultados".
+      Boolean(year && office && (selectedMuni || state || office === PRESIDENT_OFFICE));
+
+  // Carrega resultados assim que os campos mínimos estiverem preenchidos.
   useEffect(() => {
-    if (!selectedMuni) {
+    if (!canSearch) {
       setResults(null);
       return;
     }
     setResultsLoading(true);
-    const params = new URLSearchParams({ limit: "500", year });
-    if (office) params.set("office_code", office);
-    api<TseMunicipalityResults>(
-      `/v1/tse/municipalities/${selectedMuni.id}/top-candidates?${params.toString()}`,
-    )
+    const params = new URLSearchParams({
+      limit: "500",
+      year,
+      office_code: office,
+    });
+    // Município é opcional: quando presente, afunila; quando ausente, o
+    // backend agrega a UF inteira (ou o país, no caso de Presidente).
+    if (selectedMuni) params.set("municipality_id", selectedMuni.id);
+    else if (state) params.set("state", state);
+
+    api<TseElectionResults>(`/v1/tse/election-results?${params.toString()}`)
       .then(setResults)
       .catch(() => setResults(null))
       .finally(() => setResultsLoading(false));
-  }, [selectedMuni, office, year]);
+  }, [canSearch, selectedMuni, office, year, state]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
@@ -172,11 +212,19 @@ export default function EleicaoAnalysisPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise de Eleição</h1>
           <p className="text-sm text-muted-foreground">
-            Resultado por cidade e cargo · eleições de 2014 a 2024.
+            Resultado por cargo · eleições de 2014 a 2026.
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Filtro ativo: {year} · {officeOptions.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Todas as UFs"}
-            {selectedMuni ? ` · ${selectedMuni.name}/${selectedMuni.state}` : " · escolha um município"}
+            {selectedMuni
+              ? ` · ${selectedMuni.name}/${selectedMuni.state}`
+              : municipalityRequired
+                ? " · escolha um município"
+                : office === PRESIDENT_OFFICE && !state
+                  ? " · Brasil (todos os municípios)"
+                  : state
+                    ? ` · ${state} inteiro`
+                    : " · escolha uma UF"}
           </p>
         </div>
       </header>
@@ -219,7 +267,16 @@ export default function EleicaoAnalysisPage() {
         />
         <div className="md:col-span-4">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Município
+            Município{" "}
+            <span className="normal-case tracking-normal">
+              {municipalityRequired ? (
+                <span className="text-primary">· obrigatório</span>
+              ) : (
+                <span className="text-muted-foreground/70">
+                  · opcional (afunila o resultado)
+                </span>
+              )}
+            </span>
           </label>
           {selectedMuni ? (
             <div className="mt-1 flex items-center justify-between gap-2 py-2 px-3 rounded-md bg-card border border-primary/40">
@@ -283,7 +340,9 @@ export default function EleicaoAnalysisPage() {
         </div>
       )}
 
-      {!selectedMuni && muniSearch.trim().length < 2 && (
+      {/* Vazio SÓ quando o município é de fato obrigatório (cargo municipal).
+          Em cargo estadual/federal a busca já roda com Ano+UF+Cargo. */}
+      {municipalityRequired && !selectedMuni && muniSearch.trim().length < 2 && (
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <Search className="mx-auto h-10 w-10 text-muted-foreground" />
           <p className="text-sm text-muted-foreground mt-3">
@@ -327,10 +386,32 @@ export default function EleicaoAnalysisPage() {
           </div>
         )}
 
-      {/* Resultados */}
-      {selectedMuni && (
+      {/* Cargo estadual sem UF nem cidade: não há recorte para somar. */}
+      {!municipalityRequired && !canSearch && (
+        <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
+          <p className="text-sm text-muted-foreground">
+            Escolha uma <strong>UF</strong> (ou uma cidade) para ver o resultado
+            desse cargo.
+          </p>
+        </div>
+      )}
+
+      {/* O deputado só tem ressalva com cidade escolhida: no recorte da UF o
+          total vem do próprio candidato e está completo. */}
+      {canSearch && (
+        <AvisoApuracao
+          year={year}
+          office={selectedMuni ? office : undefined}
+          className="mb-3"
+        />
+      )}
+
+      {/* Resultados. Em cargo geral o município é opcional: sem ele, o painel
+          mostra a UF inteira (ou o Brasil, para Presidente). */}
+      {(selectedMuni || (!municipalityRequired && canSearch)) && (
         <ResultsPanel
           muni={selectedMuni}
+          uf={state}
           office={office}
           year={year}
           results={results}
@@ -345,15 +426,18 @@ export default function EleicaoAnalysisPage() {
 
 function ResultsPanel({
   muni,
+  uf,
   office,
   year,
   results,
   loading,
 }: {
-  muni: TseMunicipality;
+  /** null = recorte da UF inteira (ou do Brasil, se `uf` também vier vazio). */
+  muni: TseMunicipality | null;
+  uf: string;
   office: string;
   year: string;
-  results: TseMunicipalityResults | null;
+  results: TseElectionResults | null;
   loading: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -365,6 +449,17 @@ function ResultsPanel({
       .find((o) => o.value === office)?.label ??
     "";
 
+  const lugar = muni ? `${muni.name}/${muni.state}` : uf || "Brasil";
+  // Na eleição em apuração o voto de deputado por município entra depois.
+  // Só vale para o cargo que existe naquela UF (o DF elege distrital, não
+  // estadual) — nos outros o vazio é definitivo, não "ainda não carregou".
+  const deputadoPendente =
+    muni != null &&
+    String(ANO_EM_APURACAO) === year &&
+    (office === "6" ||
+      (office === "7" && muni.state !== "DF") ||
+      (office === "8" && muni.state === "DF"));
+
   if (loading) {
     return <CandidateListSkeleton rows={8} />;
   }
@@ -372,8 +467,14 @@ function ResultsPanel({
     return (
       <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
         <p className="text-sm text-muted-foreground">
-          Sem resultados pra {officeName} em {muni.name}.
+          Sem resultados pra {officeName} em {lugar}.
         </p>
+        {deputadoPendente && (
+          <p className="text-xs text-muted-foreground mt-2">
+            O voto de deputado por município ainda está sendo carregado. Remova
+            o município para ver o total do estado.
+          </p>
+        )}
       </div>
     );
   }
@@ -384,31 +485,32 @@ function ResultsPanel({
     <div ref={panelRef} className="bg-background rounded-xl p-1">
       {/* Header resultado */}
       <div className="relative overflow-hidden mn-glass mn-glow rounded-xl p-3 sm:p-4 mb-4 flex items-start sm:items-center gap-3 sm:gap-4 flex-wrap sm:flex-nowrap">
-        <StateFlag uf={muni.state} size="lg" className="!w-12 sm:!w-14 !h-8 sm:!h-10 shadow shrink-0" />
+        <StateFlag uf={muni?.state ?? uf} size="lg" className="!w-12 sm:!w-14 !h-8 sm:!h-10 shadow shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-[10px] sm:text-xs uppercase tracking-wider text-primary font-semibold flex items-center gap-1.5">
             <Vote className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Resultado
           </p>
           <h2 className="text-base sm:text-lg font-bold mt-0.5 leading-tight">
-            {year === "2022"
-              ? "Eleições Gerais 2022"
-              : "Eleições Municipais 2024"}
+            {isMunicipalOffice(office) ? "Eleições Municipais" : "Eleições Gerais"}{" "}
+            {year}
           </h2>
           <p className="text-xs sm:text-sm text-muted-foreground truncate">
-            {officeName} · {muni.name}/{muni.state}
+            {officeName} · {lugar}
           </p>
         </div>
         <div data-html2canvas-ignore className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           <PresentButton />
-          <FavoriteStar
-            fav={{
-              kind: "municipality",
-              id: muni.id,
-              label: muni.name,
-              sub: muni.state,
-              state: muni.state,
-            }}
-          />
+          {muni && (
+            <FavoriteStar
+              fav={{
+                kind: "municipality",
+                id: muni.id,
+                label: muni.name,
+                sub: muni.state,
+                state: muni.state,
+              }}
+            />
+          )}
           <button
             onClick={() => {
               if (!results || results.results.length === 0) return;
@@ -424,7 +526,7 @@ function ResultsPanel({
                 situacao: r.candidate.result_status ?? "",
               }));
               downloadCsv(
-                `eleicao-${muni.name}-${officeName}-${year}`
+                `eleicao-${lugar}-${officeName}-${year}`
                   .toLowerCase()
                   .replace(/[^a-z0-9]+/g, "-"),
                 [
@@ -450,7 +552,7 @@ function ResultsPanel({
           </button>
           <ExportShare
             targetRef={panelRef}
-            filename={`eleicao-${muni.name}-${officeName}-${year}`
+            filename={`eleicao-${lugar}-${officeName}-${year}`
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, "-")}
           />
@@ -476,6 +578,11 @@ function ResultsPanel({
           </p>
           <p className="text-2xl font-bold mt-0.5 tabular-nums">
             <AnimatedNumber value={results.total_results} />
+            {/* A API devolve no máximo 500: sem o "+", um estado com 900
+                candidatos a deputado pareceria ter exatamente 500. */}
+            {results.total_results >= 500 && (
+              <span title="A lista mostra os 500 mais votados">+</span>
+            )}
           </p>
         </div>
       </div>

@@ -9,12 +9,17 @@ import enum
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Date, Enum as SAEnum
+from sqlalchemy import JSON, Date, Enum as SAEnum
 from sqlalchemy import Float, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantMixin, TimestampMixin
+
+# JSONB em Postgres (produção, com índice GIN via migration), JSON genérico no
+# SQLite dos testes. Sem o variant, create_all() no SQLite quebra e derruba a
+# suíte inteira. Mesma ideia do Uuid cross-DB já usado no projeto.
+_JSONB = JSON().with_variant(JSONB, "postgresql")
 
 
 class ContactType(str, enum.Enum):
@@ -35,6 +40,11 @@ class Contact(Base, TenantMixin, TimestampMixin):
     # fixo no cadastro e o zap é outro número.
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
     whatsapp: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Telefone CANONIZADO (so' digitos, sem DDI 55) — casa o webhook
+    # ("5521999991234") com o cadastro ("(21) 99999-1234"). Preenchido em
+    # toda escrita (service create/update + import CSV); backfill na 054.
+    # Regra canonica: app/utils/phone.py::normalize_phone.
+    phone_normalized: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Redes sociais (handle "@fulano" ou URL completa — guardamos como veio).
     instagram: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -61,7 +71,7 @@ class Contact(Base, TenantMixin, TimestampMixin):
     # JSONB array de strings. Indice GIN com jsonb_path_ops em migration 020.
     # Default em DB e' '[]'::jsonb — Python sempre ve' lista nunca None.
     tags: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
+        _JSONB, nullable=False, default=list, server_default="[]"
     )
 
     # Classificacao
@@ -94,6 +104,8 @@ class Contact(Base, TenantMixin, TimestampMixin):
         # Indice composto para queries multi-tenant (sempre filtram por tenant_id)
         Index("ix_contacts_tenant_id_id", "tenant_id", "id"),
         Index("ix_contacts_tenant_name", "tenant_id", "full_name"),
+        # Lookup do webhook (find_by_phone) — migration 054
+        Index("ix_contacts_tenant_phone_norm", "tenant_id", "phone_normalized"),
         # Telefone unico DENTRO de um tenant (regra de negocio Fase 3)
         UniqueConstraint("tenant_id", "phone", name="uq_contacts_tenant_phone"),
     )

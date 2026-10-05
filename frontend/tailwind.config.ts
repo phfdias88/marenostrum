@@ -7,7 +7,9 @@ import type { Config } from "tailwindcss";
  */
 const config: Config = {
   darkMode: ["class"],
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  // lib/ incluso: color-hash.ts define classes de paleta (bg-rose-500/15 etc.)
+  // que o Tailwind precisa VER pra gerar — sem o glob, avatar/tag ficam sem cor.
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     container: {
       center: true,

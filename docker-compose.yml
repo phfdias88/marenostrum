@@ -5,6 +5,16 @@
 # Total alocado em "limits": ~3.4GB RAM (deixa folga ao SO/SSH/cron).
 # =============================================================================
 
+# Rotacao de logs (anchor reusado por todos os servicos). Sem isto, o driver
+# json-file default cresce SEM LIMITE e enche o disco da VPS — que ja divide
+# o mesmo SSD entre pg_data, tse_photos, cache de borda e os dumps. Teto:
+# 3 arquivos de 10MB por container (~30MB cada, ~120MB no total).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ---------------------------------------------------------------------------
@@ -15,20 +25,47 @@ services:
     image: postgres:16-alpine
     container_name: mn_db
     restart: unless-stopped
+    logging: *default-logging
     # Mesma fonte de credenciais que a api le — evita drift de password
     # entre o que o Postgres GRAVA no volume e o que a API tenta usar.
     env_file:
       - ./backend/.env
     volumes:
       - pg_data:/var/lib/postgresql/data
-    # Tuning leve para VPS pequena
+    # /dev/shm do Docker sao 64MB por padrao, e e ali que o Postgres monta a
+    # memoria compartilhada das consultas PARALELAS. Agregacoes grandes
+    # falhavam com "could not resize shared memory segment ... No space left
+    # on device" — o VACUUM paralelo e o GROUP BY do mapa de vencedores foram
+    # dois casos vistos. 256MB cabe folgado no limite de 1,5G do container.
+    shm_size: 256m
+    # Tuning medido (ago/2026), não estimado. O que motivou cada número:
+    #
+    # shared_buffers 256MB->512MB e o limite do container 1G->1,5G: o Postgres
+    # vivia a 94% do teto e o cache hit do heap estava em 41,79% — a busca por
+    # "silva" lia 51.261 blocos DO DISCO (~400MB) e levava 5,8s, com o índice
+    # respondendo em 375ms. Quase todo o tempo era espera de I/O. A memória saiu
+    # do `web`, que reservava 768MB e usava 62MB.
+    #
+    # random_page_cost 4->1.1: 4 é a razão de custo de um disco ROTACIONAL. Num
+    # SSD ler aleatório custa quase o mesmo que sequencial, e o valor antigo
+    # fazia o planejador evitar índice e preferir varredura.
+    #
+    # effective_cache_size 512MB->2GB: não aloca nada, só informa ao planejador
+    # quanta memória o SO tem para cache (a VPS mostra ~2,5GB em buff/cache).
+    #
+    # jit off: compilar plano custa CPU e este servidor tem 1 vCPU; em consulta
+    # OLTP curta o JIT cobra mais do que devolve.
     command: >
       postgres
       -c max_connections=50
-      -c shared_buffers=256MB
-      -c effective_cache_size=512MB
-      -c work_mem=8MB
-      -c maintenance_work_mem=64MB
+      -c shared_buffers=512MB
+      -c effective_cache_size=2GB
+      -c work_mem=12MB
+      -c maintenance_work_mem=128MB
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c jit=off
+      -c track_io_timing=on
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marenostrum}"]
       interval: 10s
@@ -38,7 +75,9 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: 1024M
+          # 1,5G: media do container era 964MB de 1024MB (94%) — sem folga pro
+          # shared_buffers maior. Os 512MB extras vieram do `web`.
+          memory: 1536M
         reservations:
           cpus: "0.20"
           memory: 256M
@@ -55,6 +94,17 @@ services:
       dockerfile: Dockerfile
     container_name: mn_api
     restart: unless-stopped
+    logging: *default-logging
+    # Liveness: /api/health nao toca o DB (so diz que o uvicorn subiu). O
+    # start_period folgado cobre o `alembic upgrade head` do entrypoint, que
+    # roda ANTES do uvicorn — sem ele, o container seria marcado unhealthy
+    # durante a migration. Usa python (a imagem slim nao tem curl/wget).
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:8000/api/health\", timeout=3).status==200 else 1)'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
     env_file:
       - ./backend/.env
     depends_on:
@@ -65,6 +115,13 @@ services:
       # Fotos pesam ~50KB cada; 428k candidatos = ~20GB no pior caso
       # (mas so cacheamos as fotos efetivamente requisitadas pelos usuarios).
       - tse_photos:/var/marenostrum/tse_photos
+      # Dossiês PDF já montados. Sem este volume o cache mora DENTRO do
+      # container: todo deploy zerava, e o primeiro download de cada candidato
+      # voltava a custar ~2s de CPU (montar 8 páginas com mapa e censo) num
+      # servidor onde a API só tem 0,4 vCPU. Com o volume, vira ~0,3s.
+      - pdf_cache:/var/marenostrum/pdf_cache
+      # Entrada manual dos arquivos do TSE (ver tse_sync.CACHE_DIR)
+      - tse_drop:/var/marenostrum/tse_drop
     # Comando vem do Dockerfile (CMD). O ENTRYPOINT roda migrations antes.
     deploy:
       resources:
@@ -91,22 +148,38 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_ANALYTICS_URL: ${NEXT_PUBLIC_ANALYTICS_URL:-https://example.com/analytics}
         NEXT_PUBLIC_SONAR_URL: ${NEXT_PUBLIC_SONAR_URL:-https://example.com/sonar}
+        # basePath do subdiretorio. VAZIO (default) = raiz, comportamento atual.
+        # No corte pra /sistema: setar NEXT_PUBLIC_BASE_PATH=/sistema no .env da raiz.
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: mn_web
     restart: unless-stopped
+    logging: *default-logging
     environment:
       NODE_ENV: production
       # Limita heap do V8 para nao explodir RAM
       NODE_OPTIONS: "--max-old-space-size=512"
+    # Healthcheck via node (a imagem so tem node). statusCode < 500 = servidor
+    # de pe (o "/" pode redirecionar p/ login com 3xx — ainda saudavel).
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:3000/\", r => process.exit(r.statusCode < 500 ? 0 : 1)).on(\"error\", () => process.exit(1))'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           cpus: "0.40"
-          memory: 768M
+          # 768M->320M: medido em 62MB de uso (8% do que reservava). O Next em
+          # modo standalone serve HTML já compilado — quem trabalha é a API.
+          # Os 448MB liberados foram pro banco, que estava no teto.
+          memory: 320M
         reservations:
           cpus: "0.15"
-          memory: 256M
+          memory: 128M
     networks:
       - mn_net
 
@@ -117,6 +190,7 @@ services:
     image: nginx:1.27-alpine
     container_name: mn_nginx
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -125,12 +199,21 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
+      # Site institucional (build estático do Vite) servido pelo próprio nginx.
+      - ./site-dist:/usr/share/nginx/site:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       # Cache de borda (censo/TSE) persistente — sobrevive a recreates/deploys.
       - nginx_cache:/var/cache/nginx
+    # Espera a API ficar HEALTHY (nao so "iniciada") antes de subir — senao o
+    # nginx aceita trafego e proxeia pra uma API ainda rodando migrations,
+    # devolvendo 502 no meio do deploy. web so precisa ter iniciado (Next
+    # sobe rapido e nao bloqueia); manter web como service_started evita que
+    # um healthcheck de web instavel derrube o nginx inteiro.
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     deploy:
       resources:
         limits:
@@ -146,6 +229,9 @@ volumes:
   pg_data:
     driver: local
   tse_photos:
+    driver: local
+  tse_drop:
+  pdf_cache:
     driver: local
   nginx_cache:
     driver: local

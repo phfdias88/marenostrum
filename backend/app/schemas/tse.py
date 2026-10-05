@@ -101,9 +101,42 @@ class MunicipalityResultsResponse(BaseModel):
     year: int | None = None
 
 
+class ElectionResultsResponse(BaseModel):
+    """GET /election-results — resultado de um cargo com ESCOPO FLEXÍVEL.
+
+    Município é OPCIONAL: cargos estaduais/federais (governador, senador,
+    deputados, presidente) fazem sentido agregados na UF inteira. O `scope`
+    diz o nível efetivamente agregado, pra a UI rotular corretamente.
+    """
+    scope: str = Field(
+        ...,
+        description="'municipality' | 'state' | 'national' — nível da agregação",
+        examples=["state"],
+    )
+    # Preenchido só quando scope='municipality'.
+    municipality: MunicipalityRead | None = None
+    # Preenchido quando scope='state' (ou 'municipality', pela UF do município).
+    state: str | None = None
+    results: list[TopCandidateInMunicipality]
+    total_results: int
+    # Soma de TODOS os votos do cargo no escopo (denominador do % por candidato).
+    total_votes: int = 0
+    office_code: int | None = None
+    office_name: str | None = None
+    year: int | None = None
+    # Quantos municípios entraram na agregação (0 quando scope='municipality').
+    municipalities_aggregated: int = 0
+
+
 class CandidateByNeighborhoodItem(BaseModel):
     """Linha de votos por bairro: nome + total + locais agregados + centroide."""
     neighborhood: str
+    # Município do bairro — SEMPRE presente para desambiguar bairros homônimos
+    # de cidades diferentes (ex: vários "Centro"). Essencial para cargos
+    # estaduais/federais consultados sem filtro de município.
+    municipality_id: UUID | None = None
+    municipality_name: str | None = None
+    municipality_state: str | None = None
     votes: int
     places_count: int
     electors_total: int
@@ -125,6 +158,56 @@ class CandidateByNeighborhoodResponse(BaseModel):
     items: list[CandidateByNeighborhoodItem]
     total_votes: int
     total_neighborhoods: int
+
+
+class NeighborhoodRankingItem(BaseModel):
+    """Linha do raio-X do bairro: candidato + votos + % sobre aptos."""
+    candidate: CandidateRead
+    votes: int
+    # Em quantos locais de votacao do bairro o candidato pontuou.
+    places_count: int
+    # votos ÷ eleitores aptos dos locais do bairro, em % (mesma base do
+    # penetration_pct do by-neighborhood). None se aptos desconhecidos/zero.
+    pct_electors: float | None = None
+
+
+class NeighborhoodRankingResponse(BaseModel):
+    """GET /neighborhoods/ranking — quem domina este bairro (inverso do
+    by-neighborhood: ranking de TODOS os candidatos num bairro)."""
+    municipality: MunicipalityRead
+    neighborhood: str
+    # Ano efetivo usado (resolvido pro mais recente com dados de secao no
+    # municipio quando nao informado). None = municipio sem dados de secao.
+    year: int | None
+    office_code: int | None
+    # Eleitores aptos dos locais do bairro (soma por LOCAL — sem duplicar
+    # por candidato; subquery separada da agregacao de votos).
+    electors_total: int
+    # Votos nominais de TODOS os candidatos do filtro no bairro (nao so top-N).
+    total_votes: int
+    items: list[NeighborhoodRankingItem]
+
+
+class MunicipalityPartyMembershipItem(BaseModel):
+    """Filiados de UM partido no municipio (snapshot mais recente)."""
+    party_number: int
+    party_abbreviation: str
+    party_name: str
+    total: int
+    # dicts {rótulo: quantidade} — direto do JSON ingerido do TSE.
+    by_gender: dict[str, int] = {}
+    by_age: dict[str, int] = {}
+    by_education: dict[str, int] = {}
+
+
+class MunicipalityPartyMembershipsResponse(BaseModel):
+    """GET /municipalities/{id}/party-memberships — força local dos partidos."""
+    municipality: MunicipalityRead
+    # AAAAMM do snapshot mais recente (ex. 202605). None = dataset nao sincronizado.
+    period: int | None
+    # Total de filiados no municipio (todos os partidos, nao so o top-N).
+    total_members: int
+    items: list[MunicipalityPartyMembershipItem]
 
 
 class ElectionStatsResponse(BaseModel):
@@ -295,6 +378,10 @@ class AiReport(BaseModel):
     onde_crescer: list[str]
     narrativas: list[str]
     acoes_prioritarias: list[str]
+    # Listas DETERMINÍSTICAS calculadas em código (seus_redutos +
+    # onde_crescer_dados): o frontend desenha os gráficos NATIVOS daqui;
+    # o texto da IA acima é só narrativa. Sempre fresco (fora do cache).
+    dados: dict | None = None
 
 
 class AiCompareReport(BaseModel):
@@ -454,3 +541,63 @@ class CandidateTrajectoryResponse(BaseModel):
     name: str
     current_id: UUID
     items: list[TrajectoryItem]
+
+
+class VotingLocationItem(BaseModel):
+    """Local de votação com coordenada SANEADA (camada WebGIS).
+
+    `votes` só existe quando a consulta é por candidato (soma dos votos de
+    seção do candidato naquele local); por município puro vem None.
+    """
+    id: UUID
+    name: str
+    address: str | None = None
+    neighborhood: str | None = None
+    municipality_name: str
+    municipality_state: str
+    lat: float
+    lng: float
+    electors: int | None = None
+    votes: int | None = None
+    geo_source: str | None = None  # tse | centroid | nominatim | viacep
+
+
+class VotingLocationsMeta(BaseModel):
+    """Transparência do saneamento e do cap: o front mostra 'X de Y locais'."""
+    total: int              # locais que casaram o filtro (antes de cap/saneamento)
+    returned: int           # locais efetivamente devolvidos
+    invalid_coords: int     # descartados por coordenada nula/fora do Brasil
+    capped: bool            # true quando `total - invalid_coords > returned`
+
+
+class VotingLocationsResponse(BaseModel):
+    items: list[VotingLocationItem]
+    meta: VotingLocationsMeta
+
+
+# ---------------------------------------------- votos agregados por territorio
+
+class AggregatedVoteItem(BaseModel):
+    """Uma linha do painel. Nomes em portugues por pedido de quem consome:
+    esta rota nasceu para alimentar grafico, nao para uso interno."""
+    municipio: str
+    municipio_id: str
+    # None quando o escopo e a UF inteira (agrupado por municipio).
+    bairro: str | None = None
+    total_votos: int
+
+
+class AggregatedVotesResponse(BaseModel):
+    # "municipio" = somado por municipio; "bairro" = somado por bairro.
+    escopo: str
+    uf: str
+    ano: int
+    cargo: int
+    total_votos: int
+    # Frase pronta sobre o recorte que a fonte cobre — para a interface exibir
+    # em vez de o usuario concluir que faltou dado.
+    cobertura: str
+    # False quando a quebra e aproximada (bairro, enquanto os locais nao forem
+    # reimportados com a zona eleitoral na chave).
+    dados_confiaveis: bool
+    itens: list[AggregatedVoteItem]

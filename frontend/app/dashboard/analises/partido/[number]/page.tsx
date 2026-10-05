@@ -5,10 +5,10 @@
  * URL compartilhável: logo, nome, desempenho (eleitos/votos/candidatos) por
  * ano+cargo, ranking nacional do partido e top candidatos do partido.
  */
-import { ArrowLeft, SearchX, Users } from "lucide-react";
+import { ArrowLeft, SearchX, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { api } from "@/lib/api";
 import type {
@@ -19,7 +19,9 @@ import type {
   TseTopCandidatesResponse,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
-import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { partyTheme } from "@/lib/partyColors";
+import { VoteBar } from "@/components/ui/VoteBar";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -28,6 +30,7 @@ import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
@@ -43,6 +46,7 @@ const _FED = [
   { value: "1", label: "Presidente" },
 ];
 const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
+  "2026": _FED,
   "2024": _MUNI,
   "2022": _FED,
   "2020": _MUNI,
@@ -54,6 +58,8 @@ const OFFICES_BY_YEAR: Record<string, { value: string; label: string }[]> = {
 export default function PartyDetailPage() {
   const params = useParams<{ number: string }>();
   const num = Number(params.number);
+  // Tema CURADO do partido (cor/anel/texto) — identidade visual do hero.
+  const THEME = partyTheme(num);
 
   const [party, setParty] = useState<TseParty | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -148,7 +154,10 @@ export default function PartyDetailPage() {
       .filter((i) => i.elected_count > 0 || i.total_votes > 0)
       .sort((a, b) => b.elected_count - a.elected_count || b.total_votes - a.total_votes);
     const idx = ranked.findIndex((i) => i.party.number === num);
-    return { mine: idx >= 0 ? ranked[idx] : null, rank: idx >= 0 ? idx + 1 : null };
+    // Os números do partido NÃO passam pelo filtro do ranking: partido sem
+    // eleito e sem voto carregado ainda tem candidatos, e o card dizia "0".
+    const mine = (perf?.items ?? []).find((i) => i.party.number === num) ?? null;
+    return { mine, rank: idx >= 0 ? idx + 1 : null };
   }, [perf, num]);
 
   const maxVotes = top?.items[0]?.total_votes ?? 1;
@@ -193,13 +202,25 @@ export default function PartyDetailPage() {
       </div>
 
       <div ref={cardRef} className="bg-background rounded-xl">
-        {/* Hero */}
-        <div className="rounded-xl border bg-card p-6 flex items-center gap-5">
-          <PartyLogo
-            number={num}
-            abbreviation={party?.abbreviation ?? "?"}
-            size="lg"
-          />
+        {/* Hero — wash diagonal com a cor CURADA do partido (lib/partyColors)
+            sobre o vidro do mn-glass; backgroundImage (não background) pra não
+            apagar o fundo translúcido da classe. Anel na logo no tom ring. */}
+        <div
+          className="relative overflow-hidden mn-glass rounded-xl p-6 flex items-center gap-5"
+          style={{
+            backgroundImage: `linear-gradient(135deg, color-mix(in srgb, ${THEME.color} 16%, transparent), transparent 60%)`,
+          }}
+        >
+          <span
+            className="shrink-0 inline-flex rounded-full ring-2"
+            style={{ "--tw-ring-color": THEME.ring } as CSSProperties}
+          >
+            <PartyLogo
+              number={num}
+              abbreviation={party?.abbreviation ?? "?"}
+              size="lg"
+            />
+          </span>
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">
               Partido nº {num}
@@ -263,9 +284,12 @@ export default function PartyDetailPage() {
         <p className="text-[11px] text-muted-foreground mt-2">
           {year} · {OFFICES_BY_YEAR[year]?.find((o) => o.value === office)?.label ?? "cargo"} · {state || "Brasil"}
         </p>
-        {!perfLoading && rank && (
-          <p className="text-xs text-muted-foreground mt-2">
-            🏆 {rank}º partido em eleitos {state ? `em ${state}` : "no Brasil"} para esse cargo/ano.
+        <AvisoApuracao year={year} office={office} className="mt-1" />
+        {/* Com a apuração aberta o ranking "em eleitos" seria por dado parcial. */}
+        {!perfLoading && rank && String(ANO_EM_APURACAO) !== year && (
+          <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1.5">
+            <Trophy className="w-3.5 h-3.5 text-primary shrink-0" />
+            {rank}º partido em eleitos {state ? `em ${state}` : "no Brasil"} para esse cargo/ano.
           </p>
         )}
 
@@ -282,7 +306,7 @@ export default function PartyDetailPage() {
               <strong className="text-foreground font-mono">{numberFmt.format(membership.total_filiados)}</strong>
             </p>
             <div className="rounded-lg border bg-card p-4 space-y-2">
-              {membership.municipios.slice(0, 10).map((m) => {
+              {membership.municipios.slice(0, 10).map((m, i) => {
                 const max = membership.municipios[0]?.filiados ?? 1;
                 return (
                   <div key={`${m.uf}-${m.municipio}`}>
@@ -290,9 +314,7 @@ export default function PartyDetailPage() {
                       <span className="truncate">{m.municipio} <span className="text-muted-foreground text-xs">{m.uf}</span></span>
                       <span className="font-mono tabular-nums">{numberFmt.format(m.filiados)}</span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full bg-primary rounded-full" style={{ width: `${(m.filiados / max) * 100}%` }} />
-                    </div>
+                    <VoteBar value={m.filiados} max={max} rank={i + 1} />
                   </div>
                 );
               })}
@@ -341,12 +363,12 @@ export default function PartyDetailPage() {
                         <StateFlag uf={r.candidate.state} size="sm" />
                         {r.candidate.office_name} · {r.candidate.number}
                       </p>
-                      <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${(r.total_votes / maxVotes) * 100}%` }}
-                        />
-                      </div>
+                      <VoteBar
+                        value={r.total_votes}
+                        max={maxVotes}
+                        rank={i + 1}
+                        className="mt-1.5"
+                      />
                     </div>
                     <span className="font-mono font-bold tabular-nums shrink-0">
                       {numberFmt.format(r.total_votes)}
@@ -430,10 +452,15 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
   // Tendência HONESTA: compara a última eleição com a anterior do MESMO tipo
   // (municipal×municipal ou geral×geral) — senão 2014 federal vs 2024
   // municipal daria número sem sentido.
-  const sameType = evolution.items.filter((i) => isMuni(i.year) === isMuni(last.year));
+  //
+  // E só entre eleições FECHADAS: com a apuração aberta, "eleitos" está pela
+  // metade e a frase diria "caiu N eleitos" sobre um número que ainda sobe.
+  const fechadas = evolution.items.filter((i) => i.year !== ANO_EM_APURACAO);
+  const ref = fechadas[fechadas.length - 1] ?? last;
+  const sameType = fechadas.filter((i) => isMuni(i.year) === isMuni(ref.year));
   const prevSame = sameType.length >= 2 ? sameType[sameType.length - 2] : null;
-  const delta = prevSame ? last.elected_count - prevSame.elected_count : 0;
-  const tipo = isMuni(last.year) ? "municipais" : "gerais";
+  const delta = prevSame ? ref.elected_count - prevSame.elected_count : 0;
+  const tipo = isMuni(ref.year) ? "municipais" : "gerais";
 
   return (
     <div className="mt-6">
@@ -442,7 +469,6 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
       </p>
       <div className="rounded-lg border bg-card p-4 space-y-2.5">
         {evolution.items.map((it) => {
-          const pct = (it.elected_count / maxElected) * 100;
           const muni = [2024, 2020, 2016].includes(it.year);
           return (
             <div key={it.year}>
@@ -450,7 +476,11 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
                 <span className="flex items-center gap-2">
                   <span className="font-bold tabular-nums text-primary w-12">{it.year}</span>
                   <span className="text-[10px] text-muted-foreground uppercase">
-                    {muni ? "Municipal" : "Geral"}
+                    {muni
+                      ? "Municipal"
+                      : it.year === ANO_EM_APURACAO
+                        ? "Geral · apuração parcial"
+                        : "Geral"}
                   </span>
                 </span>
                 <span className="text-sm">
@@ -461,9 +491,7 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
                   </span>
                 </span>
               </div>
-              <div className="h-2 rounded-full bg-muted overflow-hidden">
-                <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
-              </div>
+              <VoteBar value={it.elected_count} max={maxElected} />
             </div>
           );
         })}
@@ -471,14 +499,14 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
           <p className="text-xs text-muted-foreground pt-1">
             {delta > 0 ? (
               <span className="text-emerald-600">
-                ▲ Cresceu {fmt.format(delta)} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+                ▲ Cresceu {fmt.format(delta)} eleitos nas eleições {tipo} ({prevSame.year}→{ref.year}).
               </span>
             ) : delta < 0 ? (
               <span className="text-rose-500">
-                ▼ Caiu {fmt.format(Math.abs(delta))} eleitos nas eleições {tipo} ({prevSame.year}→{last.year}).
+                ▼ Caiu {fmt.format(Math.abs(delta))} eleitos nas eleições {tipo} ({prevSame.year}→{ref.year}).
               </span>
             ) : (
-              <span>Estável nas eleições {tipo} ({prevSame.year}→{last.year}).</span>
+              <span>Estável nas eleições {tipo} ({prevSame.year}→{ref.year}).</span>
             )}
           </p>
         )}

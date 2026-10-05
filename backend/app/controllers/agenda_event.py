@@ -116,6 +116,12 @@ def google_callback(request: Request, code: str | None = None, state: str | None
         return RedirectResponse(f"{dest}?google=erro", status_code=302)
     try:
         claims = decode_access_token(state)
+        # O state DEVE ser o token dedicado de vida curta emitido pelo
+        # /google/connect (role="gcal_state"). Sem esta checagem, qualquer
+        # access token normal de 7 dias também servia de state — anulando o
+        # design de token curto/dedicado (binding de intenção do fluxo OAuth).
+        if claims.role != "gcal_state":
+            return RedirectResponse(f"{dest}?google=erro", status_code=302)
         user_id, tenant_id = claims.sub, claims.tid
     except Exception:
         return RedirectResponse(f"{dest}?google=erro", status_code=302)

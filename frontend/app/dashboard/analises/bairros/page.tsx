@@ -11,10 +11,21 @@
  * Usa /tse/candidates/{id}/by-neighborhood?municipality_id=X.
  * Requer votacao_secao_<UF> sincronizado (so MG por enquanto; demais em import).
  */
-import { ArrowLeft, Loader2, MapPin, Search, Vote, X } from "lucide-react";
+import {
+  ArrowLeft,
+  BarChart3,
+  ChevronRight,
+  List,
+  Loader2,
+  MapPin,
+  Radar,
+  Search,
+  Vote,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import type {
@@ -24,14 +35,25 @@ import type {
   TseCandidateByNeighborhoodResponse,
   TseMunicipality,
   TseMunicipalityResults,
+  TseNeighborhoodRanking,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
+import type { VotingPlacePoint } from "@/components/map/CandidateNeighborhoodMap";
+import type { VotesBarItem } from "@/components/tse/VotesBarChart";
+import { UnmappedLocations } from "@/components/tse/UnmappedLocations";
 
 const CandidateNeighborhoodMap = dynamic(
   () => import("@/components/map/CandidateNeighborhoodMap"),
   { ssr: false, loading: () => <MapBox>Carregando mapa…</MapBox> },
+);
+
+// Recharts é pesado — carrega só no cliente, sob demanda (não entra no bundle
+// inicial nem no SSR).
+const VotesBarChart = dynamic(
+  () => import("@/components/tse/VotesBarChart").then((m) => m.VotesBarChart),
+  { ssr: false, loading: () => <ChartSkeleton /> },
 );
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -49,18 +71,49 @@ function useDebounce<T>(v: T, ms: number): T {
   return d;
 }
 
+/** Normalização de bairro pro join TSE × CRM: sem acento, UPPER, trim. */
+function normNb(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .trim();
+}
+
+/** Placeholders de "sem bairro" dos dois lados — não fazem join com nada. */
+const NB_PLACEHOLDERS = new Set(["(SEM BAIRRO)"]);
+
 export default function BairrosPage() {
   const [state, setState] = useState("RJ");
   const [office, setOffice] = useState("11");
 
-  // Lembra a última UF usada — o usuário quase sempre repete o território.
-  // Carrega via effect (não no initializer) pra não quebrar o prerender.
-  useEffect(() => {
-    const saved = window.localStorage.getItem("mn:last-uf");
-    if (saved && (TSE_STATES as readonly string[]).includes(saved)) setState(saved);
-  }, []);
   const [muni, setMuni] = useState<TseMunicipality | null>(null);
   const [candidate, setCandidate] = useState<TseCandidate | null>(null);
+
+  // Hidrata de ?uf=&cargo=&muni= (cross-links, ex: página do município) e,
+  // sem query, cai na última UF usada (o usuário quase sempre repete o
+  // território). Via effect (não no initializer) pra não quebrar o prerender.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const uf = sp.get("uf");
+    const cargo = sp.get("cargo");
+    const m = sp.get("muni");
+    if (uf && (TSE_STATES as readonly string[]).includes(uf)) {
+      setState(uf);
+    } else {
+      const saved = window.localStorage.getItem("mn:last-uf");
+      if (saved && (TSE_STATES as readonly string[]).includes(saved)) setState(saved);
+    }
+    if (cargo && OFFICES.some((o) => o.value === cargo)) setOffice(cargo);
+    if (m) {
+      api<TseMunicipality>(`/v1/tse/municipalities/${m}`)
+        .then((mu) => {
+          setMuni(mu);
+          if (!uf) setState(mu.state); // link só com ?muni= já cai na UF certa
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">
@@ -356,6 +409,20 @@ function NeighborhoodResult({
   const [data, setData] = useState<TseCandidateByNeighborhoodResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Painel analítico retrátil + camada de locais de votação.
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelView, setPanelView] = useState<"chart" | "ranking" | "raiox">("chart");
+  const [showPlaces, setShowPlaces] = useState(false);
+  const [places, setPlaces] = useState<VotingPlacePoint[] | null>(null);
+  const [placesLoading, setPlacesLoading] = useState(false);
+
+  // Raio-X: bairro selecionado no ranking (mostra TODOS os candidatos dele).
+  const [xrayNb, setXrayNb] = useState<string | null>(null);
+
+  // Cobertura CRM: contatos do tenant por bairro (nome normalizado).
+  // null = indisponível (403 sem map_enabled / erro) → coluna some da UI.
+  const [crm, setCrm] = useState<Map<string, number> | null>(null);
+
   useEffect(() => {
     setLoading(true);
     api<TseCandidateByNeighborhoodResponse>(
@@ -366,7 +433,90 @@ function NeighborhoodResult({
       .finally(() => setLoading(false));
   }, [candidate.id, muni.id]);
 
+  // Locais de votação do município — busca uma vez, na primeira vez que ligam.
+  useEffect(() => {
+    if (!showPlaces || places !== null) return;
+    setPlacesLoading(true);
+    api<VotingPlacePoint[]>(`/v1/tse/voting-places/map?municipality_id=${muni.id}`)
+      .then(setPlaces)
+      .catch(() => setPlaces([]))
+      .finally(() => setPlacesLoading(false));
+  }, [showPlaces, places, muni.id]);
+
+  // Toggle da camada de locais NA BARRA DO MAPA (pedido do PO) — o checkbox
+  // do painel retrátil continua funcionando (mesmo estado), mas o painel
+  // fechado escondia o único acesso à camada. Identidades estáveis
+  // (useCallback/useMemo) pra não re-renderizar o mapa à toa.
+  const togglePlaces = useCallback(() => setShowPlaces((v) => !v), []);
+  const placesControl = useMemo(
+    () => ({
+      active: showPlaces,
+      disabled: false,
+      loading: placesLoading,
+      onToggle: togglePlaces,
+    }),
+    [showPlaces, placesLoading, togglePlaces],
+  );
+
+  // Cobertura CRM × votos: contatos do tenant por bairro DESTA cidade (join
+  // por nome normalizado). 403 (usuário sem Mapa da Campanha) ou erro →
+  // simplesmente não mostra o badge (fetch paralelo, não bloqueia nada).
+  useEffect(() => {
+    let cancelled = false;
+    setCrm(null);
+    setXrayNb(null);
+    const p = new URLSearchParams({
+      group_by: "neighborhood",
+      state: muni.state,
+      city: muni.name,
+    });
+    api<{ key: string; count: number }[]>(
+      `/v1/contacts/map-aggregate?${p.toString()}`,
+    )
+      .then((rows) => {
+        if (cancelled) return;
+        const map = new Map<string, number>();
+        for (const r of rows) {
+          const k = normNb(r.key);
+          // "(sem bairro)" dos contatos não casa com nada — pular.
+          if (!k || NB_PLACEHOLDERS.has(k)) continue;
+          map.set(k, (map.get(k) ?? 0) + r.count);
+        }
+        setCrm(map);
+      })
+      .catch(() => {
+        if (!cancelled) setCrm(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [muni.id, muni.state, muni.name]);
+
+  // Classificação conservadora da cobertura CRM de um bairro do ranking.
+  const crmCoverage = (
+    n: TseCandidateByNeighborhoodItem,
+    idx: number,
+  ): { contacts: number; level: "descoberto" | "fraca" | "consolidado" } | null => {
+    if (!crm) return null;
+    const key = normNb(n.neighborhood);
+    if (!key || NB_PLACEHOLDERS.has(key)) return null;
+    const contacts = crm.get(key) ?? 0;
+    // "descoberto": bairro no top-15 de votos do candidato e ZERO contatos.
+    if (idx < 15 && contacts === 0) return { contacts, level: "descoberto" };
+    if (contacts < n.votes / 500) return { contacts, level: "fraca" };
+    return { contacts, level: "consolidado" };
+  };
+
   const maxVotes = data?.items[0]?.votes ?? 1;
+
+  // Dados do gráfico de barras (Cenário B — votos por bairro; o município vem no
+  // sublabel para desambiguar homônimos, agora que o backend o devolve).
+  const chartItems: VotesBarItem[] = (data?.items ?? []).map((n, i) => ({
+    key: `${n.municipality_id ?? muni.id}-${n.neighborhood}-${i}`,
+    label: n.neighborhood,
+    sublabel: n.municipality_name ?? muni.name,
+    value: n.votes,
+  }));
 
   // Cruzamento Censo: "Oportunidade" = bairro no top 50% de população onde a
   // penetração do candidato está no quartil inferior DELE MESMO (regra por
@@ -460,14 +610,103 @@ function NeighborhoodResult({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Ranking bairros */}
-          <div className="lg:col-span-2">
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[60vh] overflow-auto">
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Mapa (esquerda) — ocupa mais espaço quando o painel recolhe */}
+          <div className="flex-1 min-w-0">
+            <div className="h-[62vh] rounded-lg border border-border overflow-hidden">
+              <CandidateNeighborhoodMap
+                data={data}
+                votingPlaces={showPlaces ? places ?? undefined : undefined}
+                placesControl={placesControl}
+              />
+            </div>
+          </div>
+
+          {/* Painel analítico (direita), retrátil */}
+          {!panelOpen ? (
+            <button
+              onClick={() => setPanelOpen(true)}
+              className="shrink-0 self-start rounded-lg border bg-card px-2 py-3 text-muted-foreground hover:text-foreground hover:border-primary/40"
+              title="Abrir painel de análise"
+              aria-label="Abrir painel de análise"
+            >
+              <BarChart3 className="w-4 h-4" />
+            </button>
+          ) : (
+            <aside className="lg:w-[380px] shrink-0 rounded-lg border bg-card flex flex-col max-h-[62vh]">
+              <div className="p-3 border-b border-border space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold flex items-center gap-1.5">
+                    <BarChart3 className="w-4 h-4 text-primary" /> Análise de votos
+                  </span>
+                  <button
+                    onClick={() => setPanelOpen(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Recolher painel"
+                    title="Recolher painel"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="inline-flex rounded-md border border-border p-0.5 text-xs">
+                  <button
+                    onClick={() => setPanelView("chart")}
+                    className={`px-2.5 py-1 rounded transition-colors ${panelView === "chart" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 inline mr-1" /> Gráfico
+                  </button>
+                  <button
+                    onClick={() => setPanelView("ranking")}
+                    className={`px-2.5 py-1 rounded transition-colors ${panelView === "ranking" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    <List className="w-3.5 h-3.5 inline mr-1" /> Ranking
+                  </button>
+                  <button
+                    onClick={() => setPanelView("raiox")}
+                    className={`px-2.5 py-1 rounded transition-colors ${panelView === "raiox" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    title="Quem domina o bairro: ranking de todos os candidatos"
+                  >
+                    <Radar className="w-3.5 h-3.5 inline mr-1" /> Raio-X
+                  </button>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showPlaces}
+                    onChange={(e) => setShowPlaces(e.target.checked)}
+                    className="accent-blue-500"
+                  />
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" /> Locais de
+                    votação no mapa
+                    {placesLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                  </span>
+                </label>
+                <UnmappedLocations municipalityId={muni.id} />
+              </div>
+
+              <div className="p-3 overflow-auto">
+                {panelView === "chart" ? (
+                  <VotesBarChart
+                    items={chartItems}
+                    searchPlaceholder="Filtrar bairro…"
+                    unit="votos"
+                  />
+                ) : panelView === "ranking" ? (
+                  <ul className="rounded-lg border bg-card divide-y divide-border">
               {data.items.map((n, i) => {
                 const pct = (n.votes / maxVotes) * 100;
+                const cov = crmCoverage(n, i);
                 return (
-                  <li key={n.neighborhood} className="p-3">
+                  <li key={n.neighborhood}>
+                    <button
+                      onClick={() => {
+                        setXrayNb(n.neighborhood);
+                        setPanelView("raiox");
+                      }}
+                      className="w-full text-left p-3 hover:bg-accent/40 transition-colors"
+                      title="Ver raio-X do bairro (ranking de todos os candidatos)"
+                    >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold text-sm truncate flex items-center gap-1.5 min-w-0">
                         <span className="truncate">{i + 1}. {n.neighborhood}</span>
@@ -516,19 +755,170 @@ function NeighborhoodResult({
                         </>
                       ) : null}
                     </p>
+                    {cov && (
+                      <span
+                        className={`inline-flex items-center gap-1 mt-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
+                          cov.level === "descoberto"
+                            ? "bg-red-500/15 text-red-400 border-red-500/30"
+                            : cov.level === "fraca"
+                              ? "bg-amber-400/15 text-amber-400 border-amber-400/30"
+                              : "bg-emerald-500/10 text-emerald-500/90 border-emerald-500/20"
+                        }`}
+                        title="Votos = local de votação; contatos = residência — aproximação. Descoberto: bairro no top-15 de votos sem nenhum contato; presença fraca: menos de 1 contato por 500 votos."
+                      >
+                        {numberFmt.format(cov.contacts)}{" "}
+                        {cov.contacts === 1 ? "contato" : "contatos"} ·{" "}
+                        {cov.level === "descoberto"
+                          ? "descoberto"
+                          : cov.level === "fraca"
+                            ? "presença fraca"
+                            : "consolidado"}
+                      </span>
+                    )}
+                    </button>
                   </li>
                 );
               })}
-            </ul>
-          </div>
-          {/* Mapa */}
-          <div className="lg:col-span-3">
-            <div className="h-[60vh] rounded-lg border border-border overflow-hidden">
-              <CandidateNeighborhoodMap data={data} />
-            </div>
-          </div>
+                  </ul>
+                ) : xrayNb ? (
+                  <NeighborhoodXRay
+                    muni={muni}
+                    neighborhood={xrayNb}
+                    officeCode={candidate.office_code}
+                    year={candidate.election?.year ?? null}
+                    selectedCandidateId={candidate.id}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                    <Radar className="w-6 h-6 mx-auto text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Clique num bairro da aba <strong>Ranking</strong> pra ver
+                      quem domina aquele bairro.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Raio-X do bairro: ranking de TODOS os candidatos naquele bairro (inverso do
+// by-neighborhood). "Quem eu enfrento neste território?"
+function NeighborhoodXRay({
+  muni,
+  neighborhood,
+  officeCode,
+  year,
+  selectedCandidateId,
+}: {
+  muni: TseMunicipality;
+  neighborhood: string;
+  officeCode: number;
+  year: number | null;
+  selectedCandidateId: string;
+}) {
+  const [data, setData] = useState<TseNeighborhoodRanking | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(false);
+    setData(null);
+    const params = new URLSearchParams({
+      municipality_id: muni.id,
+      neighborhood,
+      limit: "20",
+    });
+    if (officeCode) params.set("office_code", String(officeCode));
+    if (year) params.set("year", String(year));
+    api<TseNeighborhoodRanking>(`/v1/tse/neighborhoods/ranking?${params.toString()}`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setErr(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [muni.id, neighborhood, officeCode, year]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Carregando o raio-X de {neighborhood}…
+      </div>
+    );
+  }
+  if (err || !data || data.items.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-6 text-center">
+        <Radar className="w-6 h-6 mx-auto text-muted-foreground" />
+        <p className="text-sm text-muted-foreground mt-2">
+          {err
+            ? "Não consegui carregar o raio-X agora."
+            : `Sem votos de seção para ${neighborhood}.`}
+        </p>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Cobertura: seções 2024 (Brasil) · 2020/2022 (RJ).
+        </p>
+      </div>
+    );
+  }
+  const max = data.items[0]?.votes || 1;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <p className="text-sm font-semibold">Quem domina {data.neighborhood}</p>
+        <span className="text-[11px] text-muted-foreground shrink-0">
+          {data.year ?? "—"} · {numberFmt.format(data.total_votes)} votos
+        </span>
+      </div>
+      <ol className="space-y-2">
+        {data.items.map((it, i) => {
+          const active = it.candidate.id === selectedCandidateId;
+          return (
+            <li
+              key={it.candidate.id}
+              className={`rounded-lg p-2 flex items-center gap-2.5 border ${
+                active ? "border-primary/50 bg-primary/5" : "border-transparent"
+              }`}
+            >
+              <span className="text-xs font-bold text-primary w-5 shrink-0 text-center">
+                {i + 1}º
+              </span>
+              <CandidatePhoto
+                candidateId={it.candidate.id}
+                name={it.candidate.urn_name}
+                partyNumber={it.candidate.party.number}
+                size="sm"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">
+                  {it.candidate.urn_name || it.candidate.name}
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  {it.candidate.number} · {it.candidate.party?.abbreviation ?? "—"}
+                  {it.pct_electors != null && ` · ${it.pct_electors.toFixed(1)}% dos aptos`}
+                </p>
+                <div className="mt-1 h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-amber-300 via-primary to-amber-500"
+                    style={{ width: `${(it.votes / max) * 100}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-xs font-mono tabular-nums shrink-0">
+                {numberFmt.format(it.votes)}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <p className="text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border">
+        Votos por local de votação do bairro · cobertura: seções 2024 (BR) · 2020/2022 (RJ).
+      </p>
     </div>
   );
 }
@@ -572,6 +962,14 @@ function MapBox({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-full w-full grid place-items-center text-muted-foreground">
       {children}
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="h-[300px] grid place-items-center text-muted-foreground">
+      <Loader2 className="w-5 h-5 animate-spin" />
     </div>
   );
 }

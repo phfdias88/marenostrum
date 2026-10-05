@@ -30,6 +30,15 @@ function applyTheme(t: Theme) {
     root.classList.remove("light");
     root.classList.add("dark");
   }
+  // theme-color acompanha o tema: fixo em dark, a moldura do navegador mobile
+  // ficava marrom-escura sobre o app claro. Cores = --background dos 2 temas.
+  let m = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!m) {
+    m = document.createElement("meta");
+    m.name = "theme-color";
+    document.head.appendChild(m);
+  }
+  m.content = t === "light" ? "#FAF8F5" : "#161311";
 }
 
 export function ThemeToggle({ className }: { className?: string }) {

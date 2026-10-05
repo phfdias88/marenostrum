@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
-import { Toaster } from "sonner";
+import type { Metadata, Viewport } from "next";
+import { MnToaster } from "@/components/ui/MnToaster";
 import "./globals.css";
 
 const _SITE_NAME = "MareNostrum";
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     locale: "pt_BR",
     images: [
       {
-        url: "/logo-wordmark.png",
+        url: "/logo-wordmark.webp",
         width: 1200,
         height: 208,
         alt: "MareNostrum · Inteligência de Dados & Consultoria",
@@ -30,8 +30,16 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: _TITLE,
     description: _DESC,
-    images: ["/logo-wordmark.png"],
+    images: ["/logo-wordmark.webp"],
   },
+};
+
+// viewportFit cover libera as safe-areas do iOS (notch) pro layout usar.
+// theme-color NÃO fica aqui: fixo em dark pintava a moldura do navegador de
+// marrom-escuro também no tema claro — o THEME_INIT_SCRIPT (antes do paint) e
+// o ThemeToggle (no toggle) setam a meta com a cor do tema ativo.
+export const viewport: Viewport = {
+  viewportFit: "cover",
 };
 
 // Anti-FOUC: aplica a classe do tema ANTES da página pintar.
@@ -45,6 +53,9 @@ const THEME_INIT_SCRIPT = `
   var c=document.documentElement.classList;
   if(t==="light"){c.add("light");c.remove("dark");}
   else{c.add("dark");c.remove("light");}
+  var m=document.createElement("meta");m.name="theme-color";
+  m.content=(t==="light")?"#FAF8F5":"#161311";
+  document.head.appendChild(m);
 }catch(e){}
 try{
   var p=HTMLCanvasElement.prototype, orig=p.getContext;
@@ -65,16 +76,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Pre-connect ao backend e ao tile do mapa — economiza ~100-300ms
             no primeiro request, especialmente em mobile/3G/4G. */}
         <link rel="preconnect" href="https://srv1412083.hstgr.cloud" />
-        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" crossOrigin="anonymous" />
-        <link rel="dns-prefetch" href="https://b.basemaps.cartocdn.com" />
+        <link rel="preconnect" href="https://server.arcgisonline.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://cdn.tse.jus.br" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
         {children}
-        {/* CSS em globals.css empurra o container do toast pra cima da
+        {/* MnToaster segue o tema da casa (mn_theme/classe no <html>).
+            CSS em globals.css empurra o container do toast pra cima da
             BottomNav no mobile (sonner nao tem mobileOffset nessa versao). */}
-        <Toaster richColors position="top-right" />
+        <MnToaster />
       </body>
     </html>
   );

@@ -25,6 +25,7 @@ from sqlalchemy import insert, select
 
 from app.core.database import SessionLocal
 from app.models.tse import Candidate, Election, Party
+from app.utils.partidos import IndiceDePartidos
 from app.utils.tse_sync import TSE_BASE_URL, _i, _s, download_zip, iter_csv_rows
 
 YEARS = [int(y) for y in os.environ.get("HIST_YEARS", "2002,2006,2010").split(",")]
@@ -58,7 +59,7 @@ def ingest_year(db, year: int) -> None:
         download_zip(url, zip_path, max_mb=900)
 
     elections_by_tse = {e.tse_code: e.id for e in db.execute(select(Election)).scalars()}
-    parties_by_number = {p.number: p.id for p in db.execute(select(Party)).scalars()}
+    partidos = IndiceDePartidos.do_banco(db)
     year_eids = list(db.execute(select(Election.id).where(Election.year == year)).scalars())
     cands_by_sq = {}
     if year_eids:
@@ -87,10 +88,12 @@ def ingest_year(db, year: int) -> None:
                 "created_at": now, "updated_at": now,
             })
         pn = _i(row.get("NR_PARTIDO"))
-        if pn and pn not in parties_by_number:
-            pid = uuid4(); parties_by_number[pn] = pid
+        sigla = _s(row.get("SG_PARTIDO"), 20)
+        pid = partidos.achar(pn, sigla, year) if pn else None
+        if pn and pid is None:
+            pid = uuid4(); partidos.registrar(pn, sigla, pid)
             parties_buf.append({
-                "id": pid, "number": pn, "abbreviation": _s(row.get("SG_PARTIDO"), 20),
+                "id": pid, "number": pn, "abbreviation": sigla,
                 "name": _s(row.get("NM_PARTIDO"), 180), "created_at": now, "updated_at": now,
             })
         raw_sq = _i(row.get("SQ_CANDIDATO"))
@@ -110,7 +113,7 @@ def ingest_year(db, year: int) -> None:
                 "id": cid, "sq_candidato": sq, "election_id": elections_by_tse[ec],
                 "number": _i(row.get("NR_CANDIDATO")), "name": _s(row.get("NM_CANDIDATO"), 180),
                 "urn_name": _s(row.get("NM_URNA_CANDIDATO"), 180),
-                "party_id": parties_by_number[pn], "office_code": _i(row.get("CD_CARGO")),
+                "party_id": pid, "office_code": _i(row.get("CD_CARGO")),
                 "office_name": _s(row.get("DS_CARGO"), 40), "state": _s(row.get("SG_UF"), 2).upper(),
                 "situation": _s(row.get("DS_SITUACAO_CANDIDATURA"), 40),
                 "result_status": _s(row.get("DS_SIT_TOT_TURNO"), 40) or None,

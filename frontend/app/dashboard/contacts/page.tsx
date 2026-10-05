@@ -8,7 +8,7 @@
  */
 import { MessageSquarePlus, Plus, Search, Upload, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
 import { ImportContactsDialog } from "@/components/contacts/ImportContactsDialog";
+import { OrphanLeadsCard } from "@/components/contacts/OrphanLeadsCard";
 import { makeContactColumns } from "@/components/contacts/columns";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,10 @@ export default function ContactsPage() {
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+
+  // Ref do trigger "Novo contato" do header — o CTA do estado vazio clica
+  // nele pra abrir o MESMO dialog de criação (estado interno do dialog).
+  const newContactBtnRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(
     async (page: number, searchTerm: string, tag: string | null, creator: string | null) => {
@@ -148,7 +153,7 @@ export default function ContactsPage() {
             </Button>
           </ImportContactsDialog>
           <ContactFormDialog mode="create" onSaved={refresh}>
-            <Button>
+            <Button ref={newContactBtnRef}>
               <Plus />
               Novo contato
             </Button>
@@ -224,6 +229,11 @@ export default function ContactsPage() {
         )}
       </div>
 
+      {/* Leads do WhatsApp sem contato no CRM. Some sozinho se não houver
+          órfãos (retorna null) — sem wrapper pra não deixar div vazia
+          ocupando o space-y da section. O fade-in fica no root do card. */}
+      <OrphanLeadsCard onChanged={refresh} />
+
       <DataTable
         columns={columns}
         data={data}
@@ -236,6 +246,14 @@ export default function ContactsPage() {
           search || tagFilter || creatorFilter
             ? `Nenhum contato encontrado com os filtros atuais.`
             : "Nenhum contato. Clique em 'Novo contato' para começar."
+        }
+        emptyAction={
+          search || tagFilter || creatorFilter
+            ? undefined
+            : {
+                label: "Novo contato",
+                onClick: () => newContactBtnRef.current?.click(),
+              }
         }
       />
 

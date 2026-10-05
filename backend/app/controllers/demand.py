@@ -27,6 +27,20 @@ from app.services.demand import DemandService
 router = APIRouter(prefix="/demands", tags=["demands"])
 
 
+# Registrada ANTES das rotas /{demand_id}: senão GET /demands/stats casaria o
+# path param e viraria 422 (demand_id="stats" não é UUID).
+@router.get(
+    "/stats",
+    summary="Contagem de demandas por status (KPIs do dashboard)",
+    description=(
+        "Um único GROUP BY devolvendo {aberta, em_andamento, resolvida, "
+        "cancelada}. O overview fazia 3 requests separados só pra contar."
+    ),
+)
+def demand_stats(ctx: CurrentTenant) -> dict[str, int]:
+    return DemandService(ctx).stats_by_status()
+
+
 @router.get(
     "",
     response_model=Page[DemandRead],
@@ -37,6 +51,8 @@ Lista paginada de demandas do tenant.
 ### Filtros
 - `?status=aberta` — `aberta` | `em_andamento` | `resolvida` | `cancelada`
 - `?contact_id=<uuid>` — todas demandas de um contato específico
+- `?open_older_than_days=15` — só ABERTAS/EM ANDAMENTO criadas há **+N dias**
+  (aging: chip "Paradas +15d" na UI)
 - `?limit=N&offset=N` — paginação
 
 Cada item vem com `contact: {id, full_name}` aninhado (joinedload, sem N+1).
@@ -54,10 +70,17 @@ def list_demands(
         None,
         description="Filtrar pelas demandas de um contato específico (do seu tenant)",
     ),
+    open_older_than_days: int | None = Query(
+        None, ge=1, le=365,
+        description=(
+            "Aging: só demandas ABERTAS/EM ANDAMENTO criadas há mais de N dias"
+        ),
+    ),
 ) -> Page[DemandRead]:
     items, total = DemandService(ctx).list_demands(
         limit=limit, offset=offset,
         status=status_filter, contact_id=contact_id,
+        open_older_than_days=open_older_than_days,
     )
     return Page[DemandRead](
         items=[DemandRead.model_validate(d) for d in items],

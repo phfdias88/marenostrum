@@ -30,6 +30,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { ContactAvatar } from "@/components/contacts/ContactAvatar";
 import { ContactFormDialog } from "@/components/contacts/ContactFormDialog";
 import { WhatsAppSender } from "@/components/contacts/WhatsAppSender";
 import { InteractionTimeline } from "@/components/contacts/InteractionTimeline";
@@ -125,7 +126,14 @@ export default function ContactDetailPage() {
           </div>
         ) : (
           <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="min-w-0">
+            <div className="flex items-start gap-4 min-w-0">
+              {/* Avatar grande com anel: mesma cor do avatar da tabela */}
+              <ContactAvatar
+                name={contact.full_name}
+                size="lg"
+                className="mt-0.5 ring-2 ring-primary/30 ring-offset-2 ring-offset-card"
+              />
+              <div className="min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {contact.full_name}
@@ -167,7 +175,7 @@ export default function ContactDetailPage() {
                     value={
                       [contact.cep, contact.address, contact.neighborhood]
                         .filter(Boolean)
-                        .join(" · ") || "—"
+                        .join(" · ") || "·"
                     }
                   />
                 )}
@@ -177,7 +185,7 @@ export default function ContactDetailPage() {
                     value={
                       [contact.city, contact.state]
                         .filter(Boolean)
-                        .join("/") || "—"
+                        .join("/") || "·"
                     }
                   />
                 )}
@@ -185,6 +193,7 @@ export default function ContactDetailPage() {
                   <Field label="Local de votação" value={contact.voting_place} />
                 )}
               </dl>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <WhatsAppSender contact={contact} />

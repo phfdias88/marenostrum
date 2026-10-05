@@ -30,6 +30,30 @@ export const SUM_COLS = [
   "raca_amarela",
   "raca_parda",
   "raca_indigena",
+  // Sexo + idade absolutos (Censo 2022) — pra o painel de bairro poder mostrar
+  // nº absoluto de homens/mulheres, a pirâmide etária completa (11 faixas) e o
+  // saneamento (%↔nº). O /setores expõe cada faixa bruta + idade_60mais somado.
+  "sexo_masculino",
+  "sexo_feminino",
+  "idade_60mais",
+  "idade_0_4",
+  "idade_5_9",
+  "idade_10_14",
+  "idade_15_19",
+  "idade_20_24",
+  "idade_25_29",
+  "idade_30_39",
+  "idade_40_49",
+  "idade_50_59",
+  "idade_60_69",
+  "idade_70_mais",
+  // Saneamento (Censo 2022) — contagens; o % por bairro é (parte ÷ total).
+  "dom_agua_rede",
+  "dom_agua_total",
+  "dom_esgoto_adequado",
+  "dom_esgoto_total",
+  "dom_lixo_coletado",
+  "dom_lixo_total",
 ] as const;
 
 /**
@@ -41,10 +65,19 @@ export const WEIGHTED_AVG_COLS: Record<string, { weight: string; decimals: numbe
   media_moradores: { weight: "domicilios", decimals: 2 },
   // taxa de alfabetização 15+ (%) — peso: população 15+
   taxa_alfabetizacao: { weight: "pop_15mais", decimals: 1 },
-  // % cor ou raça (pretos e pardos) — peso: população do setor
+  // % cor ou raça — peso: população do setor. pretos+pardos (legado) +
+  // as 5 categorias individuais do Censo 2022 (pedido do PO).
   pct_pretos_pardos: { weight: "populacao", decimals: 1 },
-  // FUTURO (Censo 2022 ainda não publicou renda por setor): renda média
-  // nominal do responsável (V06004) — peso: responsáveis pelos domicílios.
+  pct_branca: { weight: "populacao", decimals: 1 },
+  pct_preta: { weight: "populacao", decimals: 1 },
+  pct_parda: { weight: "populacao", decimals: 1 },
+  pct_amarela: { weight: "populacao", decimals: 1 },
+  pct_indigena: { weight: "populacao", decimals: 1 },
+  // % de mulheres e % 60+ (Censo 2022) — peso: população do setor
+  pct_feminino: { weight: "populacao", decimals: 1 },
+  pct_60mais: { weight: "populacao", decimals: 1 },
+  // Renda média nominal do responsável (V06004, Censo 2022 por setor —
+  // ingest_census_renda_setor.py) — peso: responsáveis pelos domicílios (V06001).
   renda_media: { weight: "responsaveis", decimals: 2 },
 };
 

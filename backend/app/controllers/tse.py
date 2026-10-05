@@ -8,13 +8,39 @@ import unicodedata
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response, status
-from sqlalchemy import and_, case, func, select, text
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+from fastapi.responses import ORJSONResponse
+
+from app.models.user import User
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
-from app.utils.agg_cache import agg_get, agg_set
+from app.config import get_settings
+from app.utils.agg_cache import agg_get, agg_set, cached_agg
 
 from app.core.database import get_db
+
+# Logger do modulo: o winners_map avisa quando cai no calculo em tempo real
+# por falta de materializacao — sem isso, o refresh atrasado ficaria invisivel.
+import structlog as _structlog
+
+from app.services.election_data_service import get_aggregated_votes
+from app.services.election_queries import get_elected, get_electorate_profile
+from app.services.eleicao_comparada import get_bancada, get_virada
+from app.utils.partidos import partido_atual, trechos_da_linhagem
+from app.services.tse_ingest import arquivos_prontos, cobertura
+
+log = _structlog.get_logger("marenostrum.controllers.tse")
 from app.core.dependencies import CurrentTenant  # garante autenticado, ignora tenant
 from app.core.errors import DomainError, NotFoundError
 from app.models.tse import (
@@ -33,6 +59,7 @@ from app.models.tse import (
 )
 from app.schemas.contact import Page
 from app.schemas.tse import (
+    AggregatedVotesResponse,
     CandidateByNeighborhoodItem,
     CandidateByNeighborhoodResponse,
     CandidateRead,
@@ -40,6 +67,7 @@ from app.schemas.tse import (
     CandidateTrajectoryResponse,
     CandidateZoneVotesResponse,
     ElectionRead,
+    ElectionResultsResponse,
     ElectionStatsResponse,
     ElectorateResponse,
     ZoneTopCandidate,
@@ -51,8 +79,12 @@ from app.schemas.tse import (
     AiReport,
     AiTerritoryReport,
     ElectorateProfileResponse,
+    MunicipalityPartyMembershipItem,
+    MunicipalityPartyMembershipsResponse,
     MunicipalityZone,
     MunicipalityZonesResponse,
+    NeighborhoodRankingItem,
+    NeighborhoodRankingResponse,
     OpportunityMunicipality,
     OpportunityResponse,
     PathTarget,
@@ -71,6 +103,9 @@ from app.schemas.tse import (
     TopCandidateInMunicipality,
     TopCandidatesResponse,
     VoteResultByMunicipality,
+    VotingLocationItem,
+    VotingLocationsMeta,
+    VotingLocationsResponse,
     WinnerMapPoint,
     WinnersMapResponse,
 )
@@ -118,7 +153,7 @@ muda dataset histórico). Para forçar refresh, delete o cache + dispare.
 @limiter.limit("3/hour")
 def trigger_sync(
     request: Request,
-    ctx: CurrentTenant,  # apenas pra exigir autenticação
+    ctx: CurrentTenant,
     background_tasks: BackgroundTasks,
     dataset: str = Query(
         "candidato_munzona_2024",
@@ -126,6 +161,18 @@ def trigger_sync(
     ),
     db: Session = Depends(get_db),
 ) -> SyncJobCreated:
+    # GATE: só owner (do tenant) ou superadmin. O sync é um job GLOBAL pesado
+    # (~10min de CPU/disco no único vCPU, escreve tabelas TSE compartilhadas
+    # por todos os tenants) — antes qualquer usuário autenticado de qualquer
+    # campanha podia disparar (vetor de DoS multi-tenant trivial).
+    if ctx.role != "owner":
+        _u = db.get(User, ctx.user_id)
+        if not (_u is not None and bool(getattr(_u, "is_superadmin", False))):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas o responsável da campanha pode disparar sincronizações.",
+            )
+
     # 3/hora por IP — sync e caro (~10min, baixa 50MB do TSE, parsea 600k+
     # linhas). Ninguem precisa disparar isso varias vezes por hora.
     if dataset not in DATASETS:
@@ -262,8 +309,16 @@ def list_parties(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> list[PartyRead]:
-    items = db.execute(select(Party).order_by(Party.number)).scalars().all()
-    return [PartyRead.model_validate(p) for p in items]
+    # Um numero pode ter mais de uma linha (14: PTB e depois MISSAO). A lista
+    # mostra um cartao por numero, com o nome que vale HOJE — duas entradas
+    # com o mesmo numero levariam para a mesma pagina do partido.
+    por_numero: dict[int, list[Party]] = {}
+    for p in db.execute(select(Party).order_by(Party.number)).scalars():
+        por_numero.setdefault(p.number, []).append(p)
+    return [
+        PartyRead.model_validate(partido_atual(linhas))
+        for linhas in por_numero.values()
+    ]
 
 
 @router.get(
@@ -280,19 +335,33 @@ def party_evolution(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> PartyEvolutionResponse:
-    party = db.execute(
+    # O cabecalho usa o partido que responde pelo numero HOJE.
+    linhas = db.execute(
         select(Party).where(Party.number == number)
-    ).scalars().first()
+    ).scalars().all()
+    party = partido_atual(linhas)
     if party is None:
         raise NotFoundError("Partido não encontrado")
 
-    # Todos os party_ids com essa sigla/numero (migrações históricas podem ter
-    # gerado >1 registro pro mesmo número). Agrega todos.
-    party_ids = [
-        p.id for p in db.execute(
-            select(Party).where(Party.number == number)
-        ).scalars()
-    ]
+    # A serie segue a LINHAGEM, nao o numero. Somar tudo que ja usou o numero
+    # poria a historia do PTB na pagina do Missao (os dois foram 14), e
+    # deixaria o PRD sem o passado do PTB e do Patriota, que se fundiram nele.
+    trechos = trechos_da_linhagem(number)
+    ids_por_numero: dict[int, list[UUID]] = {}
+    for p in db.execute(
+        select(Party).where(Party.number.in_({n for n, _, _ in trechos}))
+    ).scalars():
+        ids_por_numero.setdefault(p.number, []).append(p.id)
+    da_linhagem = []
+    for n, depois_de, ate in trechos:
+        if n not in ids_por_numero:
+            continue
+        cond = [Candidate.party_id.in_(ids_por_numero[n])]
+        if depois_de is not None:
+            cond.append(Election.year > depois_de)
+        if ate is not None:
+            cond.append(Election.year <= ate)
+        da_linhagem.append(and_(*cond))
 
     rows = db.execute(
         select(
@@ -304,7 +373,7 @@ def party_evolution(
             func.coalesce(func.sum(Candidate.total_votes), 0).label("votos"),
         )
         .join(Election, Candidate.election_id == Election.id)
-        .where(Candidate.party_id.in_(party_ids))
+        .where(or_(*da_linhagem))
         .group_by(Election.year)
         .order_by(Election.year.asc())
     ).all()
@@ -353,6 +422,24 @@ def list_candidates(
     ),
     db: Session = Depends(get_db),
 ) -> Page[CandidateRead]:
+    # Cache da BUSCA. O custo cresce com o numero de nomes que casam: "silva"
+    # bate em 259.877 candidatos e a query precisa avaliar todos pra ordenar
+    # por relevancia — 5 a 10s medidos. Sobrenome comum e exatamente o que mais
+    # se digita, e a mesma busca se repete entre usuarios e entre teclas.
+    #
+    # Cache GLOBAL (sem tenant na chave) porque este endpoint so devolve dado
+    # publico do TSE — nao ha filtro por cliente aqui. Se algum dia entrar
+    # qualquer coisa derivada do tenant, a chave PRECISA passar a incluir
+    # ctx.tenant_id, senao vaza entre clientes.
+    _ck = (
+        f"cand:{search}:{state}:{office_code}:{party_number}:{election_id}:"
+        f"{year}:{elected_only}:{municipality_id}:{order}:{group_person}:"
+        f"{limit}:{offset}"
+    )
+    _hit = agg_get(_ck)
+    if _hit is not None:
+        return _hit
+
     # Models TSE nao tem relationships ORM definidos (decisao consciente —
     # evita o overhead de carregar tudo). Em vez disso, montamos os nested
     # (party, election) com batch fetch via mapas, mais abaixo.
@@ -575,7 +662,9 @@ def list_candidates(
             election=ElectionRead.model_validate(elections_map[c.election_id]),
         ))
 
-    return Page[CandidateRead](items=items, total=total, limit=limit, offset=offset)
+    _page = Page[CandidateRead](items=items, total=total, limit=limit, offset=offset)
+    agg_set(_ck, _page)
+    return _page
 
 
 @router.get(
@@ -860,12 +949,19 @@ def candidate_ai_report(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> AiReport:
-    from app.utils.ai_report import AiReportError, generate_report
+    from app.utils.ai_report import (
+        AiReportError,
+        candidate_deterministic_lists,
+        generate_report,
+    )
 
     try:
         report = generate_report(db, candidate_id)
     except AiReportError as e:
         raise _ConflictError(str(e))
+    # Listas determinísticas SEMPRE frescas (não passam pelo cache da IA):
+    # o front desenha os gráficos daqui; o texto da IA é só narrativa.
+    report = {**report, "dados": candidate_deterministic_lists(db, candidate_id)}
     return AiReport(**report)
 
 
@@ -1151,6 +1247,10 @@ def candidate_results(
             social_links=candidate.social_links,
             revenue_total=candidate.revenue_total,
             expense_total=candidate.expense_total,
+            # Total oficial do candidato. `total_votes` la embaixo soma o voto
+            # por municipio, que pode ainda nao estar carregado (deputado em
+            # 2026): sem este campo a tela mostraria "0 votos" para quem teve.
+            total_votes=candidate.total_votes,
             party=PartyRead.model_validate(party),
             election=ElectionRead.model_validate(election),
         ),
@@ -1165,9 +1265,10 @@ def candidate_results(
     response_model=CandidateTrajectoryResponse,
     summary="Trajetória eleitoral da pessoa (mesma pessoa em várias eleições)",
     description=(
-        "Encontra todas as candidaturas da MESMA pessoa (match por nome civil "
-        "completo, case/acento-insensível) ao longo das eleições disponíveis "
-        "(2014–2024), ordenadas do mais recente pro mais antigo. Permite ver a "
+        "Encontra todas as candidaturas da MESMA pessoa por identidade única — "
+        "CPF quando disponível (unifica quem muda de cargo/UF), com ponte por "
+        "nome civil + UF para os anos antigos sem CPF importado — ao longo das "
+        "eleições disponíveis, do mais recente pro mais antigo. Permite ver a "
         "evolução de cargo, partido e votos de um político ao longo de 10 anos."
     ),
 )
@@ -1180,17 +1281,39 @@ def candidate_trajectory(
     if base is None:
         raise NotFoundError("Candidato não encontrado")
 
-    # Match da MESMA pessoa. Preferência: CPF (ID único entre eleições/cargos/
-    # UFs) — unifica quem muda de cargo/estado (Bolsonaro 2014 RJ → 2018 RS →
-    # 2022 MA; Dilma presidente + senadora). Fallback p/ candidaturas sem CPF
-    # importado: nome civil + MESMA UF (evita fundir homônimos de outras UFs).
+    # Match da MESMA pessoa — mesma identidade do `group_person` da busca
+    # (ver list_candidates): coalesce(cpf, nome_unaccent + bucket de UF).
+    #
+    # CORREÇÃO (bug "André das Clínicas"): o CPF só é importado p/ 2014-2024;
+    # candidaturas mais antigas da mesma pessoa ficam com CPF nulo. O match
+    # antigo era EXCLUSIVO (só CPF quando havia CPF), então descartava essas
+    # linhas de CPF nulo e a trajetória colapsava p/ 1 item — e o front esconde
+    # o painel quando items <= 1. Agora, quando `base` tem CPF, casamos por CPF
+    # OU (linhas de CPF nulo com o mesmo nome civil + mesmo bucket de UF), o que
+    # recupera os anos antigos sem fundir homônimos de outras UFs.
+    #
+    # Bucket de UF: presidente (cargo 1) cai em "BR" (o TSE traz UF inconsistente
+    # p/ cargo nacional) — idêntico ao state_key do group_person.
+    base_state_key = "BR" if base.office_code == 1 else base.state
+    state_key_expr = case((Candidate.office_code == 1, "BR"), else_=Candidate.state)
+    name_norm_expr = func.coalesce(
+        Candidate.name_unaccent, func.lower(func.f_unaccent(Candidate.name))
+    )
+    base_name_norm = base.name_unaccent or func.lower(func.f_unaccent(base.name))
+    name_match = and_(
+        name_norm_expr == base_name_norm,
+        state_key_expr == base_state_key,
+    )
     if base.cpf:
-        match_where = Candidate.cpf == base.cpf
-    else:
-        match_where = and_(
-            func.lower(func.f_unaccent(Candidate.name)) == func.lower(func.f_unaccent(base.name)),
-            Candidate.state == base.state,
+        match_where = or_(
+            Candidate.cpf == base.cpf,
+            and_(
+                or_(Candidate.cpf.is_(None), Candidate.cpf == ""),
+                name_match,
+            ),
         )
+    else:
+        match_where = name_match
     stmt = (
         select(Candidate, Election, Party)
         .join(Election, Candidate.election_id == Election.id)
@@ -1275,6 +1398,187 @@ def get_municipality(
     if m is None:
         raise NotFoundError("Município não encontrado")
     return MunicipalityRead.model_validate(m)
+
+
+# Presidente é o único cargo NACIONAL: o candidato recebe votos em todas as UFs.
+# Os demais (governador, senador, deputados, prefeito, vereador) disputam dentro
+# de uma UF — por isso dá pra filtrar candidatos por `state` e evitar o JOIN
+# geográfico na tabela de votos (23,8M linhas).
+PRESIDENT_OFFICE_CODE = 1
+
+
+@router.get(
+    "/election-results",
+    response_model=ElectionResultsResponse,
+    summary="Resultado de um cargo — município OPCIONAL (agrega na UF quando ausente)",
+    description="""\
+Resultado de uma eleição por cargo, com **escopo flexível**:
+
+- `municipality_id` informado → resultado daquele município (`scope=municipality`).
+- Só `state` → agrega **todos os municípios da UF** (`scope=state`). É o caso de
+  Governador, Senador e Deputados, que não fazem sentido só numa cidade.
+- Sem `state` nem `municipality_id` → agrega o país (`scope=national`, Presidente).
+
+`year` e `office_code` são obrigatórios — sem eles candidaturas de anos/cargos
+diferentes se misturariam na mesma lista.
+""",
+)
+def election_results(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030, description="Ano da eleição"),
+    office_code: int = Query(..., description="Cargo (1=Presidente, 3=Gov, 5=Senador...)"),
+    state: str | None = Query(
+        None, min_length=2, max_length=2, description="UF (agrega a UF inteira)"
+    ),
+    municipality_id: UUID | None = Query(
+        None, description="Município (opcional; afunila o resultado a 1 cidade)"
+    ),
+    limit: int = Query(500, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> ElectionResultsResponse:
+    uf = state.upper() if state else None
+
+    # --------------------------------------------------- escopo + validação
+    muni = None
+    if municipality_id is not None:
+        muni = db.get(Municipality, municipality_id)
+        if muni is None:
+            raise NotFoundError("Municipio nao encontrado")
+        scope = "municipality"
+        uf = muni.state
+    elif uf is not None:
+        scope = "state"
+    else:
+        scope = "national"
+
+    _key = f"elec_res:{scope}:{municipality_id}:{uf}:{office_code}:{year}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
+    # --------------------------------------------------------------- query
+    # ESTRATÉGIA (a tabela de votos tem ~24M linhas): filtrar os CANDIDATOS
+    # primeiro (índice composto election_id+state+office_code) e restringir a
+    # leitura dos votos a esses candidate_id. O caminho inverso — varrer
+    # tse_vote_results filtrando por atributo do candidato — faz seq scan e
+    # estoura o tempo. SQLAlchemy Core (sem SQL cru) mantém tudo portável:
+    # os testes rodam em SQLite, que não tem MATERIALIZED nem LATERAL.
+    election_ids_sq = select(Election.id).where(Election.year == year)
+    cand_filters = [
+        Candidate.office_code == office_code,
+        Candidate.election_id.in_(election_ids_sq),
+    ]
+    # Cargos != Presidente disputam DENTRO de uma UF: filtrar candidatos por
+    # state aproveita o índice e dispensa o recorte geográfico nos votos
+    # (todo voto do candidato já está na UF dele).
+    if uf is not None and scope != "municipality" and office_code != PRESIDENT_OFFICE_CODE:
+        cand_filters.append(Candidate.state == uf)
+
+    # ATALHO (UF, cargo não-presidencial): o total do candidato NA UF é o
+    # próprio `total_votes` pré-computado — validado contra a soma real (bate
+    # ao voto). Sem ele, Dep. Estadual de SP (~2 mil candidatos × 645
+    # municípios) estourava o tempo limite.
+    use_precomputed = scope == "state" and office_code != PRESIDENT_OFFICE_CODE
+
+    if use_precomputed:
+        votes_col = func.coalesce(Candidate.total_votes, 0)
+        stmt = (
+            select(
+                Candidate,
+                votes_col.label("votes"),
+                func.sum(votes_col).over().label("total_cargo"),
+            )
+            .where(*cand_filters, votes_col > 0)
+            .order_by(votes_col.desc())
+            .limit(limit)
+        )
+        munis_count = db.execute(
+            select(func.count()).select_from(Municipality).where(Municipality.state == uf)
+        ).scalar_one()
+    else:
+        votes_sum = func.sum(VoteResult.votes)
+        stmt = (
+            select(
+                Candidate,
+                votes_sum.label("votes"),
+                func.sum(votes_sum).over().label("total_cargo"),
+                func.count(func.distinct(VoteResult.municipality_id)).label("munis"),
+            )
+            .join(VoteResult, VoteResult.candidate_id == Candidate.id)
+            # in_(subquery de candidatos) força o índice de candidate_id em vez
+            # de varrer a tabela de votos inteira.
+            .where(
+                VoteResult.candidate_id.in_(select(Candidate.id).where(*cand_filters))
+            )
+            .group_by(Candidate.id)
+            .having(votes_sum > 0)
+            .order_by(votes_sum.desc())
+            .limit(limit)
+        )
+        if scope == "municipality":
+            stmt = stmt.where(VoteResult.municipality_id == municipality_id)
+        elif uf is not None:  # Presidente recortado por UF: precisa do município
+            stmt = stmt.join(
+                Municipality, Municipality.id == VoteResult.municipality_id
+            ).where(Municipality.state == uf)
+        munis_count = None
+
+    rows = db.execute(stmt).all()
+
+    # Hidrata partido/eleição em lote (sem N+1).
+    party_ids = {r[0].party_id for r in rows}
+    election_ids = {r[0].election_id for r in rows}
+    parties_map = {
+        p.id: p for p in db.execute(
+            select(Party).where(Party.id.in_(party_ids))
+        ).scalars()
+    } if party_ids else {}
+    elections_map = {
+        e.id: e for e in db.execute(
+            select(Election).where(Election.id.in_(election_ids))
+        ).scalars()
+    } if election_ids else {}
+
+    results = [
+        TopCandidateInMunicipality(
+            candidate=CandidateRead(
+                id=c.id,
+                number=c.number,
+                name=c.name,
+                urn_name=c.urn_name,
+                office_code=c.office_code,
+                office_name=c.office_name,
+                state=c.state,
+                situation=c.situation,
+                result_status=c.result_status,
+                party=PartyRead.model_validate(parties_map[c.party_id]),
+                election=ElectionRead.model_validate(elections_map[c.election_id]),
+            ),
+            votes=int(r.votes),
+        )
+        for r in rows
+        for c in (r[0],)
+    ]
+
+    if munis_count is None:
+        munis_count = (
+            int(max(r.munis for r in rows)) if rows and scope != "municipality" else 0
+        )
+
+    _resp = ElectionResultsResponse(
+        scope=scope,
+        municipality=MunicipalityRead.model_validate(muni) if muni else None,
+        state=uf,
+        results=results,
+        total_results=len(results),
+        total_votes=int(rows[0].total_cargo) if rows else 0,
+        office_code=office_code,
+        office_name=results[0].candidate.office_name if results else None,
+        year=year,
+        municipalities_aggregated=int(munis_count),
+    )
+    agg_set(_key, _resp)
+    return _resp
 
 
 @router.get(
@@ -1455,15 +1759,20 @@ def party_membership(
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict:
-    party = db.execute(
+    # scalar_one_or_none() estouraria aqui: um numero pode ter mais de uma
+    # linha (14: PTB e depois MISSAO). A filiacao fica presa na linha que
+    # existia quando foi importada, entao a busca vale para todas.
+    linhas = db.execute(
         select(Party).where(Party.number == number)
-    ).scalar_one_or_none()
+    ).scalars().all()
+    party = partido_atual(linhas)
     if party is None:
         raise NotFoundError("Partido não encontrado")
+    party_ids = [p.id for p in linhas]
 
     period = db.execute(
         select(func.max(PartyMembership.period)).where(
-            PartyMembership.party_id == party.id
+            PartyMembership.party_id.in_(party_ids)
         )
     ).scalar()
     if period is None:
@@ -1479,7 +1788,7 @@ def party_membership(
             PartyMembership.total.label("total"),
         )
         .join(Municipality, Municipality.id == PartyMembership.municipality_id)
-        .where(PartyMembership.party_id == party.id, PartyMembership.period == period)
+        .where(PartyMembership.party_id.in_(party_ids), PartyMembership.period == period)
     )
     if uf:
         q = q.where(Municipality.state == uf.upper())
@@ -1497,6 +1806,95 @@ def party_membership(
         "total_filiados": total,
         "municipios": municipios,
     }
+
+
+@router.get(
+    "/municipalities/{municipality_id}/party-memberships",
+    response_model=MunicipalityPartyMembershipsResponse,
+    summary="Filiados por partido no município + demografia (TSE)",
+    description="""\
+Força local dos partidos: filiados por partido neste município (snapshot
+mensal mais recente do `perfil_filiacao_partidaria`), ordenado por total desc,
+com os breakdowns demográficos (gênero/idade/escolaridade) ingeridos do TSE.
+
+Dado público e agregado (contagens por bucket — sem PII). `items` vazio se o
+dataset `filiacao_partidaria` não foi sincronizado.
+""",
+)
+def municipality_party_memberships(
+    municipality_id: UUID,
+    ctx: CurrentTenant,
+    limit: int = Query(15, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> MunicipalityPartyMembershipsResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    _key = f"muni_party_members:{municipality_id}:{limit}"
+    return cached_agg(
+        _key, lambda: _compute_muni_party_memberships(db, muni, limit)
+    )
+
+
+def _compute_muni_party_memberships(
+    db: Session, muni: Municipality, limit: int
+) -> MunicipalityPartyMembershipsResponse:
+    # Snapshot mais recente DESTE município (o TSE sobrescreve o arquivo
+    # mensalmente; period = AAAAMM).
+    period = db.execute(
+        select(func.max(PartyMembership.period)).where(
+            PartyMembership.municipality_id == muni.id
+        )
+    ).scalar()
+    if period is None:
+        return MunicipalityPartyMembershipsResponse(
+            municipality=MunicipalityRead.model_validate(muni),
+            period=None,
+            total_members=0,
+            items=[],
+        )
+
+    # Partido é FK (party_id) → join direto em tse_parties pra sigla/nome.
+    rows = db.execute(
+        select(PartyMembership, Party)
+        .join(Party, Party.id == PartyMembership.party_id)
+        .where(
+            PartyMembership.municipality_id == muni.id,
+            PartyMembership.period == period,
+        )
+        .order_by(PartyMembership.total.desc())
+        .limit(limit)
+    ).all()
+
+    # Total do município (todos os partidos, não só o top-N) — denominador.
+    total_members = int(
+        db.execute(
+            select(func.coalesce(func.sum(PartyMembership.total), 0)).where(
+                PartyMembership.municipality_id == muni.id,
+                PartyMembership.period == period,
+            )
+        ).scalar()
+        or 0
+    )
+
+    return MunicipalityPartyMembershipsResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        period=period,
+        total_members=total_members,
+        items=[
+            MunicipalityPartyMembershipItem(
+                party_number=p.number,
+                party_abbreviation=p.abbreviation,
+                party_name=p.name,
+                total=int(m.total),
+                by_gender=m.by_gender or {},
+                by_age=m.by_age or {},
+                by_education=m.by_education or {},
+            )
+            for m, p in rows
+        ],
+    )
 
 
 @router.get(
@@ -1676,10 +2074,23 @@ def municipality_zones(
     if muni is None:
         raise NotFoundError("Município não encontrado")
 
+    # A tabela de zona nao tem coluna de ano: o ano vem do candidato. Sem
+    # este recorte o `year` entrava so na chave do cache, e duas eleicoes do
+    # mesmo cargo (governador 2022 e 2026) sairiam SOMADAS na mesma zona, com
+    # candidatos das duas no mesmo ranking.
+    do_ano = (
+        select(Candidate.id)
+        .join(Election, Election.id == Candidate.election_id)
+        .where(Election.year == year, Candidate.office_code == office_code)
+    )
+    if office_code != 1:  # presidente e nacional: a UF do registro e arbitraria
+        do_ano = do_ano.where(Candidate.state == muni.state)
+
     # Filtro base (índice municipality_id, office_code, votes)
     base_filter = (
         CandidateZoneVote.municipality_id == municipality_id,
         CandidateZoneVote.office_code == office_code,
+        CandidateZoneVote.candidate_id.in_(do_ano),
     )
 
     # Total de votos por zona (soma de TODOS) — agregação leve sobre o índice.
@@ -1933,27 +2344,52 @@ def winners_map(
     if _hit is not None:
         return _hit
 
-    # DISTINCT ON (municipio) ordenado por votos desc → vencedor por municipio.
+    # Lê da tabela MATERIALIZADA (migration 062). O cálculo em tempo real
+    # ordenava 3,3 milhões de linhas em disco para devolver 5.570 municípios —
+    # 164s medidos em Deputado Federal 2022. Aqui é um range scan na PK
+    # (year, office_code).
+    #
+    # O desempate por urn_name mora agora no refresh_tse_winners_map.py: sem
+    # ele, empate de votos dava vencedor não-determinístico e o município
+    # trocava de cor entre cargas.
     sql = text(
         """
-        SELECT DISTINCT ON (vr.municipality_id)
-          m.id AS municipality_id, m.name, m.state, m.latitude, m.longitude,
-          p.number AS party_number, p.abbreviation AS party_abbreviation,
-          c.urn_name AS winner_name, vr.votes
-        FROM tse_vote_results vr
-        JOIN tse_candidates c ON c.id = vr.candidate_id
-        JOIN tse_elections e ON e.id = c.election_id
-        JOIN tse_parties p ON p.id = c.party_id
-        JOIN tse_municipalities m ON m.id = vr.municipality_id
-        WHERE e.year = :year AND c.office_code = :office
-          AND m.latitude IS NOT NULL
-        -- tiebreaker estável (urn_name): sem ele, em empate de votos o
-        -- DISTINCT ON pegava um vencedor não-determinístico → cor errada
-        -- (ex: prefeito do Rio aparecendo na cor de outro partido).
-        ORDER BY vr.municipality_id, vr.votes DESC, c.urn_name ASC
+        SELECT municipality_id, municipality AS name, state, latitude, longitude,
+               party_number, party_abbr AS party_abbreviation,
+               urn_name AS winner_name, votes
+        FROM tse_winners_map
+        WHERE year = :year AND office_code = :office
+          AND latitude IS NOT NULL
+        ORDER BY votes DESC
         """
     )
     rows = db.execute(sql, {"year": year, "office": office_code}).mappings().all()
+
+    # Sem linha materializada (import novo do TSE sem o refresh, ou combinação
+    # ano+cargo que nunca existiu): cai no cálculo antigo em vez de devolver
+    # mapa vazio. Lento, porém correto — e o log denuncia o refresh atrasado.
+    if not rows:
+        log.warning(
+            "winners_map_sem_materializacao",
+            year=year, office_code=office_code,
+            acao="rodar scripts/refresh_tse_winners_map.py",
+        )
+        rows = db.execute(text(
+            """
+            SELECT DISTINCT ON (vr.municipality_id)
+              m.id AS municipality_id, m.name, m.state, m.latitude, m.longitude,
+              p.number AS party_number, p.abbreviation AS party_abbreviation,
+              c.urn_name AS winner_name, vr.votes
+            FROM tse_vote_results vr
+            JOIN tse_candidates c ON c.id = vr.candidate_id
+            JOIN tse_elections e ON e.id = c.election_id
+            JOIN tse_parties p ON p.id = c.party_id
+            JOIN tse_municipalities m ON m.id = vr.municipality_id
+            WHERE e.year = :year AND c.office_code = :office
+              AND m.latitude IS NOT NULL
+            ORDER BY vr.municipality_id, vr.votes DESC, c.urn_name ASC
+            """
+        ), {"year": year, "office": office_code}).mappings().all()
     points = [
         WinnerMapPoint(
             municipality_id=r["municipality_id"],
@@ -2085,7 +2521,10 @@ def stats_counts(
             select(func.count()).select_from(Municipality).where(Municipality.state != "ZZ")
         ).scalar_one()
     )
-    parties = int(db.execute(select(func.count()).select_from(Party)).scalar_one())
+    # distinct: um numero pode ter mais de uma linha (sigla por epoca).
+    parties = int(db.execute(
+        select(func.count(func.distinct(Party.number)))
+    ).scalar_one())
     elections = int(db.execute(select(func.count()).select_from(Election)).scalar_one())
     _result = {
         "candidates": candidates,
@@ -2166,6 +2605,12 @@ def candidate_by_neighborhood(
     candidate_id: UUID,
     ctx: CurrentTenant,
     municipality_id: UUID | None = Query(None),
+    # Top-N do ranking. O frontend da pagina do candidato ja mandava limit=20
+    # — mas o param nao existia aqui e o FastAPI o ignorava em silencio,
+    # devolvendo TODOS os bairros (payload + milhares de <li> no DOM mobile).
+    # Os totais (total_votes/total_neighborhoods) continuam considerando o
+    # conjunto COMPLETO; so a lista items e cortada.
+    limit: int | None = Query(None, ge=1, le=5000),
     db: Session = Depends(get_db),
 ) -> CandidateByNeighborhoodResponse:
     candidate = db.get(Candidate, candidate_id)
@@ -2180,6 +2625,14 @@ def candidate_by_neighborhood(
         if municipality is None:
             raise NotFoundError("Municipio nao encontrado")
 
+    # Dado público TSE/IBGE (sem tenant) + agregação pesada (JOIN seções ×
+    # locais + cruzamento censo por bairro) → agg_cache, mesmo critério dos
+    # irmãos (muni_top, party_members). Antes refazia tudo a cada request.
+    _key = f"by_nb:{candidate_id}:{municipality_id}:{limit}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     # Agregacao SQL: JOIN section_votes × voting_places, group by bairro
     stmt = (
         select(
@@ -2187,6 +2640,13 @@ def candidate_by_neighborhood(
                 func.nullif(func.trim(TseVotingPlace.neighborhood), ""),
                 "(Sem bairro)",
             ).label("neighborhood"),
+            # Município na chave: sem isso, bairros homônimos de cidades
+            # diferentes (todo "Centro" do estado) se fundiam num só quando o
+            # endpoint era chamado sem `municipality_id` — caso de deputado
+            # estadual/federal. Agora a chave é (município, bairro).
+            TseVotingPlace.municipality_id.label("municipality_id"),
+            Municipality.name.label("municipality_name"),
+            Municipality.state.label("municipality_state"),
             func.sum(TseSectionVote.votes).label("votes"),
             func.count(TseVotingPlace.id).label("places_count"),
             func.coalesce(func.sum(TseVotingPlace.electors_total), 0).label(
@@ -2217,13 +2677,29 @@ def candidate_by_neighborhood(
             ).label("avg_lng"),
         )
         .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
         .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
     )
     if municipality_id is not None:
         stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
-    stmt = stmt.group_by("neighborhood").order_by(func.sum(TseSectionVote.votes).desc())
+    # Chave composta (município, bairro) — desambigua homônimos. Quando há
+    # filtro de município, o municipality_id na chave é redundante (1 só) e o
+    # resultado é idêntico ao de antes; sem filtro, separa cidade a cidade.
+    stmt = stmt.group_by(
+        TseVotingPlace.municipality_id,
+        Municipality.name,
+        Municipality.state,
+        "neighborhood",
+    ).order_by(func.sum(TseSectionVote.votes).desc())
 
     rows = db.execute(stmt).all()
+
+    # Totais calculados sobre TODOS os bairros (antes do corte do limit) —
+    # o denominador/percentual exibido não muda quando só o top-N é pedido.
+    total_votes_all = sum(int(r.votes) for r in rows)
+    total_neighborhoods_all = len(rows)
+    if limit is not None:
+        rows = rows[:limit]
 
     # Cruzamento Censo IBGE 2022: população/domicílios por bairro (match por
     # nome normalizado). Só quando filtrado por município E o município tem
@@ -2261,6 +2737,9 @@ def candidate_by_neighborhood(
         pop = pop_dom[0] if pop_dom else None
         items.append(CandidateByNeighborhoodItem(
             neighborhood=r.neighborhood,
+            municipality_id=r.municipality_id,
+            municipality_name=r.municipality_name,
+            municipality_state=r.municipality_state,
             votes=int(r.votes),
             places_count=int(r.places_count),
             electors_total=int(r.electors_total),
@@ -2277,7 +2756,7 @@ def candidate_by_neighborhood(
             ),
         ))
 
-    return CandidateByNeighborhoodResponse(
+    resp = CandidateByNeighborhoodResponse(
         candidate=CandidateRead(
             id=candidate.id,
             number=candidate.number,
@@ -2293,8 +2772,241 @@ def candidate_by_neighborhood(
         ),
         municipality=MunicipalityRead.model_validate(municipality) if municipality else None,
         items=items,
-        total_votes=sum(i.votes for i in items),
-        total_neighborhoods=len(items),
+        total_votes=total_votes_all,
+        total_neighborhoods=total_neighborhoods_all,
+    )
+    agg_set(_key, resp)
+    return resp
+
+
+@router.get(
+    "/candidates/{candidate_id}/by-place",
+    summary="Votos do candidato agregados por LOCAL de votação",
+    description="""\
+Agrega os votos por seção do candidato no nível de LOCAL de votação (escola).
+Alimenta a exportação de dados brutos (aba "Votos por local" do Excel).
+
+Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 Brasil);
+sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
+a um município.
+""",
+)
+def candidate_by_place(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    municipality_id: UUID | None = Query(None),
+    db: Session = Depends(get_db),
+) -> Response:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+
+    stmt = (
+        select(
+            TseVotingPlace.name,
+            TseVotingPlace.address,
+            TseVotingPlace.neighborhood,
+            TseVotingPlace.electors_total,
+            Municipality.name.label("municipality_name"),
+            Municipality.state.label("municipality_state"),
+            func.sum(TseSectionVote.votes).label("votes"),
+        )
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+        .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
+    )
+    if municipality_id is not None:
+        stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
+    # group by PK do local: as demais colunas do local são funcionalmente
+    # dependentes (Postgres aceita) — evita duplicar local homônimo.
+    stmt = stmt.group_by(
+        TseVotingPlace.id, Municipality.name, Municipality.state
+    ).order_by(func.sum(TseSectionVote.votes).desc())
+
+    rows = db.execute(stmt).all()
+    return ORJSONResponse(
+        content=[
+            {
+                "place": r.name,
+                "address": r.address,
+                "neighborhood": r.neighborhood,
+                "electors_total": r.electors_total,
+                "municipality_name": r.municipality_name,
+                "municipality_state": r.municipality_state,
+                "votes": int(r.votes),
+            }
+            for r in rows
+        ],
+    )
+
+
+# ============================================================ NEIGHBORHOOD RANKING
+
+
+def _neighborhood_norm_expr():
+    """Mesma normalização de bairro do by-neighborhood (chave simétrica):
+    trim + vazio→'(Sem bairro)'. O label devolvido lá casa exato aqui."""
+    return func.coalesce(
+        func.nullif(func.trim(TseVotingPlace.neighborhood), ""),
+        "(Sem bairro)",
+    )
+
+
+@router.get(
+    "/neighborhoods/ranking",
+    response_model=NeighborhoodRankingResponse,
+    summary="Raio-X do bairro — ranking de TODOS os candidatos num bairro",
+    description="""\
+Inverso do `/candidates/{id}/by-neighborhood`: em vez de "onde o candidato X
+votou bem", responde **"quem domina este bairro?"** — ranking de todos os
+candidatos com votos de seção nos locais do bairro.
+
+Use o `neighborhood` EXATAMENTE como devolvido pelo by-neighborhood (mesma
+normalização: trim + vazio vira `(Sem bairro)`).
+
+Cobertura: seções 2024 (Brasil) · 2020/2022 (RJ). Sem `year`, usa o ano mais
+recente com dados de seção no município.
+
+`electors_total` = eleitores aptos dos locais do bairro (soma por local, sem
+duplicar por candidato); `pct_electors` de cada candidato usa esse denominador.
+""",
+)
+def neighborhood_ranking(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    neighborhood: str = Query(..., min_length=1, max_length=120),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    year: int | None = Query(None, ge=1994, le=2030),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> NeighborhoodRankingResponse:
+    muni = db.get(Municipality, municipality_id)
+    if muni is None:
+        raise NotFoundError("Municipio nao encontrado")
+
+    nb = neighborhood.strip()
+    # Agregação pesada (varre seção × local × candidato) — cache 4h por chave.
+    _key = f"nb_ranking:{municipality_id}:{nb.upper()}:{office_code}:{year}:{limit}"
+    return cached_agg(
+        _key,
+        lambda: _compute_neighborhood_ranking(db, muni, nb, office_code, year, limit),
+    )
+
+
+def _compute_neighborhood_ranking(
+    db: Session,
+    muni: Municipality,
+    nb: str,
+    office_code: int | None,
+    year: int | None,
+    limit: int,
+) -> NeighborhoodRankingResponse:
+    nb_expr = _neighborhood_norm_expr()
+
+    # Sem ano explícito → ano mais recente com dados de SEÇÃO neste município
+    # (2024 Brasil; 2020/2022 só RJ). None = município sem votos de seção.
+    if year is None:
+        year = db.execute(
+            select(func.max(Election.year))
+            .select_from(TseSectionVote)
+            .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+            .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+            .join(Election, Election.id == Candidate.election_id)
+            .where(TseVotingPlace.municipality_id == muni.id)
+        ).scalar()
+
+    def _with_filters(stmt):
+        stmt = stmt.where(
+            TseVotingPlace.municipality_id == muni.id,
+            nb_expr == nb,
+            TseSectionVote.votes > 0,
+        )
+        if year is not None:
+            stmt = stmt.where(Election.year == year)
+        if office_code is not None:
+            stmt = stmt.where(Candidate.office_code == office_code)
+        return stmt
+
+    # Ranking: JOIN seção × local × candidato × partido × eleição, SUM por
+    # candidato. Usa ix_tse_voting_places_muni_neighborhood pra achar os locais
+    # e ix_tse_section_votes_place_votes pra varrer os votos de cada local.
+    rank_stmt = _with_filters(
+        select(
+            Candidate,
+            Party,
+            Election,
+            func.sum(TseSectionVote.votes).label("votes"),
+            func.count(func.distinct(TseVotingPlace.id)).label("places_count"),
+        )
+        .select_from(TseSectionVote)
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+        .join(Election, Election.id == Candidate.election_id)
+        .join(Party, Party.id == Candidate.party_id)
+    ).group_by(Candidate.id, Party.id, Election.id).order_by(
+        func.sum(TseSectionVote.votes).desc()
+    ).limit(limit)
+    rows = db.execute(rank_stmt).all()
+
+    # Total do bairro (TODOS os candidatos do filtro, não só o top-N) —
+    # denominador pra % relativa entre candidatos na UI.
+    total_votes = int(
+        db.execute(
+            _with_filters(
+                select(func.coalesce(func.sum(TseSectionVote.votes), 0))
+                .select_from(TseSectionVote)
+                .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+                .join(Candidate, Candidate.id == TseSectionVote.candidate_id)
+                .join(Election, Election.id == Candidate.election_id)
+            )
+        ).scalar()
+        or 0
+    )
+
+    # Eleitores aptos do bairro: soma por LOCAL (subquery separada — somar no
+    # JOIN do ranking duplicaria o local uma vez por candidato). Filtra pelo
+    # ano do local (locais mudam entre pleitos; sem isso somaria 2020+2022+2024).
+    el_stmt = select(func.coalesce(func.sum(TseVotingPlace.electors_total), 0)).where(
+        TseVotingPlace.municipality_id == muni.id,
+        nb_expr == nb,
+    )
+    if year is not None:
+        el_stmt = el_stmt.where(TseVotingPlace.year == year)
+    electors_total = int(db.execute(el_stmt).scalar() or 0)
+
+    items = [
+        NeighborhoodRankingItem(
+            candidate=CandidateRead(
+                id=cand.id,
+                number=cand.number,
+                name=cand.name,
+                urn_name=cand.urn_name,
+                office_code=cand.office_code,
+                office_name=cand.office_name,
+                state=cand.state,
+                situation=cand.situation,
+                result_status=cand.result_status,
+                party=PartyRead.model_validate(party),
+                election=ElectionRead.model_validate(election),
+            ),
+            votes=int(votes),
+            places_count=int(places_count),
+            pct_electors=(
+                round(int(votes) / electors_total * 100, 1)
+                if electors_total > 0 else None
+            ),
+        )
+        for cand, party, election, votes, places_count in rows
+    ]
+
+    return NeighborhoodRankingResponse(
+        municipality=MunicipalityRead.model_validate(muni),
+        neighborhood=nb,
+        year=year,
+        office_code=office_code,
+        electors_total=electors_total,
+        total_votes=total_votes,
+        items=items,
     )
 
 
@@ -2442,7 +3154,11 @@ def candidate_dossier_pdf(
                     media_type="application/pdf",
                     headers={
                         "Content-Disposition": f'inline; filename="{fname}"',
-                        "Cache-Control": "public, max-age=86400",
+                        # no-store: endpoint autenticado e conteúdo mutável — o
+                        # "public, max-age=86400" fazia o BROWSER segurar o PDF
+                        # antigo por 24h depois de um fix (o cache de perf é o
+                        # de disco acima, não o HTTP).
+                        "Cache-Control": "private, no-store",
                         "X-Cache": "HIT",
                     },
                 )
@@ -2462,7 +3178,10 @@ def candidate_dossier_pdf(
             Municipality.longitude,
         )
         .join(Municipality, Municipality.id == VoteResult.municipality_id)
-        .where(VoteResult.candidate_id == candidate_id)
+        # votes > 0: o import munzona cria linha ZERADA por município. Sem o
+        # filtro, o dossiê dizia "92 municípios" (estado inteiro) pra quem
+        # pontuou em 61 — e o mini-mapa pintava bolha em cidade com 0 voto.
+        .where(VoteResult.candidate_id == candidate_id, VoteResult.votes > 0)
         .order_by(VoteResult.votes.desc())
     ).all()
     municipality_results = [(n, s, int(v)) for n, s, v, _, _ in muni_rows]
@@ -2595,7 +3314,7 @@ def candidate_dossier_pdf(
         zone_results=zone_results,
         photo_bytes=photo_bytes,
         candidate_id=str(candidate.id),
-        public_url_base="https://srv1412083.hstgr.cloud",
+        public_url_base=get_settings().PUBLIC_URL_BASE,
         municipality_coords=municipality_coords,
         ai_report=ai_report,
         path_to_victory=path_to_victory,
@@ -2624,7 +3343,7 @@ def candidate_dossier_pdf(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{fname}"',
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "private, no-store",
             "X-Cache": "MISS",
         },
     )
@@ -2679,6 +3398,256 @@ def tse_voting_places_lookup(
 
 
 @router.get(
+    "/voting-places/map",
+    summary="Locais de votação de um município (camada de marcadores no mapa)",
+    description=(
+        "Lista TODOS os locais de votação reais (base TSE) de um município, com "
+        "coordenadas, para desenhar uma camada de marcadores no mapa. Diferente "
+        "de `/voting-places` (que é limitado a 20 e serve o autocomplete do "
+        "cadastro), este retorna o conjunto completo (cap de segurança 3000). "
+        "Descarta pontos sem coordenada ou fora da bounding-box do Brasil."
+    ),
+)
+def tse_voting_places_map(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    year: int = Query(2024, ge=1994, le=2030),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    stmt = (
+        select(TseVotingPlace)
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+            TseVotingPlace.latitude.is_not(None),
+            TseVotingPlace.longitude.is_not(None),
+            # bounding-box do Brasil: alguns locais do TSE vêm com coordenada
+            # zerada/trocada e cairiam no Atlântico — fora daqui não viram pino.
+            TseVotingPlace.latitude.between(-34.0, 6.0),
+            TseVotingPlace.longitude.between(-74.0, -34.0),
+        )
+        .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+        .limit(3000)
+    )
+    rows = db.execute(stmt).scalars().all()
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "neighborhood": p.neighborhood,
+            "address": p.address,
+            "lat": float(p.latitude),
+            "lng": float(p.longitude),
+            "electors": p.electors_total,
+            "geo_source": p.geo_source,  # tse | centroid | nominatim
+        }
+        for p in rows
+    ]
+
+
+# Bounding-box do Brasil: coordenada nula, zerada, trocada ou sentinela
+# (99.999…) do TSE cai fora daqui — saneamento no SERVIDOR, o front nunca
+# recebe ponto que derrubaria o L.marker.
+_BR_LAT = (-34.0, 6.0)
+_BR_LNG = (-74.0, -34.0)
+
+
+def _valid_coords_clause():
+    return and_(
+        TseVotingPlace.latitude.is_not(None),
+        TseVotingPlace.longitude.is_not(None),
+        TseVotingPlace.latitude.between(*_BR_LAT),
+        TseVotingPlace.longitude.between(*_BR_LNG),
+    )
+
+
+@router.get(
+    "/voting-locations",
+    response_model=VotingLocationsResponse,
+    summary="Locais de votação saneados p/ o WebGIS (por candidato e/ou município)",
+    description="""\
+Camada de LOCAIS DE VOTAÇÃO do mapa, unificando os dois recortes:
+
+- **`candidate_id`**: todos os locais onde o candidato recebeu voto de seção
+  (`votes` = soma no local). Cobertura = a da votação por seção
+  (2018/2020/2022 RJ · 2024 Brasil).
+- **`municipality_id`** (sem candidato): todos os locais do município no
+  `year` (default 2024), com eleitorado e sem `votes`.
+- Os dois juntos restringem o candidato a um município.
+
+**Saneamento no servidor**: locais com lat/lng nula ou fora da bounding-box do
+Brasil são REMOVIDOS antes da resposta e contabilizados em
+`meta.invalid_coords` (o TSE traz sentinelas tipo 99.999 e coordenadas
+zeradas). `meta.total`/`meta.capped` dão transparência ao cap de `limit`
+(ordenado por votos ou eleitorado desc — os locais mais relevantes primeiro).
+""",
+)
+def tse_voting_locations(
+    ctx: CurrentTenant,
+    candidate_id: UUID | None = Query(None, description="Candidato (votos por local)"),
+    municipality_id: UUID | None = Query(None, description="Restringe a um município"),
+    year: int = Query(2024, ge=1994, le=2030, description="Ano da base de locais (só sem candidato)"),
+    limit: int = Query(5000, ge=1, le=8000),
+    db: Session = Depends(get_db),
+) -> VotingLocationsResponse:
+    if candidate_id is None and municipality_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe candidate_id e/ou municipality_id.",
+        )
+
+    valid = _valid_coords_clause()
+
+    if candidate_id is not None:
+        if db.get(Candidate, candidate_id) is None:
+            raise NotFoundError("Candidato nao encontrado")
+        # Locais COM VOTO do candidato (seção × local). O ano é implícito:
+        # os voting_place_id das seções já pertencem à eleição do candidato.
+        base = (
+            select(
+                TseVotingPlace.id.label("place_id"),
+                func.sum(TseSectionVote.votes).label("votes"),
+            )
+            .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+            .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
+            .group_by(TseVotingPlace.id)
+        )
+        if municipality_id is not None:
+            base = base.where(TseVotingPlace.municipality_id == municipality_id)
+        sub = base.subquery()
+
+        # UMA passada só: antes a agregação de seções (o `sub` caro) rodava
+        # DUAS vezes — uma pro count/invalid, outra pros rows. Janelas contam
+        # o conjunto todo; ordenando `valid` primeiro, os N do limit são os
+        # válidos (inválidos só aparecem se os válidos acabarem — filtrados
+        # em Python, são poucos: coordenadas quebradas).
+        rows = db.execute(
+            select(
+                TseVotingPlace,
+                Municipality,
+                sub.c.votes,
+                func.count().over().label("total_all"),
+                func.count().filter(~valid).over().label("invalid_all"),
+                valid.label("is_valid"),
+            )
+            .select_from(sub)
+            .join(TseVotingPlace, TseVotingPlace.id == sub.c.place_id)
+            .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+            .order_by(valid.desc(), sub.c.votes.desc())
+            .limit(limit)
+        ).all()
+        total = int(rows[0].total_all) if rows else 0
+        invalid = int(rows[0].invalid_all) if rows else 0
+        items = [
+            _voting_location_item(r[0], r[1], votes=int(r[2]))
+            for r in rows
+            if r.is_valid
+        ]
+    else:
+        base_where = [
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+        ]
+        total, invalid = db.execute(
+            select(
+                func.count(),
+                func.count().filter(~valid),
+            ).where(*base_where)
+        ).one()
+
+        rows = db.execute(
+            select(TseVotingPlace, Municipality)
+            .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+            .where(*base_where, valid)
+            .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+            .limit(limit)
+        ).all()
+        items = [_voting_location_item(p, m, votes=None) for p, m in rows]
+
+    return VotingLocationsResponse(
+        items=items,
+        meta=VotingLocationsMeta(
+            total=int(total),
+            returned=len(items),
+            invalid_coords=int(invalid),
+            capped=(int(total) - int(invalid)) > len(items),
+        ),
+    )
+
+
+def _voting_location_item(
+    p: TseVotingPlace, m: Municipality, votes: int | None
+) -> VotingLocationItem:
+    return VotingLocationItem(
+        id=p.id,
+        name=p.name,
+        address=p.address,
+        neighborhood=p.neighborhood,
+        municipality_name=m.name,
+        municipality_state=m.state,
+        lat=float(p.latitude),
+        lng=float(p.longitude),
+        electors=p.electors_total,
+        votes=votes,
+        geo_source=p.geo_source,
+    )
+
+
+@router.get(
+    "/voting-places/unmapped",
+    summary="Locais de votação NÃO mapeados de um município",
+    description=(
+        "Lista os locais que ficaram SEM coordenada válida do TSE — os `unmapped` "
+        "(sem coordenada nenhuma) e os `centroid` (parkados no centro do município, "
+        "imprecisos). É a lista que o pipeline de enriquecimento (ViaCEP→Nominatim) "
+        "tenta recuperar. Traz também um resumo da contagem por origem (`geo_source`)."
+    ),
+)
+def tse_voting_places_unmapped(
+    ctx: CurrentTenant,
+    municipality_id: UUID = Query(..., description="ID do município (tse_municipalities)"),
+    year: int = Query(2024, ge=1994, le=2030),
+    db: Session = Depends(get_db),
+) -> dict:
+    # Resumo por origem da coordenada.
+    summary_rows = db.execute(
+        select(TseVotingPlace.geo_source, func.count())
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+        )
+        .group_by(TseVotingPlace.geo_source)
+    ).all()
+    summary = {(g or "null"): int(n) for g, n in summary_rows}
+
+    # Lista dos problemáticos (sem coord + no centroide impreciso).
+    rows = db.execute(
+        select(TseVotingPlace)
+        .where(
+            TseVotingPlace.municipality_id == municipality_id,
+            TseVotingPlace.year == year,
+            TseVotingPlace.geo_source.in_(["unmapped", "centroid"]),
+        )
+        .order_by(func.coalesce(TseVotingPlace.electors_total, 0).desc())
+        .limit(2000)
+    ).scalars().all()
+    return {
+        "summary": summary,
+        "items": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "neighborhood": p.neighborhood,
+                "address": p.address,
+                "geo_source": p.geo_source,
+                "electors": p.electors_total,
+            }
+            for p in rows
+        ],
+    }
+
+
+@router.get(
     "/municipality-center",
     summary="Centro aproximado de um município (cadastro de contato)",
     description=(
@@ -2721,3 +3690,278 @@ def tse_municipality_center(
     if not row or row[0] is None or row[1] is None:
         return {"lat": None, "lng": None}
     return {"lat": float(row[0]), "lng": float(row[1])}
+
+
+@router.get(
+    "/stats/aggregated-votes",
+    response_model=AggregatedVotesResponse,
+    summary="Votos somados por territorio — municipio ou bairro",
+    description="""\
+Devolve os votos **ja somados** para um escopo de eleicao, no formato que um
+painel consome direto, sem calculo no cliente.
+
+**O escopo decide a granularidade e a fonte:**
+
+- **sem `municipality_id`** → soma por **municipio**, de `tse_vote_results`.
+  Cobre 2014-2024, Brasil inteiro. Numero exato.
+- **com `municipality_id`** → soma por **bairro**, das secoes eleitorais.
+  So existe onde importamos secao: 2024 (Brasil) e 2018/2020/2022 (somente RJ).
+  Fora desse recorte a lista volta **vazia** — nao e erro; leia `cobertura`.
+
+`dados_confiaveis` vem **false** na quebra por bairro: o local de votacao e
+gravado com chave (ano, municipio, numero), mas no TSE esse numero so e unico
+dentro da zona eleitoral. Em cidade com mais de uma zona, locais distintos
+colidem — o total do municipio continua certo, a atribuicao de bairro e
+aproximada ate os locais serem reimportados com a zona na chave.
+
+**Turno:** a base tem apenas votacao de **1o turno**. Quem foi ao 2o turno esta
+incluido, com os votos do 1o. Nao ha filtro de turno de proposito: no TSE esses
+candidatos ficam num registro separado, e filtrar por turno derrubaria os dois
+mais votados de toda cidade que teve segundo turno.
+
+Cargos: 1 presidente · 3 governador · 5 senador · 6 deputado federal ·
+7 deputado estadual · 11 prefeito · 13 vereador.
+""",
+)
+def aggregated_votes(
+    ctx: CurrentTenant,
+    uf: str = Query(..., min_length=2, max_length=2, description="UF, ex: RJ"),
+    year: int = Query(..., ge=1994, le=2030),
+    office_code: int = Query(..., description="11=prefeito, 13=vereador…"),
+    municipality_id: UUID | None = Query(
+        None, description="Informe para quebrar por bairro dentro do municipio",
+    ),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> AggregatedVotesResponse:
+    dados = get_aggregated_votes(
+        db,
+        uf=uf,
+        ano=year,
+        cargo=office_code,
+        municipio=municipality_id,
+        limit=limit,
+    )
+    return AggregatedVotesResponse(**dados)
+
+
+@router.get(
+    "/elected",
+    summary="Quem foi eleito (ou nao) numa eleicao",
+    description="""Lista os **eleitos** de um recorte de eleicao. Com `eleito=false`, devolve os
+nao eleitos (inclui suplentes — veja `situacao` em cada item).
+
+`municipality` e o **nome** do municipio, nao um id: `?uf=RJ&municipality=NITEROI`.
+Sem ele, o recorte e a UF inteira (eleicao geral).
+
+**Nao ha filtro de turno**, de proposito: a situacao ja e o resultado final.
+
+**"Eleito" nao e um valor so** no TSE — sao ELEITO, ELEITO POR QP e ELEITO POR
+MEDIA. Quem filtrasse so por `ELEITO` perderia quase todo vereador e deputado,
+que entram por quociente ou media. Este endpoint cobre os tres.
+
+`contacts=true` acrescenta `redes_sociais`. Vale saber: a fonte do TSE traz
+**apenas redes sociais**, e so em parte das candidaturas — telefone e e-mail
+nao existem no dado publico.
+
+Cargos: 1 presidente · 3 governador · 5 senador · 6 deputado federal ·
+7 deputado estadual · 11 prefeito · 13 vereador.
+""",
+)
+def elected(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    uf: str = Query(..., min_length=2, max_length=2),
+    municipality: str | None = Query(
+        None, description="Nome do municipio, ex: NITEROI. Vazio = UF inteira",
+    ),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    elected: bool = Query(True, description="false devolve os NAO eleitos"),
+    contacts: bool = Query(False, description="inclui redes sociais"),
+    limit: int = Query(500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_elected(
+        db, ano=year, uf=uf, municipio=municipality, cargo=office_code,
+        eleito=elected, meios_contato=contacts, limit=limit,
+    )
+
+
+@router.get(
+    "/stats/bancada",
+    summary="Bancada por partido: quem fica e quem entra",
+    description="""Quadro da casa legislativa por partido, comparando com a eleicao de 4 anos antes.
+
+**Senado (`office_code=5`)**: `antes` sao os senadores eleitos ha 4 anos, que
+seguem no mandato; `eleitos` sao os proclamados agora; `total` soma os dois.
+
+**Camara (`office_code=6`)**: a casa e renovada inteira, entao `antes` e a
+bancada eleita ha 4 anos (que sai) e `total` conta so quem entra.
+
+`a_frente` existe so no Senado: os mais votados nas UFs em que o TSE ainda nao
+proclamou o resultado. **Nao sao eleitos** e vem separados de proposito.
+
+O partido de `antes` e o da eleicao em que a pessoa foi eleita — o TSE nao
+publica troca de partido durante o mandato.
+""",
+)
+def bancada(
+    ctx: CurrentTenant,
+    year: int = Query(2026, ge=1998, le=2100),
+    office_code: int = Query(5, description="5=senador, 6=deputado federal"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_bancada(db, ano=year, cargo=office_code)
+
+
+@router.get(
+    "/stats/virada",
+    summary="O que mudou em cada municipio entre duas eleicoes",
+    description="""Para cada municipio, o partido mais votado em `from_year` e em `to_year`
+no mesmo cargo, e se ele mudou (`virou`).
+
+Partido que se fundiu ou foi incorporado conta como o sucessor: quem votou no
+PTB em 2022 e no PRD em 2026 **manteve**. Numero reaproveitado por outro
+partido conta como mudanca (o 14 era PTB e hoje e Missao).
+
+Sempre 1o turno dos dois lados. So entram municipios com vencedor nos dois
+anos; os demais vem contados em `sem_comparacao`.
+""",
+)
+def virada(
+    ctx: CurrentTenant,
+    office_code: int = Query(1, description="1=presidente, 3=governador, 5=senador"),
+    from_year: int = Query(2022, ge=1998, le=2100),
+    to_year: int = Query(2026, ge=1998, le=2100),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_virada(db, cargo=office_code, de=from_year, para=to_year)
+
+
+@router.get(
+    "/electorate-profile",
+    summary="Perfil do eleitorado do recorte",
+    description="""Sexo, faixa etaria, escolaridade, estado civil e cor/raca do eleitorado.
+
+`municipality` e o **nome** do municipio; sem ele, soma a UF inteira.
+
+**Nao existe perfil por turno**: o TSE publica um eleitorado por pleito, nao um
+por turno. Hoje temos **2024** carregado (155.912.680 eleitores no pais); outros
+anos respondem vazio, com `observacao` explicando — nao e erro.
+""",
+)
+def electorate_profile(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    uf: str = Query(..., min_length=2, max_length=2),
+    municipality: str | None = Query(None, description="Nome do municipio"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_electorate_profile(db, ano=year, uf=uf, municipio=municipality)
+
+
+@router.get(
+    "/ingest/coverage",
+    summary="O que ja entrou e o que falta, por UF",
+    description="""Feito para a noite da apuracao. "O job terminou" **nao** quer dizer "o dado esta
+completo": o TSE libera a capital antes da cidade pequena, e sem este numero
+uma importacao pela metade e indistinguivel de uma inteira.
+
+`situacao` resume: `completo`, `parcial` ou `vazio`. Cada UF traz quantos
+municipios ja tem voto e quantos faltam.
+
+O esperado sai da propria tabela de municipios — nao de uma constante que
+envelheceria a cada eleicao.
+""",
+)
+def ingest_coverage(
+    ctx: CurrentTenant,
+    year: int = Query(..., ge=1994, le=2030),
+    office_code: int | None = Query(None, description="11=prefeito, 13=vereador…"),
+    db: Session = Depends(get_db),
+) -> dict:
+    return cobertura(db, ano=year, cargo=office_code)
+
+
+@router.get(
+    "/ingest/files",
+    summary="Arquivos do TSE prontos para ingestao",
+    description="""Lista o que ja esta na porta de entrada manual do servidor.
+
+Existe porque o **TSE bloqueia download automatizado** (403 no CDN e no portal,
+de qualquer maquina; navegador passa). Na apuracao o arquivo pode chegar baixado
+a mao — quem entrega larga o zip no diretorio com o nome do dataset e o job
+encontra pronto, sem tentar baixar.
+
+`valido` diz se o arquivo abre como zip: pega download interrompido antes de a
+ingestao comecar.
+""",
+)
+def ingest_files(ctx: CurrentTenant) -> dict:
+    from app.utils.tse_sync import CACHE_DIR
+
+    itens = arquivos_prontos(CACHE_DIR)
+    return {
+        "diretorio": str(CACHE_DIR),
+        "total": len(itens),
+        "arquivos": itens,
+    }
+
+
+@router.post(
+    "/ingest/cache-clear",
+    summary="Esvazia o cache de agregacoes (uso da captura ao vivo)",
+    description="""O cache de agregacao vive DENTRO do processo da API e dura 4 horas. A captura
+dos resultados ao vivo roda em outro processo, entao sem este aviso a API
+continuaria respondendo o numero de antes — fatal numa apuracao, em que o dado
+muda de minutos em minutos.
+
+So responsavel da campanha ou superadmin. Chave de API nao chega aqui: ela e
+somente leitura e este e um POST.
+""",
+)
+def ingest_cache_clear(
+    ctx: CurrentTenant,
+    db: Session = Depends(get_db),
+) -> dict:
+    if ctx.role != "owner":
+        _u = db.get(User, ctx.user_id)
+        if not (_u is not None and bool(getattr(_u, "is_superadmin", False))):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas o responsavel da campanha pode limpar o cache.",
+            )
+    from app.utils.agg_cache import clear_agg_cache
+
+    clear_agg_cache()
+    log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id))
+    return {"limpo": True}
+
+
+@router.get(
+    "/ingest/live",
+    summary="Andamento da captura ao vivo da apuracao",
+    description="""O que a ultima passada da captura ao vivo trouxe: quantos arquivos do TSE
+responderam, quantos candidatos foram atualizados e o percentual de secoes ja
+totalizadas em cada UF e cargo.
+
+`arquivos_sem_resposta` nao e necessariamente erro — deputado distrital so
+existe no DF e deputado estadual nao existe la, entao 27 ausencias sao
+esperadas numa eleicao geral.
+""",
+)
+def ingest_live(ctx: CurrentTenant) -> dict:
+    import json as _json
+
+    from app.utils.tse_sync import CACHE_DIR
+
+    caminho = CACHE_DIR / "_ao_vivo_status.json"
+    if not caminho.exists():
+        return {"capturando": False,
+                "observacao": "A captura ao vivo ainda nao rodou."}
+    try:
+        dado = _json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"capturando": False, "observacao": "Status ilegivel."}
+    dado["capturando"] = True
+    return dado

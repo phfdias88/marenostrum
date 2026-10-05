@@ -27,6 +27,7 @@ import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { downloadErrorMessage, saveBlob } from "@/lib/download";
 import type {
   Page,
   TseAiCompare,
@@ -41,6 +42,7 @@ import type {
   TseOpportunityResponse,
   TsePathToVictory,
 } from "@/lib/types";
+import { classifyResult, OUTCOME_LABEL } from "@/lib/types";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -48,6 +50,7 @@ import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { CandidateMapModal } from "@/components/tse/CandidateMapModal";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { ExportShare } from "@/components/tse/ExportShare";
+import { exportCandidateXlsx } from "@/lib/exportCandidateXlsx";
 import { CandidateDetailSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
 import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
@@ -97,7 +100,14 @@ export default function CandidateDetailPage() {
     // Trajetória eleitoral — mesma pessoa em outras eleições (2014–2024)
     api<TseCandidateTrajectory>(`/v1/tse/candidates/${id}/trajectory`)
       .then((d) => { if (!cancelled) setTrajectory(d); })
-      .catch(() => { if (!cancelled) setTrajectory(null); });
+      .catch((e) => {
+        // Não engolir em silêncio: o painel "Outras eleições" some quando isto
+        // falha, então logamos pra não parecer "bug fantasma" (foi o que
+        // mascarou o caso 'André das Clínicas'). A ausência de painel em si é
+        // esperada só quando a pessoa tem 1 candidatura (items <= 1).
+        console.error("Falha ao carregar a trajetória do candidato:", e);
+        if (!cancelled) setTrajectory(null);
+      });
 
     api<TseCandidateResults>(`/v1/tse/candidates/${id}/results`)
       .then((d) => { if (!cancelled) setData(d); })
@@ -189,6 +199,29 @@ export default function CandidateDetailPage() {
     ? trajectory.items.reduce((a, b) => (b.year > a.year ? b : a)).candidate_id
     : c.id;
 
+  // Sumário sticky: só entra chip de seção que existe/carregou — assim nenhum
+  // atalho aponta pra âncora morta (as seções abaixo da dobra são condicionais).
+  const navSections: { id: string; label: string }[] = [
+    { id: "mare-ia", label: "Maré IA" },
+    { id: "confronto", label: "Confronto" },
+    ...(trajectory && trajectory.items.length > 1
+      ? [{ id: "trajetoria", label: "Trajetória" }]
+      : []),
+    ...(opportunities &&
+    (opportunities.opportunities.length > 0 || opportunities.strongholds.length > 0)
+      ? [{ id: "radar", label: "Radar" }]
+      : []),
+    ...(path && path.scope !== "proporcional"
+      ? [{ id: "caminho", label: "Caminho da vitória" }]
+      : []),
+    ...(profile && profile.municipalities_covered > 0
+      ? [{ id: "perfil", label: "Perfil" }]
+      : []),
+    { id: "municipios", label: "Municípios" },
+    ...(bairros && bairros.items.length > 0 ? [{ id: "bairros", label: "Bairros" }] : []),
+    ...(zones && zones.items.length > 0 ? [{ id: "zonas", label: "Zonas" }] : []),
+  ];
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
@@ -215,6 +248,9 @@ export default function CandidateDetailPage() {
           <ExportShare
             targetRef={cardRef}
             filename={`candidato-${c.urn_name}`.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
+            // Dados brutos em Excel (Resumo · Municípios · Bairros · Locais) —
+            // o serviço busca bairro/local completos e monta o workbook.
+            onExportData={() => exportCandidateXlsx(data)}
           />
         </div>
       </div>
@@ -253,6 +289,35 @@ export default function CandidateDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Sumário sticky — atalhos pras seções da página. Fica fora do
+            export (data-html2canvas-ignore) e cola no topo ao rolar. */}
+        <nav
+          data-html2canvas-ignore
+          aria-label="Seções da página"
+          // top-14/24 no md+: cola ABAIXO do header do dashboard (sticky top-0
+          // z-30, h-14 no lg+, +1 linha de nav de ícones no md). top-0 só no
+          // mobile, onde o header auto-esconde ao rolar — sem o offset o
+          // sumário ficava POR BAIXO do header, invisível e inclicável.
+          className="sticky top-0 md:top-24 lg:top-14 z-20 mt-4 bg-background/90 backdrop-blur border-b border-border"
+        >
+          <div className="flex items-center gap-2 overflow-x-auto mn-scroll py-2">
+            {navSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById(s.id)
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="shrink-0 rounded-full px-3 py-1 text-xs border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/60 transition-colors"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </nav>
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 mt-4">
@@ -320,11 +385,11 @@ export default function CandidateDetailPage() {
         )}
 
         {/* Votos por municipio */}
-        <div className="mt-5">
+        <div id="municipios" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28">
           <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
             Votos por município
           </p>
-          <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+          <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
             {data.results.slice(0, 100).map((r, i) => {
               const top = data.results[0]?.votes || 1;
               return (
@@ -363,11 +428,11 @@ export default function CandidateDetailPage() {
             Vem ANTES de zonas: bairro e' mais granular/util pra estrategia
             de campanha que zona eleitoral. */}
         {bairros && bairros.items.length > 0 && (
-          <div className="mt-5 mn-fade-in">
+          <div id="bairros" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Top 20 bairros com mais votos
             </p>
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
               {bairros.items.map((b, i) => {
                 const top = bairros.items[0]?.votes || 1;
                 const pct = (b.votes / top) * 100;
@@ -405,11 +470,11 @@ export default function CandidateDetailPage() {
 
         {/* Votos por zona eleitoral — vem DEPOIS dos bairros */}
         {zones && zones.items.length > 0 && (
-          <div className="mt-5 mn-fade-in">
+          <div id="zonas" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Votos por zona eleitoral
             </p>
-            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto">
+            <ul className="rounded-lg border bg-card divide-y divide-border max-h-[50vh] overflow-auto mn-scroll">
               {zones.items.map((z, i) => {
                 const max = zones.items[0]?.votes || 1;
                 return (
@@ -425,12 +490,7 @@ export default function CandidateDetailPage() {
                         {numberFmt.format(z.votes)}
                       </span>
                     </div>
-                    <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full bg-primary"
-                        style={{ width: `${(z.votes / max) * 100}%` }}
-                      />
-                    </div>
+                    <VoteBar value={z.votes} max={max} rank={i + 1} className="mt-1" />
                   </li>
                 );
               })}
@@ -528,7 +588,7 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
 
   if (!report) {
     return (
-      <div className="mt-5" data-html2canvas-ignore>
+      <div id="mare-ia" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28" data-html2canvas-ignore>
         <button
           onClick={generate}
           disabled={loading}
@@ -554,7 +614,7 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
   }
 
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="mare-ia" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <Sparkles className="w-3.5 h-3.5 text-primary" /> Maré IA · Especialista em Vantagem Eleitoral
       </p>
@@ -570,6 +630,68 @@ function AiReportSection({ candidateId }: { candidateId: string }) {
           </p>
         </div>
       </div>
+
+      {/* GRÁFICOS NATIVOS (dados determinísticos do backend) — a IA não
+          decide reduto nem formata visual: quem desenha é o React, daqui. */}
+      {report.dados && report.dados.seus_redutos.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <div className="rounded-lg border bg-card p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">
+              Seus redutos · top {report.dados.seus_redutos.length} em votos (TSE)
+            </p>
+            <ul className="space-y-2.5">
+              {report.dados.seus_redutos.map((m, i) => (
+                <li key={m.municipio}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="truncate">
+                      <span className="text-[10px] font-bold text-primary mr-1">{i + 1}º</span>
+                      {m.municipio}
+                    </span>
+                    <span className="tabular-nums font-mono text-xs shrink-0">
+                      {numberFmt.format(m.votos)}
+                      {m.penetracao_pct != null && (
+                        <span className="text-muted-foreground"> · {String(m.penetracao_pct).replace(".", ",")}%</span>
+                      )}
+                    </span>
+                  </div>
+                  <VoteBar value={m.votos} max={report.dados!.seus_redutos[0]?.votos ?? 1} rank={i + 1} />
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-lg border bg-card p-4">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2.5">
+              Onde crescer · maior eleitorado, menor penetração (TSE)
+            </p>
+            <ul className="space-y-2.5">
+              {report.dados.onde_crescer_dados.map((m) => (
+                <li key={m.municipio}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="truncate">{m.municipio}</span>
+                    <span className="tabular-nums font-mono text-xs shrink-0 text-muted-foreground">
+                      {m.eleitores_nao_conquistados != null
+                        ? `${numberFmt.format(m.eleitores_nao_conquistados)} eleitores livres`
+                        : ""}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-500/50 to-emerald-500"
+                      style={{
+                        width: `${Math.min(100, ((m.eleitores_nao_conquistados ?? 0) / Math.max(1, report.dados!.onde_crescer_dados[0]?.eleitores_nao_conquistados ?? 1)) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                    {numberFmt.format(m.votos)} votos de {m.eleitorado != null ? numberFmt.format(m.eleitorado) : "?"} eleitores
+                    {m.penetracao_pct != null && ` (${String(m.penetracao_pct).replace(".", ",")}%)`}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <AiBlock
@@ -664,7 +786,7 @@ function CompareSection({
   }
 
   return (
-    <div className="mt-5" data-html2canvas-ignore>
+    <div id="confronto" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28" data-html2canvas-ignore>
       {!open && !report ? (
         <>
           <button
@@ -695,7 +817,7 @@ function CompareSection({
                 className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:border-primary/60 outline-none"
               />
               {results.length > 0 && (
-                <ul className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-72 overflow-auto divide-y divide-border">
+                <ul className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-72 overflow-auto mn-scroll divide-y divide-border">
                   {results.map((c) => (
                     <li key={c.id}>
                       <button
@@ -939,7 +1061,7 @@ function BairroComparison({
                     {numberFmt.format(r.b)}
                   </td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
-                    {r.elect ? numberFmt.format(r.elect) : "—"}
+                    {r.elect ? numberFmt.format(r.elect) : "s/d"}
                   </td>
                 </tr>
               ))}
@@ -1000,7 +1122,7 @@ function TerritorySection({
   const muni = report?.dados?.por_municipio ?? [];
   const bairros = report?.dados?.bairros_cidade_principal ?? [];
   const fmt = (n: number | null | undefined) =>
-    n == null ? "—" : n.toLocaleString("pt-BR");
+    n == null ? "s/d" : n.toLocaleString("pt-BR");
 
   return (
     <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
@@ -1070,7 +1192,7 @@ function TerritorySection({
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.eleitorado)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">
-                        {m.cobertura_pct == null ? "—" : `${m.cobertura_pct}%`}
+                        {m.cobertura_pct == null ? "s/d" : `${m.cobertura_pct}%`}
                       </td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{fmt(m.votos_candidato)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
@@ -1218,7 +1340,7 @@ function ElectorateProfileSection({ data }: { data: TseElectorateProfile }) {
   const EDU_ORDER = ["Analfabeto", "Lê e escreve", "Fundamental", "Médio", "Superior"];
   const GENDER_ORDER = ["Feminino", "Masculino"];
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="perfil" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Perfil do território · de onde vem o seu voto
       </p>
@@ -1276,7 +1398,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
   const scopeLabel =
     data.scope === "nacional" ? "no Brasil" : data.scope === "estadual" ? "no estado" : "na cidade";
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="caminho" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <Target className="w-3.5 h-3.5 text-primary" /> Caminho da vitória
       </p>
@@ -1286,7 +1408,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
           <Trophy className="w-8 h-8 text-emerald-500 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-emerald-700">
-              Venceu a disputa {scopeLabel} 🎉
+              Venceu a disputa {scopeLabel}
             </p>
             {data.margin != null && (
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -1357,7 +1479,7 @@ function PathToVictorySection({ data }: { data: TsePathToVictory }) {
 function OpportunityRadar({ data }: { data: import("@/lib/types").TseOpportunityResponse }) {
   const pctFmt = (n: number) => n.toFixed(1).replace(".", ",");
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="radar" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Radar de oportunidades · onde buscar voto
       </p>
@@ -1475,16 +1597,24 @@ function TrajectorySection({
   trajectory: TseCandidateTrajectory;
   currentId: string;
 }) {
-  const elected = (s: string | null) => (s ?? "").toUpperCase().startsWith("ELEITO");
+  // Cor por categoria de resultado (usa classifyResult — trata 2º turno,
+  // suplente, eleito por QP/média, não só o binário eleito/não).
+  const outcomeClass: Record<string, string> = {
+    elected: "bg-emerald-500/20 text-emerald-600",
+    runoff: "bg-blue-500/20 text-blue-500",
+    alternate: "bg-amber-400/15 text-amber-500",
+    not_elected: "bg-muted text-muted-foreground",
+    unknown: "bg-muted text-muted-foreground",
+  };
   return (
-    <div className="mt-5 mn-fade-in">
+    <div id="trajetoria" className="mt-5 scroll-mt-14 md:scroll-mt-36 lg:scroll-mt-28 mn-fade-in">
       <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
         Trajetória eleitoral · {trajectory.items.length} candidaturas
       </p>
       <ol className="relative rounded-lg border bg-card divide-y divide-border overflow-hidden">
         {trajectory.items.map((t) => {
           const isCurrent = t.candidate_id === currentId;
-          const won = elected(t.result_status);
+          const outcome = classifyResult(t.result_status);
           const inner = (
             <>
               <span className="text-base font-bold tabular-nums w-12 shrink-0 text-primary">
@@ -1505,17 +1635,9 @@ function TrajectorySection({
                 </p>
               </div>
               <span
-                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${
-                  won
-                    ? "bg-emerald-500/20 text-emerald-600"
-                    : "bg-muted text-muted-foreground"
-                }`}
+                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${outcomeClass[outcome]}`}
               >
-                {t.result_status
-                  ? won
-                    ? "ELEITO"
-                    : "NÃO ELEITO"
-                  : "—"}
+                {t.result_status ? OUTCOME_LABEL[outcome] : "s/d"}
               </span>
             </>
           );
@@ -1553,25 +1675,40 @@ function DossierDownload({ candidateId, urnName }: { candidateId: string; urnNam
   async function download() {
     if (loading) return;
     setLoading(true);
+    let status: number | null = null;
+    // O dossiê leva 1-3s pra ser montado (8 páginas, mapa, censo). Sem um aviso
+    // na tela, o único sinal é o spinner do botão e a espera parece travamento.
+    const toastId = toast.loading("Montando o dossiê…", {
+      description: "São 8 páginas com mapa e censo. Leva alguns segundos.",
+    });
     try {
       const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
       const token = getToken();
       const res = await fetch(`${base}/v1/tse/candidates/${candidateId}/dossier.pdf`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        // no-store: sem isso o browser reusa por 24h um PDF baixado antes de
+        // um fix no servidor (o cache rápido fica no disco da API).
+        cache: "no-store",
       });
+      status = res.status;
       if (!res.ok) throw new Error(`http ${res.status}`);
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      // Resposta vazia = arquivo quebrado. Melhor avisar do que "baixar" 0 byte.
+      if (blob.size === 0) throw new Error("pdf vazio");
+
       const safe = urnName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `dossie-${safe}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const url = saveBlob(blob, `dossie-${safe}.pdf`);
+
+      // O "Abrir" é a rede de segurança: se o navegador tiver barrado o
+      // download automático, o usuário ainda chega no arquivo por aqui.
+      toast.success("Dossiê pronto.", {
+        id: toastId,
+        description: "Se o download não aparecer, use o botão ao lado.",
+        action: { label: "Abrir", onClick: () => window.open(url, "_blank", "noopener") },
+        duration: 15000,
+      });
     } catch {
-      toast.error("Não foi possível gerar o dossiê PDF.");
+      toast.error(downloadErrorMessage(status), { id: toastId });
     } finally {
       setLoading(false);
     }

@@ -33,6 +33,22 @@ export type Contact = {
 /** Quem já cadastrou contato (resposta de GET /v1/contacts/creators). */
 export type ContactCreator = { id: string; name: string };
 
+/** Grupo de interações órfãs do WhatsApp (GET /v1/contacts/orphan-interactions). */
+export type OrphanInteractionGroup = {
+  phone: string;
+  phone_masked: string;
+  count: number;
+  last_event_type: string | null;
+  last_at: string; // ISO
+};
+
+/** Entrada do ranking de cadastros (GET /v1/contacts/leaderboard). */
+export type ContactLeaderboardEntry = {
+  user_id: string;
+  full_name: string;
+  count: number;
+};
+
 /** Tag + contagem (resposta de GET /v1/contacts/tags). */
 export type ContactTag = { tag: string; count: number };
 
@@ -424,6 +440,16 @@ export type TseAiTerritory = {
   } | null;
 };
 
+/** Item das listas DETERMINÍSTICAS do dossiê (calculadas no backend). */
+export type TseAiMuniItem = {
+  municipio: string;
+  votos: number;
+  eleitorado: number | null;
+  penetracao_pct: number | null;
+  /** Só em onde_crescer_dados: eleitorado − votos. */
+  eleitores_nao_conquistados?: number;
+};
+
 /** Relatório estratégico gerado por IA (Gemini) sobre o candidato. */
 export type TseAiReport = {
   diagnostico: string;
@@ -433,6 +459,11 @@ export type TseAiReport = {
   onde_crescer: string[];
   narrativas: string[];
   acoes_prioritarias: string[];
+  /** Dados EXATOS pro front desenhar gráficos nativos (a IA é só texto). */
+  dados?: {
+    seus_redutos: TseAiMuniItem[];
+    onde_crescer_dados: TseAiMuniItem[];
+  } | null;
 };
 
 /** Evolução do partido por eleição (2014–2024). */
@@ -461,6 +492,23 @@ export type TseMunicipalityResults = {
   office_code: number | null;
   office_name: string | null;
   year: number | null;
+};
+
+/**
+ * GET /tse/election-results — resultado com ESCOPO FLEXÍVEL.
+ * Município é opcional: cargos estaduais/federais agregam a UF (ou o país).
+ */
+export type TseElectionResults = {
+  scope: "municipality" | "state" | "national";
+  municipality: TseMunicipality | null;
+  state: string | null;
+  results: TseTopCandidateInMunicipality[];
+  total_results: number;
+  total_votes: number;
+  office_code: number | null;
+  office_name: string | null;
+  year: number | null;
+  municipalities_aggregated: number;
 };
 
 export type TseElectorate = {
@@ -541,6 +589,10 @@ export type TseCandidateZoneVotes = {
 
 export type TseCandidateByNeighborhoodItem = {
   neighborhood: string;
+  // Município do bairro — desambigua homônimos (todo "Centro" do estado).
+  municipality_id?: string | null;
+  municipality_name?: string | null;
+  municipality_state?: string | null;
   votes: number;
   places_count: number;
   electors_total: number;
@@ -558,6 +610,50 @@ export type TseCandidateByNeighborhoodResponse = {
   items: TseCandidateByNeighborhoodItem[];
   total_votes: number;
   total_neighborhoods: number;
+};
+
+/** Raio-X do bairro: ranking de TODOS os candidatos num bairro
+ * (GET /v1/tse/neighborhoods/ranking — inverso do by-neighborhood). */
+export type TseNeighborhoodRankingItem = {
+  candidate: TseCandidate;
+  votes: number;
+  /** Em quantos locais de votação do bairro o candidato pontuou. */
+  places_count: number;
+  /** votos ÷ eleitores aptos dos locais do bairro, em % (null = aptos desconhecidos). */
+  pct_electors: number | null;
+};
+
+export type TseNeighborhoodRanking = {
+  municipality: TseMunicipality;
+  neighborhood: string;
+  /** Ano efetivo (resolvido pro mais recente com dados de seção). null = sem dados. */
+  year: number | null;
+  office_code: number | null;
+  /** Eleitores aptos dos locais do bairro (soma por local, sem duplicar). */
+  electors_total: number;
+  /** Votos de TODOS os candidatos do filtro no bairro (não só top-N). */
+  total_votes: number;
+  items: TseNeighborhoodRankingItem[];
+};
+
+/** Filiados por partido num município (GET /v1/tse/municipalities/{id}/party-memberships). */
+export type TseMunicipalityPartyMembershipItem = {
+  party_number: number;
+  party_abbreviation: string;
+  party_name: string;
+  total: number;
+  by_gender: Record<string, number>;
+  by_age: Record<string, number>;
+  by_education: Record<string, number>;
+};
+
+export type TseMunicipalityPartyMemberships = {
+  municipality: TseMunicipality;
+  /** AAAAMM do snapshot mensal (ex. 202605). null = dataset não sincronizado. */
+  period: number | null;
+  /** Total de filiados no município (todos os partidos). */
+  total_members: number;
+  items: TseMunicipalityPartyMembershipItem[];
 };
 
 export type TseWinnerMapPoint = {
@@ -687,4 +783,88 @@ export type Interaction = {
   payload_data: Record<string, unknown>;
   received_at: string; // ISO
   created_at: string;  // ISO
+};
+
+// ---------- Bancada (quem fica x quem entra) ----------
+
+/** "antes" = eleito 4 anos atrás; "a_frente" = lidera onde o TSE ainda não proclamou. */
+export type TseBancadaSituacao = "antes" | "eleitos" | "a_frente";
+
+export type TseBancadaPartido = {
+  numero: number;
+  sigla: string;
+  antes: number;
+  eleitos: number;
+  a_frente: number;
+  total: number;
+};
+
+export type TseBancadaCadeira = {
+  uf: string;
+  nome: string;
+  numero: number;
+  sigla: string;
+  situacao: TseBancadaSituacao;
+  votos: number;
+};
+
+export type TseBancadaResponse = {
+  ano: number;
+  ano_anterior: number;
+  cargo: number;
+  casa: string;
+  /** "soma": quem estava continua (Senado). "troca": a casa inteira é renovada (Câmara). */
+  modo: "soma" | "troca";
+  vagas_por_uf: number | null;
+  em_disputa: number;
+  antes: number;
+  eleitos: number;
+  a_frente: number;
+  ufs: number;
+  ufs_pendentes: string[];
+  observacao: string;
+  partidos: TseBancadaPartido[];
+  cadeiras: TseBancadaCadeira[];
+};
+
+// ---------- Virada (o que mudou entre duas eleições) ----------
+
+export type TseViradaLado = {
+  party_number: number;
+  party_abbreviation: string;
+  winner_name: string;
+  votes: number;
+};
+
+export type TseViradaPoint = {
+  municipality_id: string;
+  name: string;
+  state: string;
+  lat: number;
+  lng: number;
+  /** Chave "numeroAntes>numeroDepois" — a mesma de TseViradaTransicao.chave. */
+  transicao: string;
+  virou: boolean;
+  antes: TseViradaLado;
+  depois: TseViradaLado;
+};
+
+export type TseViradaTransicao = {
+  chave: string;
+  virou: boolean;
+  municipios: number;
+  de: { numero: number; sigla: string };
+  para: { numero: number; sigla: string };
+};
+
+export type TseViradaResponse = {
+  cargo: number;
+  de: number;
+  para: number;
+  municipios: number;
+  viraram: number;
+  mantiveram: number;
+  sem_comparacao: number;
+  transicoes: TseViradaTransicao[];
+  pontos: TseViradaPoint[];
 };

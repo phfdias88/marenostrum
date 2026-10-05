@@ -21,6 +21,7 @@ import type {
 } from "@/lib/types";
 import { TSE_OFFICES, TSE_STATES } from "@/lib/types";
 import { VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 
@@ -110,6 +111,7 @@ const _PF = [
   { value: "7", label: "Deputado Estadual" },
 ];
 const PERF_OFFICES: Record<string, { value: string; label: string }[]> = {
+  "2026": _PF,
   "2024": _PM,
   "2022": _PF,
   "2020": _PM,
@@ -184,6 +186,8 @@ function PartyPerformance({
           className="md:col-span-2"
         />
       </section>
+
+      <AvisoApuracao year={year} office={office} className="mb-4 -mt-2" />
 
       {loading ? (
         <CandidateListSkeleton rows={8} />

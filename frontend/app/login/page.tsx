@@ -1,36 +1,43 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 import { api, ApiError } from "@/lib/api";
 import { saveAuth, type AuthData } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 
-// Suspense wrapper exigido pelo Next 14 quando o filho usa useSearchParams.
-// Sem isso, `next build` falha em prerender.
+// Campanha disponível quando o e-mail tem acesso a mais de uma.
+type TenantOption = { tenant_slug: string; tenant_name: string };
+
+// SEM useSearchParams no caminho de render: com ele, o Next exigia Suspense e
+// o HTML pré-renderizado do /login era um <main> VAZIO — logo+form só pintavam
+// depois do download+hidratação do JS. O ?next agora é lido só no submit
+// (handler roda no client, window sempre existe lá).
 export default function LoginPage() {
-  return (
-    <Suspense fallback={<main className="min-h-screen grid place-items-center" />}>
-      <LoginForm />
-    </Suspense>
-  );
+  return <LoginForm />;
+}
+
+function _sanitizedNext(): string {
+  // Sanitiza o ?next: só aceita caminho INTERNO (começa com "/" mas não "//").
+  // Evita open-redirect (?next=//site-malicioso ou ?next=https://...).
+  const raw =
+    new URLSearchParams(window.location.search).get("next") ?? "/dashboard";
+  return raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
 }
 
 function LoginForm() {
   const router = useRouter();
-  const search = useSearchParams();
-  // Sanitiza o ?next: só aceita caminho INTERNO (começa com "/" mas não "//").
-  // Evita open-redirect (?next=//site-malicioso ou ?next=https://...).
-  const rawNext = search.get("next") ?? "/dashboard";
-  const nextUrl =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/dashboard";
 
-  // Slug fixo — campanha única; backend continua recebendo no body.
-  const tenantSlug = "marenostrum-admin";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Campanhas disponíveis quando o mesmo e-mail tem acesso a mais de uma
+  // (o backend responde `choose_tenant` com as opções). Vazio = caso comum.
+  const [tenantOptions, setTenantOptions] = useState<TenantOption[]>([]);
+  const [chosenTenant, setChosenTenant] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,16 +46,37 @@ function LoginForm() {
     try {
       const data = await api<AuthData>("/v1/auth/login", {
         method: "POST",
-        body: { tenant_slug: tenantSlug, email, password },
+        // SEM tenant_slug: o backend descobre a campanha pelo e-mail. Antes
+        // ficava fixo em "marenostrum-admin" e qualquer cliente de outra
+        // campanha levava "Credenciais inválidas" mesmo com a senha certa.
+        body: chosenTenant
+          ? { tenant_slug: chosenTenant, email, password }
+          : { email, password },
       });
       saveAuth(data);
       // Liderança (acesso restrito) cai direto no formulário de cadastro;
       // não tem dashboard. Os demais papéis seguem pro destino normal.
-      router.push(data.role === "volunteer" ? "/cadastro" : nextUrl);
+      router.push(data.role === "volunteer" ? "/cadastro" : _sanitizedNext());
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Erro inesperado, tente novamente.",
-      );
+      // Acesso temporário esgotado: o backend devolve o código dedicado
+      // "trial_expired" (403). Mostra a mensagem exata pedida pelo PO em vez
+      // da genérica de credenciais.
+      if (err instanceof ApiError && err.code === "trial_expired") {
+        setError(
+          "O seu período de uso expirou. Por favor, solicite um novo acesso.",
+        );
+      } else if (err instanceof ApiError && err.code === "choose_tenant") {
+        // Mesmo e-mail com acesso a mais de uma campanha: mostra o seletor
+        // e o próximo envio já vai com a campanha escolhida.
+        const opts = (err as ApiError & { options?: TenantOption[] }).options ?? [];
+        setTenantOptions(opts);
+        setChosenTenant(opts[0]?.tenant_slug ?? "");
+        setError("Escolha a campanha que deseja acessar.");
+      } else {
+        setError(
+          err instanceof ApiError ? err.message : "Erro inesperado, tente novamente.",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -65,31 +93,34 @@ function LoginForm() {
       {/* Fundo com gradiente + glow */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-primary/5" />
       <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
-      <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-primary/10 blur-3xl" />
 
       <div className="relative w-full max-w-sm">
         {/* Marca — logo horizontal oficial, variante por tema (texto branco
             no dark, grafite no light; o M dourado é o mesmo). */}
-        <div className="flex flex-col items-center mb-6 sm:mb-8">
-          <div className="dark:bg-[hsl(36,7%,12%)] rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
+        <div className="flex flex-col items-center mb-6 sm:mb-8 mn-fade-in">
+          <div className="dark:bg-card rounded-2xl px-6 py-4 dark:shadow-lg dark:shadow-black/20 dark:border dark:border-primary/30">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo-wordmark.png"
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark.webp`}
               alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain hidden dark:block"
             />
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo-wordmark-light.png"
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-wordmark-light.webp`}
               alt="MareNostrum · Inteligência de dados & consultoria"
               className="w-44 sm:w-56 max-w-full h-auto object-contain dark:hidden"
             />
           </div>
         </div>
 
+        {/* mn-glass da casa (vidro fosco + glow gold); entrada escalonada
+            depois da marca pra dar sensacao de "camadas" no load. */}
         <form
           onSubmit={onSubmit}
-          className="bg-card/85 backdrop-blur rounded-2xl shadow-xl border border-border p-5 sm:p-8 space-y-4 sm:space-y-5"
+          className="mn-glass rounded-2xl p-5 sm:p-8 space-y-4 sm:space-y-5 mn-fade-in"
+          style={{ animationDelay: "0.1s" }}
         >
           <Field
             label="Email"
@@ -109,19 +140,45 @@ function LoginForm() {
             required
           />
 
+          {tenantOptions.length > 1 && (
+            <label className="block">
+              <span className="text-sm font-medium text-foreground">Campanha</span>
+              <select
+                value={chosenTenant}
+                onChange={(e) => setChosenTenant(e.target.value)}
+                className="mt-1.5 w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
+              >
+                {tenantOptions.map((o) => (
+                  <option key={o.tenant_slug} value={o.tenant_slug}>
+                    {o.tenant_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {error && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-md p-2.5">
+            <p className="text-sm border border-destructive/30 bg-destructive/10 text-destructive rounded-md p-2.5">
               {error}
             </p>
           )}
 
-          <button
+          {/* Button do sistema (variante default premium) no lugar do
+              gradiente hardcoded — mantem o CTA consistente com o app. */}
+          <Button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-gradient-to-r from-primary to-blue-600 hover:opacity-90 disabled:opacity-60 text-white font-semibold min-h-[48px] py-3 transition shadow-lg shadow-primary/20"
+            className="w-full min-h-[48px] rounded-lg text-base font-semibold"
           >
-            {loading ? "Entrando..." : "Entrar"}
-          </button>
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden="true" />
+                Entrando...
+              </>
+            ) : (
+              "Entrar"
+            )}
+          </Button>
         </form>
       </div>
     </main>
@@ -140,16 +197,41 @@ function Field({
   onChange: (v: string) => void;
   type?: string;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  // Toggle mostrar/ocultar só quando o campo é de senha. O botão fica
+  // sobreposto à direita, com área de toque de 44px (recomendação iOS).
+  const [show, setShow] = useState(false);
+  const isPassword = type === "password";
+  const effectiveType = isPassword && show ? "text" : type;
+
   return (
     <label className="block">
       <span className="text-sm font-medium text-foreground">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1.5 w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition"
-        {...rest}
-      />
+      <div className="relative mt-1.5">
+        <input
+          type={effectiveType}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={
+            "w-full rounded-lg border border-border bg-background px-3.5 py-3 text-base focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition" +
+            (isPassword ? " pr-12" : "")
+          }
+          {...rest}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShow((s) => !s)}
+            aria-label={show ? "Ocultar senha" : "Mostrar senha"}
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {show ? (
+              <EyeOff className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <Eye className="h-4 w-4" aria-hidden="true" />
+            )}
+          </button>
+        )}
+      </div>
     </label>
   );
 }

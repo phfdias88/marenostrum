@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 const schema = z.object({
   full_name: z.string().min(2, "Mínimo 2 caracteres").max(150),
@@ -88,6 +89,8 @@ type CreateProps = CommonProps & {
   mode: "create";
   children: React.ReactNode;
   // Modo "uncontrolled" — dialog usa estado interno.
+  /** Pré-preenche o telefone ao abrir (ex: criar contato de lead órfão). */
+  initialPhone?: string;
 };
 
 type EditProps = CommonProps & {
@@ -102,6 +105,11 @@ type Props = CreateProps | EditProps;
 export function ContactFormDialog(props: Props) {
   const isEdit = props.mode === "edit";
   const contact = isEdit ? props.contact : null;
+  // Defaults do modo criar — telefone pode vir pré-preenchido (lead órfão).
+  const createDefaults: FormValues =
+    !isEdit && props.initialPhone
+      ? { ...EMPTY_DEFAULTS, phone: props.initialPhone }
+      : EMPTY_DEFAULTS;
 
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
@@ -211,7 +219,9 @@ export function ContactFormDialog(props: Props) {
   const submitLabel = isEdit ? "Salvar alterações" : "Salvar contato";
 
   const body = (
-    <DialogContent className="max-w-2xl max-h-[90dvh] overflow-y-auto">
+    // Rolagem/altura ficam na base (ui/dialog.tsx); largura é override local:
+    // form de 14 campos precisa de mais que o max-w-lg padrão.
+    <DialogContent className="max-w-2xl">
       <DialogHeader>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
@@ -221,21 +231,17 @@ export function ContactFormDialog(props: Props) {
         onSubmit={handleSubmit(onSubmit)}
         className="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
+        {/* Grupo 1 · Identificação */}
+        <GroupLabel first>Identificação</GroupLabel>
         <Field label="Nome completo *" error={errors.full_name?.message}>
           <Input {...register("full_name")} autoFocus />
         </Field>
-        <Field label="Tipo">
-          <select
-            {...register("type")}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="voter">Eleitor</option>
-            <option value="leader">Liderança</option>
-            <option value="supporter">Apoiador</option>
-            <option value="donor">Doador</option>
-            <option value="other">Outro</option>
-          </select>
+        <Field label="Aniversário" error={errors.birth_date?.message}>
+          <Input type="date" {...register("birth_date")} />
         </Field>
+
+        {/* Grupo 2 · Contato */}
+        <GroupLabel>Contato</GroupLabel>
         <Field label="Telefone" error={errors.phone?.message}>
           <Input {...register("phone")} placeholder="(21) 3333-4444 (fixo ou celular)" />
         </Field>
@@ -252,18 +258,15 @@ export function ContactFormDialog(props: Props) {
           <Input {...register("facebook")} placeholder="facebook.com/usuario ou nome do perfil" />
         </Field>
 
-        {/* Endereço em cascata: Estado → Município → Bairro (+ mapa se livre) */}
+        {/* Grupo 3 · Endereço (cascata Estado → Município → Bairro + mapa) */}
+        <GroupLabel>Endereço</GroupLabel>
         <AddressFields
           value={address}
           onChange={setAddress}
           onCoordMissingChange={setCoordMissing}
         />
-
         <Field label="CEP" error={errors.cep?.message}>
           <Input {...register("cep")} placeholder="00000-000" maxLength={9} />
-        </Field>
-        <Field label="Aniversário" error={errors.birth_date?.message}>
-          <Input type="date" {...register("birth_date")} />
         </Field>
         <Field
           label="Endereço completo (rua, número)"
@@ -273,6 +276,20 @@ export function ContactFormDialog(props: Props) {
           <Input {...register("address")} placeholder="Rua, número, complemento" />
         </Field>
 
+        {/* Grupo 4 · Campanha (papel do contato + tags de segmentação) */}
+        <GroupLabel>Campanha</GroupLabel>
+        <Field label="Tipo">
+          <select
+            {...register("type")}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          >
+            <option value="voter">Eleitor</option>
+            <option value="leader">Liderança</option>
+            <option value="supporter">Apoiador</option>
+            <option value="donor">Doador</option>
+            <option value="other">Outro</option>
+          </select>
+        </Field>
         <Field
           label="Tags"
           className="sm:col-span-2"
@@ -320,9 +337,10 @@ export function ContactFormDialog(props: Props) {
       open={createOpen}
       onOpenChange={(o) => {
         setCreateOpen(o);
-        // Ao abrir, começa com o formulário limpo.
+        // Ao abrir, começa com o formulário limpo (telefone pré-preenchido
+        // se veio initialPhone — fluxo "criar contato de lead órfão").
         if (o) {
-          reset(EMPTY_DEFAULTS);
+          reset(createDefaults);
           setTags([]);
           setAddress(EMPTY_ADDRESS);
           setCoordMissing(false);
@@ -335,6 +353,30 @@ export function ContactFormDialog(props: Props) {
           (que estava travando e mantinha o modal visível). */}
       {createOpen && body}
     </Dialog>
+  );
+}
+
+/**
+ * Mini-cabeçalho de grupo do formulário (Identificação · Contato · Endereço
+ * · Campanha). O primeiro grupo não leva a régua superior (fica colado na
+ * descrição do dialog).
+ */
+function GroupLabel({
+  first,
+  children,
+}: {
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <p
+      className={cn(
+        "sm:col-span-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground",
+        !first && "pt-2 border-t border-border/60",
+      )}
+    >
+      {children}
+    </p>
   );
 }
 

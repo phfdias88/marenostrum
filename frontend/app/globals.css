@@ -118,6 +118,27 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground));
   }
+
+  /* Scrollbar FINA p/ painéis internos (ex.: gráfico do split-screen):
+     6px, trilho transparente. Não quebra a imersão do dark mode. */
+  .mn-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .mn-scroll::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .mn-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .mn-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  .mn-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
 }
 
 /* ---- Microinterações (transições suaves) ---- */
@@ -197,31 +218,6 @@
 }
 .mn-slide-in {
   animation: mn-slide-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-/* ---- Pulsing marker (top municipios nos mapas) ---- */
-@keyframes mn-pulse-ring {
-  0%   { transform: scale(0.85); opacity: 0.85; }
-  100% { transform: scale(2.2);  opacity: 0; }
-}
-.mn-pulse-wrap {
-  position: relative;
-  width: 18px;
-  height: 18px;
-}
-.mn-pulse-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: hsl(42 70% 55% / 0.55);
-  animation: mn-pulse-ring 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-}
-.mn-pulse-dot {
-  position: absolute;
-  inset: 4px;
-  border-radius: 999px;
-  background: hsl(42 70% 55%);
-  box-shadow: 0 0 0 2px hsl(0 0% 100% / 0.85), 0 2px 6px hsl(36 30% 8% / 0.5);
 }
 
 /* ---- Sonner toaster: empurra acima da BottomNav no mobile ---- */
@@ -335,4 +331,115 @@
 }
 .leaflet-tooltip.mn-tip::before {
   border-top-color: hsl(var(--border));
+}
+
+/* Chrome do Leaflet no tema da casa (popup, zoom +/- e atribuição).
+   O default do Leaflet é branco fixo — vaza feio no dark mode.
+   Prefixo `html` sobe a especificidade: sem ele, o leaflet.css (importado por
+   componente) empatava e vencia pela ordem dos chunks do Next. */
+html .leaflet-container {
+  background: hsl(var(--background));
+  font-family: inherit; /* herda a stack do app em vez da Helvetica do Leaflet */
+}
+html .leaflet-popup-content-wrapper,
+html .leaflet-popup-tip {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 24px -8px hsl(36 30% 4% / 0.5);
+}
+html .leaflet-popup-content-wrapper {
+  border-radius: 10px;
+}
+/* Botões +/- (e demais controles em barra) */
+html .leaflet-bar a {
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+html .leaflet-bar a:hover,
+html .leaflet-bar a:focus {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+html .leaflet-control-attribution {
+  background: hsl(var(--card) / 0.7) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 10px;
+}
+html .leaflet-control-attribution a {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Clusters de LOCAIS DE VOTAÇÃO (leaflet.markercluster, ícone custom).
+   Prefixo `html` vence o CSS do plugin (mesmo gotcha do chrome do Leaflet).
+   Azul dos pinos + anel: contagem legível sobre satélite e sobre o tile
+   claro/escuro. Tamanho cresce com a contagem (sm/md/lg). */
+html .mn-cluster {
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: hsl(217 91% 60% / 0.28);
+  border: 0;
+}
+html .mn-cluster span {
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: #1d4ed8;
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
+  border: 2px solid rgb(255 255 255 / 0.85);
+}
+html .mn-cluster-sm { width: 38px; height: 38px; }
+html .mn-cluster-sm span { min-width: 28px; height: 28px; padding: 0 4px; font-size: 11px; }
+html .mn-cluster-md { width: 48px; height: 48px; }
+html .mn-cluster-md span { min-width: 38px; height: 38px; padding: 0 5px; font-size: 12px; }
+html .mn-cluster-lg { width: 60px; height: 60px; }
+html .mn-cluster-lg span { min-width: 48px; height: 48px; padding: 0 6px; font-size: 13px; }
+
+/* Faixas por FATIA DE VOTOS (pedido do PO): mesma semântica da legenda de
+   bolhas — poucos (emerald) → médios (amber) → muitos (orange) → reduto
+   (red). Sem faixa = azul (camada por contagem, sem votos). */
+html .mn-cluster-emerald { background: rgb(16 185 129 / 0.26); }
+html .mn-cluster-emerald span { background: #10b981; }
+html .mn-cluster-amber { background: rgb(245 158 11 / 0.26); }
+html .mn-cluster-amber span { background: #f59e0b; }
+html .mn-cluster-orange { background: rgb(249 115 22 / 0.26); }
+html .mn-cluster-orange span { background: #f97316; }
+html .mn-cluster-red { background: rgb(220 38 38 / 0.28); }
+html .mn-cluster-red span { background: #dc2626; }
+
+/* Pino INDIVIDUAL (zoom de rua): pílula com os votos daquela escola. */
+html .mn-pin {
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+}
+html .mn-pin span {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  border: 1.5px solid rgb(255 255 255 / 0.85);
+  box-shadow: 0 1px 5px rgb(0 0 0 / 0.45);
+}
+html .mn-pin-emerald span { background: #10b981; }
+html .mn-pin-amber span { background: #f59e0b; }
+html .mn-pin-orange span { background: #f97316; }
+html .mn-pin-red span { background: #dc2626; }
+
+/* Linha de votos no popup do local (destaque dourado do tema). */
+html .leaflet-popup-content .mn-popup-votes {
+  color: hsl(var(--primary));
+  font-weight: 700;
+  font-size: 0.9rem;
 }

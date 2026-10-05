@@ -9,9 +9,14 @@ cada campanha só vê os próprios registros.
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
+
+# JSONB em Postgres (produção), JSON genérico no resto (SQLite dos testes). Sem
+# o variant, Base.metadata.create_all() no SQLite quebra ("can't render JSONB")
+# e derruba a suíte inteira. Mesma ideia do Uuid cross-DB já usado no projeto.
+_JSONB = JSON().with_variant(JSONB, "postgresql")
 
 from app.models.base import Base, TenantMixin
 
@@ -38,7 +43,7 @@ class AuditLog(Base, TenantMixin):
     # Resumo legível ("Cadastrou contato João da Silva") + metadados (campos
     # alterados, valores antigos/novos, etc).
     summary: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

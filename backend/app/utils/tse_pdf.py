@@ -15,6 +15,8 @@ Layout:
 """
 from __future__ import annotations
 
+import unicodedata
+
 from collections import Counter
 from io import BytesIO
 from typing import Iterable
@@ -243,15 +245,28 @@ def _styles() -> dict[str, ParagraphStyle]:
 
 
 def _result_color(status: str | None) -> colors.Color:
+    """Cor do resultado no dossie.
+
+    O teste tem de ser por PREFIXO, nunca por conter: "ELEITO" esta DENTRO de
+    "NAO ELEITO". A versao anterior checava `"ELEITO" in up` antes do ramo
+    vermelho, entao quem perdeu a eleicao saia pintado de VERDE no PDF que vai
+    para o cliente — o ramo vermelho nunca era alcancado.
+
+    "MEDIA" sozinho tambem e eleito: era como o TSE escrevia "eleito por media"
+    ate 2010 (622 candidaturas, todas de cargo proporcional).
+    """
     if not status:
         return MUTED
-    up = status.upper()
-    if "ELEITO" in up or "MEDIA" in up:
-        return GREEN
-    if "SUPLENTE" in up:
-        return AMBER
-    if "NAO ELEITO" in up or "NÃO ELEITO" in up or "REJEIT" in up:
+    up = "".join(
+        c for c in unicodedata.normalize("NFD", status.strip().upper())
+        if unicodedata.category(c) != "Mn"
+    )
+    if up.startswith("NAO ELEITO") or up.startswith("REJEIT"):
         return RED
+    if up.startswith("ELEITO") or up == "MEDIA":
+        return GREEN
+    if up.startswith("SUPLENTE"):
+        return AMBER
     return MUTED
 
 

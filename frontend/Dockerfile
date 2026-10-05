@@ -13,9 +13,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_ANALYTICS_URL
 ARG NEXT_PUBLIC_SONAR_URL
+# basePath do subdiretorio (ex.: /sistema). VAZIO = raiz. Tambem e build-time:
+# o next.config le em build e o Next inlinha /sistema nos assets/_next/links.
+ARG NEXT_PUBLIC_BASE_PATH
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_ANALYTICS_URL=$NEXT_PUBLIC_ANALYTICS_URL \
-    NEXT_PUBLIC_SONAR_URL=$NEXT_PUBLIC_SONAR_URL
+    NEXT_PUBLIC_SONAR_URL=$NEXT_PUBLIC_SONAR_URL \
+    NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

@@ -28,6 +28,7 @@ import { CandidateProfile } from "@/components/tse/CandidateProfile";
 import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
+import { ANO_EM_APURACAO } from "@/lib/elections";
 import { downloadCsv } from "@/lib/csv";
 import { OUTCOME_LABEL, classifyResult } from "@/lib/types";
 
@@ -42,6 +43,18 @@ function useDebounce<T>(value: T, ms: number): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return debounced;
+}
+
+/**
+ * Total de votos do painel lateral.
+ *
+ * O painel soma o voto por município. Quando esse detalhe ainda não foi
+ * carregado (deputado na eleição em apuração), a soma dá zero para quem teve
+ * voto — aí vale o total oficial do candidato.
+ */
+function votosDoPainel(details: TseCandidateResults, candidate: TseCandidate): number {
+  if (details.results.length > 0) return details.total_votes;
+  return details.candidate.total_votes ?? candidate.total_votes ?? 0;
 }
 
 export default function CandidatoAnalysisPage() {
@@ -211,7 +224,7 @@ export default function CandidatoAnalysisPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold">Análise de Candidato</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Busque qualquer candidato registrado no TSE: candidaturas de 2002 a 2024.
+          Busque qualquer candidato registrado no TSE: candidaturas de 2002 a 2026.
         </p>
       </header>
 
@@ -223,6 +236,7 @@ export default function CandidatoAnalysisPage() {
           onChange={handleYearChange}
           options={[
             { value: "", label: "Todos" },
+            { value: "2026", label: "2026" },
             { value: "2024", label: "2024" },
             { value: "2022", label: "2022" },
             { value: "2020", label: "2020" },
@@ -379,7 +393,12 @@ export default function CandidatoAnalysisPage() {
               <EmptyState
                 icon={SearchX}
                 title="Nenhum candidato com esses filtros"
-                hint="Tente outra UF, cargo ou termo de busca."
+                hint={
+                  "Tente outra UF, cargo ou termo de busca." +
+                  (String(ANO_EM_APURACAO) === year && (electedOnly || selectedMuni)
+                    ? " Nesta eleição a situação (eleito) só aparece quando o TSE fecha o cargo, e o voto de deputado por cidade ainda está sendo carregado."
+                    : "")
+                }
               />
             </div>
           ) : (
@@ -583,7 +602,7 @@ function CandidateDetail({
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded-md bg-card/60 border border-border p-3">
               <p className="text-2xl font-bold text-primary">
-                {numberFmt.format(details.total_votes)}
+                {numberFmt.format(votosDoPainel(details, candidate))}
               </p>
               <p className="text-xs text-muted-foreground">Total de votos</p>
             </div>
@@ -594,6 +613,11 @@ function CandidateDetail({
               <p className="text-xs text-muted-foreground">Municípios</p>
             </div>
           </div>
+          {details.results.length === 0 && votosDoPainel(details, candidate) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Voto por município ainda não carregado para esta candidatura.
+            </p>
+          )}
 
           <Button
             variant="outline"

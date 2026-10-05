@@ -10,8 +10,8 @@ Storage: in-memory. A API roda com 1 worker uvicorn, entao o contador eh
 consistente sem precisar de Redis. Se um dia escalar pra N workers, basta
 trocar `storage_uri` por redis://.
 
-Headers: lemos X-Forwarded-For (setado pelo nginx) pra pegar o IP REAL
-do usuario, nao 127.0.0.1 do proxy.
+IP real do cliente: confiamos SOMENTE em headers que o nginx sobrescreve,
+nunca no que o cliente manda.
 """
 from __future__ import annotations
 
@@ -22,18 +22,27 @@ from slowapi.util import get_remote_address
 
 def _real_ip(request: Request) -> str:
     """
-    Le o IP real do cliente. Ordem de prioridade:
-      1. X-Forwarded-For (primeiro IP da lista — nginx adiciona)
-      2. X-Real-IP (nginx tambem seta)
-      3. request.client.host (fallback)
+    Le o IP real do cliente de forma NAO-FORJAVEL.
+
+    IMPORTANTE (correcao de seguranca): o `X-Forwarded-For` que chega na app e
+    `"<xff_do_cliente>, <ip_real>"` — o nginx APENDA o IP real ao que o cliente
+    mandou (`$proxy_add_x_forwarded_for`). Pegar o PRIMEIRO item deixava o
+    atacante escolher o proprio identificador de rate limit: bastava variar o
+    header a cada request pra zerar o contador e fazer brute force ilimitado no
+    /auth/login. Por isso:
+      1. X-Real-IP  — o nginx faz `proxy_set_header X-Real-IP $remote_addr`, que
+         SOBRESCREVE qualquer valor do cliente. E a fonte confiavel.
+      2. ULTIMO item do X-Forwarded-For — o IP que o nginx apendou (o real);
+         os itens anteriores sao controlados pelo cliente e ignorados.
+      3. request.client.host (fallback quando nao ha proxy — dev local).
     """
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        # X-Forwarded-For pode ser "client, proxy1, proxy2" — pegamos o 1o
-        return xff.split(",")[0].strip()
     xri = request.headers.get("X-Real-IP", "")
     if xri:
         return xri.strip()
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        # Ultimo item = o que o proxy da nossa borda apendou (nao-forjavel).
+        return xff.split(",")[-1].strip()
     return get_remote_address(request)
 
 

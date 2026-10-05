@@ -33,6 +33,7 @@ import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { InsightCarousel } from "@/components/tse/InsightCarousel";
 import { PullToRefresh } from "@/components/ui/PullToRefresh";
 import { BirthdaysCard } from "@/components/contacts/BirthdaysCard";
+import { LeaderboardCard } from "@/components/contacts/LeaderboardCard";
 
 // -------------------------------------------------------------------- types
 
@@ -80,20 +81,21 @@ export default function DashboardPage() {
     const total = (path: string) =>
       api<{ total: number }>(path, o).then((r) => r.total).catch(() => 0);
     try {
-      const [m, c, dOpen, dProg, dRes, mapC] = await Promise.all([
+      const [m, c, dStats, mapC] = await Promise.all([
         api<Me>("/v1/auth/me", o),
         total("/v1/contacts?limit=1"),
-        total("/v1/demands?status=aberta&limit=1"),
-        total("/v1/demands?status=em_andamento&limit=1"),
-        total("/v1/demands?status=resolvida&limit=1"),
-        api<unknown[]>("/v1/contacts/map", o).then((r) => r.length).catch(() => 0),
+        // 1 GROUP BY no lugar de 3 COUNTs separados (aberta/andamento/resolvida).
+        api<Record<string, number>>("/v1/demands/stats", o).catch(() => ({}) as Record<string, number>),
+        // Só a contagem — antes baixava a LISTA inteira de geocodificados
+        // (payload completo de todos os contatos) pra fazer .length.
+        total("/v1/contacts/map/count"),
       ]);
       setMe(m);
       setStats({
         contacts: c,
-        demandsOpen: dOpen,
-        demandsInProgress: dProg,
-        demandsResolved: dRes,
+        demandsOpen: dStats["aberta"] ?? 0,
+        demandsInProgress: dStats["em_andamento"] ?? 0,
+        demandsResolved: dStats["resolvida"] ?? 0,
         contactsOnMap: mapC,
       });
     } catch (err) {
@@ -123,8 +125,9 @@ export default function DashboardPage() {
   return (
     <PullToRefresh onRefresh={() => load(true)}>
     <section className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-6 sm:space-y-8">
-      {/* Hero header */}
-      <header className="space-y-1">
+      {/* Hero header — entrada escalonada: cada seção ganha mn-fade-in com
+          delay incremental (40ms*i), dando sensação de "montagem" premium */}
+      <header className="space-y-1 mn-fade-in">
         {me ? (
           <>
             <p className="text-sm font-medium text-primary">
@@ -146,7 +149,9 @@ export default function DashboardPage() {
       </header>
 
       {/* Hero rotativo — insights TSE */}
-      <InsightCarousel />
+      <div className="mn-fade-in" style={{ animationDelay: "40ms" }}>
+        <InsightCarousel />
+      </div>
 
       {/* KPI cards — 2 colunas no mobile (cabe melhor sem scroll) */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -161,6 +166,7 @@ export default function DashboardPage() {
               : "Cadastre seu primeiro contato"
           }
           href="/dashboard/contacts"
+          delay={80}
         />
         <KpiCard
           label="Demandas abertas"
@@ -169,6 +175,7 @@ export default function DashboardPage() {
           tone="amber"
           hint="Aguardando primeira ação"
           href="/dashboard/demandas"
+          delay={120}
         />
         <KpiCard
           label="Em andamento"
@@ -177,6 +184,7 @@ export default function DashboardPage() {
           tone="blue"
           hint="Sendo trabalhadas pela equipe"
           href="/dashboard/demandas"
+          delay={160}
         />
         <KpiCard
           label="Resolvidas"
@@ -185,6 +193,7 @@ export default function DashboardPage() {
           tone="emerald"
           hint="Histórico do mandato"
           href="/dashboard/demandas"
+          delay={200}
         />
       </div>
 
@@ -193,7 +202,7 @@ export default function DashboardPage() {
           converte melhor que um painel vazio. */}
       {stats && (stats.contacts === 0 ||
         stats.demandsOpen + stats.demandsInProgress + stats.demandsResolved === 0) && (
-        <section className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] to-transparent p-5 sm:p-6">
+        <section className="mn-fade-in rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] to-transparent p-5 sm:p-6">
           <div className="flex items-center gap-3 mb-4">
             <span className="grid place-items-center w-10 h-10 rounded-xl bg-primary/15 text-primary">
               <Rocket className="w-5 h-5" />
@@ -235,7 +244,7 @@ export default function DashboardPage() {
       )}
 
       {/* Ações rápidas */}
-      <section>
+      <section className="mn-fade-in" style={{ animationDelay: "240ms" }}>
         <div className="flex items-end justify-between mb-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Ações rápidas</h2>
@@ -266,11 +275,14 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Aniversariantes da semana — widget gabinete/campanha */}
-      <BirthdaysCard />
+      {/* Aniversariantes + gamificação de cadastros (cards somem se vazios) */}
+      <div className="mn-fade-in grid grid-cols-1 lg:grid-cols-2 gap-4" style={{ animationDelay: "280ms" }}>
+        <BirthdaysCard />
+        <LeaderboardCard />
+      </div>
 
       {/* Insight + Sobre */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="mn-fade-in grid grid-cols-1 lg:grid-cols-3 gap-4" style={{ animationDelay: "320ms" }}>
         {/* Insight de resolução */}
         <div className="lg:col-span-2 rounded-xl border bg-card p-5">
           <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -351,6 +363,7 @@ function KpiCard({
   tone,
   hint,
   href,
+  delay = 0,
 }: {
   label: string;
   value: number | undefined;
@@ -358,16 +371,22 @@ function KpiCard({
   tone: "brand" | "amber" | "blue" | "emerald";
   hint?: string;
   href?: string;
+  // Delay (ms) do mn-fade-in — permite escalonar os cards na entrada da home.
+  delay?: number;
 }) {
   const TONE = {
     brand:   { bg: "bg-primary/10",   text: "text-primary",     icon: "bg-primary" },
-    amber:   { bg: "bg-amber-500/10",   text: "text-amber-400",   icon: "bg-amber-500" },
-    blue:    { bg: "bg-blue-500/10",    text: "text-blue-400",    icon: "bg-blue-500" },
-    emerald: { bg: "bg-emerald-500/10", text: "text-emerald-400", icon: "bg-emerald-500" },
+    amber:   { bg: "bg-amber-500/10",   text: "text-amber-700 dark:text-amber-400",   icon: "bg-amber-500" },
+    blue:    { bg: "bg-blue-500/10",    text: "text-blue-700 dark:text-blue-400",    icon: "bg-blue-500" },
+    emerald: { bg: "bg-emerald-500/10", text: "text-emerald-700 dark:text-emerald-400", icon: "bg-emerald-500" },
   }[tone];
 
   const content = (
-    <div className="rounded-xl border bg-card p-4 sm:p-5 transition-all hover:border-foreground/20 hover:shadow-sm h-full">
+    // Hover dourado sutil + active:scale dá feedback tátil no toque (mobile).
+    <div
+      className="mn-fade-in rounded-xl border bg-card p-4 sm:p-5 h-full transition-all hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 active:scale-[0.99]"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="flex items-start justify-between">
         <div
           className={cn(
@@ -378,7 +397,9 @@ function KpiCard({
           <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </div>
         {href && (
-          <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          /* opacity-40 base no mobile: touch não tem hover, a seta precisa
+             existir como affordance; no desktop (md+) volta a aparecer só no hover */
+          <ArrowRight className="h-4 w-4 text-muted-foreground opacity-40 md:opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </div>
       <p className="mt-3 sm:mt-4 text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground line-clamp-1">
@@ -424,7 +445,7 @@ function OnboardingStep({
       <Link
         href={href}
         className={cn(
-          "group flex flex-col h-full rounded-xl border p-4 transition-all",
+          "group flex flex-col h-full rounded-xl border p-4 transition-all active:scale-[0.99]",
           done
             ? "border-emerald-500/30 bg-emerald-500/[0.06]"
             : "border-border bg-card hover:border-primary hover:shadow-sm",
@@ -432,7 +453,7 @@ function OnboardingStep({
       >
         <div className="flex items-center gap-2 mb-2">
           {done ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
           ) : (
             <Circle className="w-4 h-4 text-muted-foreground shrink-0" />
           )}
@@ -467,7 +488,7 @@ function QuickAction({
   return (
     <Link
       href={href}
-      className="group rounded-xl border bg-card p-5 transition-all hover:border-primary hover:shadow-sm flex flex-col"
+      className="group rounded-xl border bg-card p-5 transition-all hover:border-primary hover:shadow-sm active:scale-[0.99] flex flex-col"
     >
       <div className="flex items-start gap-3">
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
@@ -498,8 +519,8 @@ function StatBlock({
 }) {
   const color = {
     brand: "text-primary",
-    amber: "text-amber-400",
-    emerald: "text-emerald-400",
+    amber: "text-amber-700 dark:text-amber-400",
+    emerald: "text-emerald-700 dark:text-emerald-400",
   }[tone];
   return (
     <div title={title}>

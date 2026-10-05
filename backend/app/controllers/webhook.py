@@ -7,12 +7,13 @@ Autenticação via secret comparado em constant-time no service.
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, Query
+from fastapi import APIRouter, Body, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.webhook import WebhookAck, WebhookPayload
 from app.services.webhook import WebhookService
+from app.utils.rate_limit import limiter
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -27,14 +28,17 @@ como `Interaction` na timeline do contato correspondente.
 
 ### Autenticação por secret
 O `tenant_id` está na URL pra identificar **qual** tenant é o destinatário.
-Pra provar autenticidade, envie o `webhook_secret` configurado pra esse tenant:
-
-- **Preferido**: header `X-Webhook-Secret: <secret>`
-- **Fallback**: query string `?secret=<secret>`
-  ⚠️ Query string aparece em logs do nginx/proxies — só use se o provedor
-  não permitir custom header.
+Pra provar autenticidade, envie o `webhook_secret` configurado pra esse tenant
+no header `X-Webhook-Secret: <secret>`.
 
 Comparação **constant-time** (`hmac.compare_digest`) — anti timing-attack.
+
+O secret NÃO é aceito via query string (`?secret=`): apareceria no access log
+do nginx/proxies. Só o header é aceito.
+
+### Proteção anti-flood
+Limitado a **120 requisições/minuto por IP** (o provedor legítimo fica muito
+abaixo disso; um flood de escrita — vetor de exaustão de disco — é barrado).
 
 ### Tolerância de payload
 Aceita **qualquer JSON** (`dict[str, Any]`). Helpers internos tentam extrair
@@ -69,7 +73,9 @@ Header: X-Webhook-Secret: <random_64_chars>
 ```
 """,
 )
+@limiter.limit("120/minute")
 def receive_botconversa_event(
+    request: Request,
     tenant_id: UUID,
     payload: Annotated[
         WebhookPayload,
@@ -89,20 +95,12 @@ def receive_botconversa_event(
         str | None,
         Header(
             alias="X-Webhook-Secret",
-            description="Secret do tenant. Preferido (não vaza em logs).",
-        ),
-    ] = None,
-    secret_query: Annotated[
-        str | None,
-        Query(
-            alias="secret",
-            description="Fallback do secret via query string. Vaza em logs — só pra dev.",
+            description="Secret do tenant (constant-time). Único meio aceito.",
         ),
     ] = None,
 ) -> WebhookAck:
-    secret = x_webhook_secret or secret_query
     return WebhookService(db).process_botconversa_event(
         tenant_id=tenant_id,
-        secret_provided=secret,
+        secret_provided=x_webhook_secret,
         payload=payload,
     )

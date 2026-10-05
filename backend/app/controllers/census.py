@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentTenant
+from app.utils.agg_cache import agg_get, agg_set
 
 router = APIRouter(prefix="/census", tags=["census"])
 
@@ -21,6 +22,36 @@ router = APIRouter(prefix="/census", tags=["census"])
 # instantâneo (serve do cache na hora) e revalida em background em ~15 min, então
 # atualização de dado aparece rápido. O nginx (proxy_cache) segura a carga.
 _CACHE = "public, max-age=900, stale-while-revalidate=604800"
+
+# Cache in-process do dissolve do /malha (shapely/GEOS, ~12s a frio no Rio).
+# LRU DEDICADO e pequeno (nao o agg_cache global): as features de malha pesam
+# ate ~1-3MB cada — no agg_cache (256 entradas) despejariam as agregacoes TSE
+# e poderiam estourar os 768MB do container. 40 entradas cobrem os municipios
+# realmente visitados; o proxy_cache do nginx segura a cauda. Beneficio extra:
+# o warmup (2 encodings) so paga o dissolve 1x por municipio/level.
+# Lock: handlers sync rodam no threadpool do FastAPI (ha concorrencia real).
+import threading as _threading
+from collections import OrderedDict as _OrderedDict
+
+_MALHA_MAX = 40
+_malha_cache: "_OrderedDict[str, list]" = _OrderedDict()
+_malha_lock = _threading.Lock()
+
+
+def _malha_cache_get(key: str) -> list | None:
+    with _malha_lock:
+        feats = _malha_cache.get(key)
+        if feats is not None:
+            _malha_cache.move_to_end(key)
+        return feats
+
+
+def _malha_cache_set(key: str, feats: list) -> None:
+    with _malha_lock:
+        _malha_cache[key] = feats
+        _malha_cache.move_to_end(key)
+        while len(_malha_cache) > _MALHA_MAX:
+            _malha_cache.popitem(last=False)
 
 
 def _round_coords(obj, nd: int = 5):
@@ -40,11 +71,36 @@ def _round_geom(geom, nd: int = 5):
     return {**geom, "coordinates": _round_coords(geom["coordinates"], nd)}
 
 
+def _clean_dissolved(geom, min_area: float = 5e-7):
+    """Remove aneis internos (holes) e partes minusculas (slivers) que a uniao de
+    setores deixa por vertices nao-coincidentes — sao eles que viram 'demarcacoes'
+    internas no mapa. Mantem enclaves/ilhas reais (area >> min_area). Nunca vazio."""
+    from shapely.geometry import MultiPolygon, Polygon
+    def clean_poly(poly):
+        holes = [r for r in poly.interiors if Polygon(r).area >= min_area]
+        return Polygon(poly.exterior, holes) if len(holes) != len(poly.interiors) else poly
+    if geom.geom_type == "Polygon":
+        return clean_poly(geom)
+    if geom.geom_type == "MultiPolygon":
+        parts = [clean_poly(p) for p in geom.geoms if p.area >= min_area]
+        if not parts:  # tudo minusculo: preserva a maior parte, nunca retorna vazio
+            return clean_poly(max(geom.geoms, key=lambda p: p.area))
+        return parts[0] if len(parts) == 1 else MultiPolygon(parts)
+    return geom
+
+
 @router.get(
     "/municipalities",
     summary="Municípios com dados censitários disponíveis",
 )
 def census_municipalities(ctx: CurrentTenant, db: Session = Depends(get_db)) -> list[dict]:
+    # Cache: este GROUP BY varre os 468 mil setores do pais (antes da carga
+    # nacional eram 205 mil) e o resultado so muda quando entra censo novo.
+    # Sem cache, toda abertura da tela pagava a agregacao inteira.
+    _hit = agg_get("census_municipalities")
+    if _hit is not None:
+        return _hit
+
     rows = db.execute(
         text(
             "SELECT cd_mun, max(nm_mun) AS nm_mun, count(*) AS setores, "
@@ -55,7 +111,9 @@ def census_municipalities(ctx: CurrentTenant, db: Session = Depends(get_db)) -> 
             "FROM census_geo WHERE level='setor' GROUP BY cd_mun ORDER BY max(nm_mun)"
         )
     ).mappings().all()
-    return [dict(r) for r in rows]
+    _out = [dict(r) for r in rows]
+    agg_set("census_municipalities", _out)
+    return _out
 
 
 @router.get(
@@ -75,31 +133,37 @@ def census_uf_overview(
         text(
             "SELECT g.cd_mun, g.nm_mun, g.populacao, g.domicilios, g.geometry, "
             "       g.renda_media_domiciliar, g.renda_mediana_domiciliar, "
+            "       g.renda_media_resp_2022, g.renda_mediana_resp_2022, "
             "       g.pib_total, g.pib_per_capita, g.idhm, g.idhm_educacao, "
             "       g.idhm_longevidade, g.idhm_renda, "
             "       g.ideb_anos_iniciais, g.ideb_anos_finais, "
             "       g.dom_agua_rede, g.dom_agua_total, g.dom_esgoto_adequado, "
             "       g.dom_esgoto_total, g.dom_lixo_coletado, g.dom_lixo_total, "
             "       md.cadunico_familias, md.pbf_familias, md.anomes AS mds_anomes, "
-            "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, s.pct_urbana "
+            "       s.setores, s.taxa_alfabetizacao, s.pct_pretos_pardos, "
+            "       s.pct_branca, s.pct_preta, s.pct_parda, s.pct_amarela, s.pct_indigena, "
+            "       s.pct_urbana, "
+            "       s.sexo_masculino, s.sexo_feminino, "
+            "       s.idade_0_4, s.idade_5_9, s.idade_10_14, s.idade_15_19, s.idade_20_24, "
+            "       s.idade_25_29, s.idade_30_39, s.idade_40_49, s.idade_50_59, "
+            "       s.idade_60_69, s.idade_70_mais "
             "FROM census_geo g "
-            "LEFT JOIN LATERAL ("
-            "  SELECT count(*) AS setores, "
-            "         round(100*sum(alfabetizados_15mais)::numeric"
-            "               / NULLIF(sum(pop_15mais),0), 1) AS taxa_alfabetizacao, "
-            "         round(100*(coalesce(sum(raca_preta),0)+coalesce(sum(raca_parda),0))::numeric"
-            "               / NULLIF(sum(populacao),0), 1) AS pct_pretos_pardos, "
-            "         round(100*sum(populacao) FILTER (WHERE situacao='Urbana')::numeric"
-            "               / NULLIF(sum(populacao),0), 1) AS pct_urbana "
-            "  FROM census_geo s WHERE s.level='setor' AND s.cd_mun = g.cd_mun"
-            ") s ON true "
+            # Agregados por município MATERIALIZADOS (migration 058): o LATERAL
+            # que somava ~26k setores por request fria (3,3s medidos) virou um
+            # JOIN plano numa tabela de 1 linha/município. Após novo ingest de
+            # censo, rodar scripts/refresh_census_muni_agg.py.
+            "LEFT JOIN census_muni_agg s ON s.cd_mun = g.cd_mun "
             # CadÚnico/Bolsa Família (MDS): último mês disponível por município.
             "LEFT JOIN LATERAL ("
             "  SELECT cadunico_familias, pbf_familias, anomes "
             "  FROM mds_social_municipio m WHERE m.cd_mun = g.cd_mun "
             "  ORDER BY m.anomes DESC LIMIT 1"
             ") md ON true "
+            # geometry IS NOT NULL: desde a carga nacional (migration 061) a
+            # tabela tem linhas so com indicadores, sem malha. Uma feature de
+            # geometria nula quebra o render do mapa.
             "WHERE g.level='municipio' AND g.cd_mun LIKE :u "
+            "  AND g.geometry IS NOT NULL "
             "ORDER BY g.nm_mun"
         ),
         {"u": uf + "%"},
@@ -121,16 +185,58 @@ def census_uf_overview(
             "pct_pretos_pardos": (
                 float(r["pct_pretos_pardos"]) if r["pct_pretos_pardos"] is not None else None
             ),
+            # Cor/raça desagregada (% da população por categoria do Censo 2022).
+            "pct_branca": float(r["pct_branca"]) if r["pct_branca"] is not None else None,
+            "pct_preta": float(r["pct_preta"]) if r["pct_preta"] is not None else None,
+            "pct_parda": float(r["pct_parda"]) if r["pct_parda"] is not None else None,
+            "pct_amarela": float(r["pct_amarela"]) if r["pct_amarela"] is not None else None,
+            "pct_indigena": float(r["pct_indigena"]) if r["pct_indigena"] is not None else None,
             "pct_urbana": (
                 float(r["pct_urbana"]) if r["pct_urbana"] is not None else None
             ),
+            # Sexo + faixa etária (Censo 2022, agregado demografia). Contagens
+            # por município (soma dos setores). Onde não há setores ingeridos,
+            # vêm null.
+            "sexo_masculino": r["sexo_masculino"],
+            "sexo_feminino": r["sexo_feminino"],
+            "faixa_etaria": {
+                "0_4": r["idade_0_4"], "5_9": r["idade_5_9"], "10_14": r["idade_10_14"],
+                "15_19": r["idade_15_19"], "20_24": r["idade_20_24"],
+                "25_29": r["idade_25_29"], "30_39": r["idade_30_39"],
+                "40_49": r["idade_40_49"], "50_59": r["idade_50_59"],
+                "60_69": r["idade_60_69"], "70_mais": r["idade_70_mais"],
+            },
+            "pct_feminino": (
+                round(100 * r["sexo_feminino"]
+                      / ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)), 1)
+                if ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)) > 0
+                and r["sexo_feminino"] is not None else None
+            ),
+            "pct_60mais": (
+                round(100 * ((r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0))
+                      / r["populacao"], 1)
+                if (r["populacao"] or 0) > 0
+                and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
+                else None
+            ),
+            # Renda dos responsáveis (Censo 2022) — variável pedida pelo PO;
+            # fallback pra renda domiciliar 2010 se o município ainda não tiver
+            # o dado 2022 (ex: antes de rodar a ingestão nova).
             "renda_media": (
-                float(r["renda_media_domiciliar"])
-                if r["renda_media_domiciliar"] is not None else None
+                float(r["renda_media_resp_2022"])
+                if r["renda_media_resp_2022"] is not None
+                else (
+                    float(r["renda_media_domiciliar"])
+                    if r["renda_media_domiciliar"] is not None else None
+                )
             ),
             "renda_mediana": (
-                float(r["renda_mediana_domiciliar"])
-                if r["renda_mediana_domiciliar"] is not None else None
+                float(r["renda_mediana_resp_2022"])
+                if r["renda_mediana_resp_2022"] is not None
+                else (
+                    float(r["renda_mediana_domiciliar"])
+                    if r["renda_mediana_domiciliar"] is not None else None
+                )
             ),
             # CadÚnico / Bolsa Família (MDS) — contagens + % sobre domicílios
             # (comparável entre municípios de tamanhos diferentes).
@@ -229,8 +335,18 @@ def census_setores(
             "SELECT cd_setor, nm_mun, cd_dist, nm_dist, nm_subdist, nm_bairro, "
             "       situacao, area_km2, populacao, domicilios, geometry, "
             "       alfabetizados_15mais, pop_15mais, "
-            "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena "
-            "FROM census_geo WHERE cd_mun = :m AND level='setor' ORDER BY cd_setor "
+            "       raca_branca, raca_preta, raca_amarela, raca_parda, raca_indigena, "
+            "       sexo_masculino, sexo_feminino, "
+            "       idade_0_4, idade_5_9, idade_10_14, idade_15_19, idade_20_24, "
+            "       idade_25_29, idade_30_39, idade_40_49, idade_50_59, "
+            "       idade_60_69, idade_70_mais, "
+            "       dom_agua_rede, dom_agua_total, dom_esgoto_adequado, dom_esgoto_total, "
+            "       dom_lixo_coletado, dom_lixo_total, "
+            "       renda_media_resp_2022, responsaveis_2022 "
+            # geometry IS NOT NULL: a carga nacional (migration 061) traz setor
+            # com indicador e sem malha — no mapa, feature sem geometria quebra.
+            "FROM census_geo WHERE cd_mun = :m AND level='setor' "
+            "  AND geometry IS NOT NULL ORDER BY cd_setor "
             "LIMIT 30000"  # cap defensivo: maior município do BR (SP) tem ~27k setores
         ),
         {"m": cd_mun},
@@ -279,10 +395,222 @@ def census_setores(
                 "raca_amarela": r["raca_amarela"],
                 "raca_parda": r["raca_parda"],
                 "raca_indigena": r["raca_indigena"],
+                # Cor/raça DESAGREGADA como % da população (indicadores de mapa;
+                # agregam por bairro/distrito ponderados por população no front).
+                **{
+                    f"pct_{k}": (
+                        round(100 * (r[f"raca_{col}"] or 0) / r["populacao"], 1)
+                        if (r["populacao"] or 0) > 0 and r[f"raca_{col}"] is not None
+                        else None
+                    )
+                    for k, col in (
+                        ("branca", "branca"), ("preta", "preta"), ("parda", "parda"),
+                        ("amarela", "amarela"), ("indigena", "indigena"),
+                    )
+                },
+                # Sexo + idade (Censo 2022) como indicadores de mapa.
+                "pct_feminino": (
+                    round(100 * r["sexo_feminino"]
+                          / ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)), 1)
+                    if ((r["sexo_masculino"] or 0) + (r["sexo_feminino"] or 0)) > 0
+                    and r["sexo_feminino"] is not None else None
+                ),
+                "pct_60mais": (
+                    round(100 * ((r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0))
+                          / r["populacao"], 1)
+                    if (r["populacao"] or 0) > 0
+                    and (r["idade_60_69"] is not None or r["idade_70_mais"] is not None)
+                    else None
+                ),
+                "sexo_masculino": r["sexo_masculino"],
+                "sexo_feminino": r["sexo_feminino"],
+                "idade_60mais": (
+                    (r["idade_60_69"] or 0) + (r["idade_70_mais"] or 0)
+                    if (r["idade_60_69"] is not None or r["idade_70_mais"] is not None) else None
+                ),
+                # Pirâmide etária COMPLETA (11 faixas, Censo 2022) — o painel do
+                # bairro soma por setor e mostra a distribuição (pedido do PO:
+                # "faltam as outras faixas etárias"). Contagens brutas: a
+                # agregação (SUM_COLS) soma; o % é calculado no front sobre a pop.
+                **{
+                    f"idade_{k}": r[f"idade_{k}"]
+                    for k in (
+                        "0_4", "5_9", "10_14", "15_19", "20_24", "25_29",
+                        "30_39", "40_49", "50_59", "60_69", "70_mais",
+                    )
+                },
+                # Saneamento POR SETOR (Censo 2022): contagens de domicílios com
+                # água na rede / esgoto adequado / lixo coletado + seus totais.
+                # O front agrega e mostra % por bairro (pedido do PO — o dado
+                # EXISTE por setor, ao contrário de renda/IDHM que são municipais).
+                "dom_agua_rede": r["dom_agua_rede"],
+                "dom_agua_total": r["dom_agua_total"],
+                "dom_esgoto_adequado": r["dom_esgoto_adequado"],
+                "dom_esgoto_total": r["dom_esgoto_total"],
+                "dom_lixo_coletado": r["dom_lixo_coletado"],
+                "dom_lixo_total": r["dom_lixo_total"],
+                # Renda dos responsáveis POR SETOR (Censo 2022, ingest
+                # ingest_census_renda_setor.py + migration 055). `responsaveis`
+                # é o PESO da média ponderada na agregação por bairro/distrito
+                # (lib/censusAggregate.ts). None = setor sem dado/sigilo (a
+                # renda some do drill-down até o ingest rodar — comportamento
+                # idêntico aos demais indicadores).
+                "renda_media": (
+                    float(r["renda_media_resp_2022"])
+                    if r["renda_media_resp_2022"] is not None else None
+                ),
+                "responsaveis": r["responsaveis_2022"],
             },
         })
     # ORJSONResponse direto: FastAPI NÃO roda o jsonable_encoder (caro pra
     # 8MB de dicts) — orjson serializa tudo em Rust de uma vez.
+    return ORJSONResponse(
+        content={"type": "FeatureCollection", "features": features},
+        headers={"Cache-Control": _CACHE},
+    )
+
+
+@router.get(
+    "/mds-series",
+    summary="Série mensal CadÚnico/Bolsa Família do município (MDS)",
+    description=(
+        "Série temporal de famílias/pessoas no CadÚnico e no Bolsa Família, e o "
+        "VALOR repassado por mês (R$), a partir de mds_social_municipio (MI "
+        "Social/MDS). A tabela é alimentada pelo ingest mensal; o backfill de "
+        "meses anteriores é rodar o ingest com MDS_ANOMES=YYYYMM. Antes deste "
+        "endpoint, o app jogava fora a dimensão TEMPO (só o mês mais recente "
+        "aparecia) e a coluna mais forte (valor repassado) era invisível."
+    ),
+)
+def census_mds_series(
+    ctx: CurrentTenant,
+    cd_mun: str = Query(..., description="Código IBGE do município (7 dígitos)"),
+    db: Session = Depends(get_db),
+) -> Response:
+    rows = db.execute(
+        text(
+            "SELECT anomes, cadunico_familias, cadunico_pessoas, "
+            "       pbf_familias, pbf_pessoas, pbf_valor "
+            "FROM mds_social_municipio WHERE cd_mun = :m ORDER BY anomes"
+        ),
+        {"m": cd_mun},
+    ).mappings().all()
+    return ORJSONResponse(
+        content={
+            "cd_mun": cd_mun,
+            "items": [
+                {
+                    "anomes": r["anomes"],
+                    "cadunico_familias": r["cadunico_familias"],
+                    "cadunico_pessoas": r["cadunico_pessoas"],
+                    "pbf_familias": r["pbf_familias"],
+                    "pbf_pessoas": r["pbf_pessoas"],
+                    "pbf_valor": float(r["pbf_valor"]) if r["pbf_valor"] is not None else None,
+                }
+                for r in rows
+            ],
+        },
+        headers={"Cache-Control": _CACHE},
+    )
+
+
+@router.get(
+    "/malha",
+    summary="Contornos de bairro/distrito de um município (setores dissolvidos)",
+    description=(
+        "Dissolve os setores censitários por bairro (nm_bairro) ou distrito "
+        "(nm_dist) e retorna os CONTORNOS como GeoJSON — para sobrepor no WebGIS "
+        "acima da malha de setores. O dissolve roda no servidor (shapely/GEOS) e "
+        "é cacheado; o browser não paga o custo."
+    ),
+)
+def census_malha(
+    ctx: CurrentTenant,
+    cd_mun: str = Query(..., description="Código IBGE do município (7 dígitos)"),
+    level: str = Query("bairro", pattern="^(bairro|distrito)$"),
+    db: Session = Depends(get_db),
+) -> Response:
+    # Import lazy: se por algum motivo o shapely não estiver instalado, só este
+    # endpoint falha (com 503), não o controller inteiro.
+    try:
+        from shapely.geometry import mapping, shape
+        from shapely.ops import unary_union
+    except ImportError:  # pragma: no cover
+        raise HTTPException(status_code=503, detail="Geometria indisponível (shapely).")
+
+    # Cache in-process do dissolve: mesmo se o nginx for purgado (todo deploy),
+    # o dissolve pesado so roda 1x por (municipio, level) por vida do processo.
+    _ck = f"{cd_mun}:{level}"
+    _cached = _malha_cache_get(_ck)
+    if _cached is not None:
+        return ORJSONResponse(
+            content={"type": "FeatureCollection", "features": _cached},
+            headers={"Cache-Control": _CACHE},
+        )
+
+    # Nome da área. Para bairro, cai pro SUBDISTRITO e só então pro distrito —
+    # MESMA cadeia que o frontend usa, pra os polígonos dissolvidos casarem com
+    # o agregado calculado lá.
+    #
+    # O subdistrito no meio existe por causa do DF: as 33 Regiões
+    # Administrativas (Ceilândia, Taguatinga, Gama) vivem em nm_subdist, com
+    # nm_bairro 100% vazio e nm_dist valendo "Brasília" para os 5.418 setores.
+    # Sem este degrau, a única agregação possível no DF era um grupo só — logo
+    # onde ela mais importa, já que o DF tem um único município. Também melhora
+    # Contagem (28), Sete Lagoas (17) e Juiz de Fora (10). Onde há bairro
+    # mapeado nada muda: o COALESCE só desce quando o anterior é vazio.
+    name_expr = (
+        "COALESCE(NULLIF(nm_bairro, ''), NULLIF(nm_subdist, ''), nm_dist)"
+        if level == "bairro"
+        else "nm_dist"
+    )
+    rows = db.execute(
+        text(
+            f"SELECT {name_expr} AS nome, geometry, populacao "
+            "FROM census_geo WHERE cd_mun = :m AND level='setor' "
+            "AND geometry IS NOT NULL ORDER BY nome"
+        ),
+        {"m": cd_mun},
+    ).mappings().all()
+
+    # Agrupa os setores por bairro/distrito e faz a UNIÃO das geometrias.
+    groups: dict[str, list] = {}
+    pop: dict[str, int] = {}
+    for r in rows:
+        nome = (r["nome"] or "—").strip() or "—"
+        try:
+            geom = shape(r["geometry"])
+            if not geom.is_valid:
+                geom = geom.buffer(0)  # conserta anéis inválidos (sliver, etc.)
+            groups.setdefault(nome, []).append(geom)
+            pop[nome] = pop.get(nome, 0) + int(r["populacao"] or 0)
+        except Exception:
+            continue
+
+    # set_precision (shapely>=2) snapa vertices num grid ~1.1m: arestas
+    # compartilhadas passam a coincidir e a uniao dissolve limpo. O grid TEM que
+    # ser >= a granularidade do dado de origem (setores ~5 casas decimais ~1.1m),
+    # senao vertices ~1m de distancia NAO caem no mesmo ponto e sobram slivers.
+    # Sem set_precision (shapely<2) cai no fallback (so limpeza pos-uniao).
+    try:
+        from shapely import set_precision as _set_precision
+    except Exception:
+        _set_precision = None
+
+    features = []
+    for nome, geoms in groups.items():
+        try:
+            gs = [_set_precision(g, 1e-5) for g in geoms] if _set_precision else geoms
+            merged = _clean_dissolved(unary_union(gs))
+        except Exception:
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": _round_geom(mapping(merged)),
+            "properties": {"nome": nome, "level": level, "populacao": pop.get(nome)},
+        })
+
+    _malha_cache_set(_ck, features)
     return ORJSONResponse(
         content={"type": "FeatureCollection", "features": features},
         headers={"Cache-Control": _CACHE},

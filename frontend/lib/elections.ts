@@ -7,6 +7,8 @@
  * Histórico importado (Wave 4 — 21A):
  *   2024 municipal · 2022 geral · 2020 municipal ·
  *   2018 geral · 2016 municipal · 2014 geral
+ *
+ * 2026 geral entrou pela captura ao vivo da apuração (ver ANO_EM_APURACAO).
  */
 
 export type OfficeOption = { value: string; label: string };
@@ -27,6 +29,7 @@ const FEDERAL_OFFICES: OfficeOption[] = [
 
 /** Cargos disponíveis por ano. */
 export const OFFICES_BY_YEAR: Record<string, OfficeOption[]> = {
+  "2026": FEDERAL_OFFICES,
   "2024": MUNICIPAL_OFFICES,
   "2022": FEDERAL_OFFICES,
   "2020": MUNICIPAL_OFFICES,
@@ -45,8 +48,18 @@ export const OFFICES_BY_YEAR: Record<string, OfficeOption[]> = {
 export const VOTOS_NOMINAIS_HINT =
   "Votos dados diretamente aos candidatos (não inclui voto de legenda).";
 
+/**
+ * Eleição cuja apuração ainda não fechou. Enquanto estiver aqui, as telas
+ * avisam que "eleito" pode estar incompleto (components/tse/AvisoApuracao) e
+ * não tiram conclusão de tendência em cima dela.
+ *
+ * Trocar para null quando o resultado consolidado do TSE for importado.
+ */
+export const ANO_EM_APURACAO: number | null = 2026;
+
 /** Anos elegíveis pra seletor genérico (mais recente primeiro). */
 export const YEAR_OPTIONS: OfficeOption[] = [
+  { value: "2026", label: "2026 (Federal/Estadual)" },
   { value: "2024", label: "2024 (Municipal)" },
   { value: "2022", label: "2022 (Federal/Estadual)" },
   { value: "2020", label: "2020 (Municipal)" },

@@ -39,7 +39,7 @@ export function BrandMark({ className = "w-10 h-10" }: { className?: string }) {
       {!failed && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src="/logo-mark.png"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/logo-mark.png`}
           alt="MareNostrum"
           onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}

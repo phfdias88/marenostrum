@@ -103,6 +103,30 @@ def client(engine, db_session) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _limpa_cache_de_agregacao():
+    """O cache de agregacao vive no processo e a suite roda tudo num processo
+    so: sem limpar, o segundo teste que usa a mesma chave recebe o resultado do
+    primeiro e passa (ou falha) por engano."""
+    from app.utils.agg_cache import clear_agg_cache
+    clear_agg_cache()
+    yield
+    clear_agg_cache()
+
+
+@pytest.fixture(autouse=True)
+def _zera_rate_limit():
+    """O contador do slowapi tambem vive no processo (storage em memoria) e
+    todo request do TestClient sai do mesmo IP: sem zerar, os logins de
+    arquivos diferentes somam na mesma janela de 10/minute e, do 11o em diante,
+    o teste recebe 429 no lugar da resposta que queria checar — e so' quando a
+    suite roda rapido o bastante (CI), o que faz a falha parecer aleatoria.
+    O limite continua LIGADO; so' nao vaza de um teste pro outro."""
+    from app.utils.rate_limit import limiter
+    limiter.reset()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _disable_geocoding(monkeypatch):
     """
     SEMPRE mockado: nenhum teste bate no Nominatim real.

@@ -162,7 +162,9 @@ export default function CampaignMap({
     <MapContainer
       center={DEFAULT_CENTER}
       zoom={DEFAULT_ZOOM}
-      style={{ height: "100%", width: "100%", background: "#0b0b0c" }}
+      // Fundo vem do CSS global (.leaflet-container usa --background) — assim
+      // acompanha o tema claro/escuro sem hardcode aqui.
+      style={{ height: "100%", width: "100%" }}
       scrollWheelZoom
       preferCanvas
     >
@@ -189,8 +191,8 @@ export default function CampaignMap({
               weight: 1.5,
             }}
           >
-            <Tooltip direction="top" offset={[0, -4]}>
-              <span className="font-semibold">{g.key}</span>: {g.count}{" "}
+            <Tooltip direction="top" offset={[0, -4]} className="mn-tip" opacity={1}>
+              <span className="font-semibold">{g.key}</span> · {g.count}{" "}
               {metricLabel}
             </Tooltip>
           </CircleMarker>

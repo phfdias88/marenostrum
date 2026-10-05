@@ -4,6 +4,7 @@ Repository de Demands.
 REGRA: tenant_id em TODA query.
 Usa joinedload(Demand.contact) pra evitar N+1 ao serializar DemandRead.
 """
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -11,6 +12,14 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.demand import Demand, DemandStatus
+
+# Status "vivos" pro filtro de aging (Paradas +N dias)
+_OPEN_STATUSES = (DemandStatus.OPEN, DemandStatus.IN_PROGRESS)
+
+
+def _aging_cutoff(days: int) -> datetime:
+    """created_at anterior a (agora - N dias) = demanda parada há +N dias."""
+    return datetime.now(timezone.utc) - timedelta(days=days)
 
 
 class DemandRepository:
@@ -51,12 +60,18 @@ class DemandRepository:
         tenant_id: UUID,
         status: DemandStatus | None = None,
         contact_id: UUID | None = None,
+        open_older_than_days: int | None = None,
     ) -> int:
         stmt = select(func.count(Demand.id)).where(Demand.tenant_id == tenant_id)
         if status is not None:
             stmt = stmt.where(Demand.status == status)
         if contact_id is not None:
             stmt = stmt.where(Demand.contact_id == contact_id)
+        if open_older_than_days is not None:
+            stmt = stmt.where(
+                Demand.status.in_(_OPEN_STATUSES),
+                Demand.created_at < _aging_cutoff(open_older_than_days),
+            )
         return int(self._db.execute(stmt).scalar_one())
 
     def list_paginated(
@@ -67,10 +82,13 @@ class DemandRepository:
         offset: int,
         status: DemandStatus | None = None,
         contact_id: UUID | None = None,
+        open_older_than_days: int | None = None,
     ) -> list[Demand]:
         """
         Lista demandas com contato JA carregado (joinedload).
         Mais recentes primeiro.
+        `open_older_than_days`: so' ABERTAS/EM ANDAMENTO criadas ha' +N dias
+        (aging — chip "Paradas +15d" na UI).
         """
         stmt = (
             select(Demand)
@@ -81,6 +99,11 @@ class DemandRepository:
             stmt = stmt.where(Demand.status == status)
         if contact_id is not None:
             stmt = stmt.where(Demand.contact_id == contact_id)
+        if open_older_than_days is not None:
+            stmt = stmt.where(
+                Demand.status.in_(_OPEN_STATUSES),
+                Demand.created_at < _aging_cutoff(open_older_than_days),
+            )
         stmt = (
             stmt.order_by(Demand.created_at.desc())
             .limit(limit)

@@ -5,7 +5,7 @@
  * Filtra por status (chips clicaveis no topo) + paginacao server-side.
  */
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
@@ -52,6 +52,10 @@ export default function DemandasPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<Demand | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+
+  // Ref do trigger "Nova demanda" do header — o CTA do estado vazio clica
+  // nele pra abrir o MESMO dialog de criação (estado interno do dialog).
+  const newDemandBtnRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(
     async (page: number, filter: StatusFilter) => {
@@ -119,7 +123,7 @@ export default function DemandasPage() {
           </p>
         </div>
         <CreateDemandDialog onSaved={refresh}>
-          <Button>
+          <Button ref={newDemandBtnRef}>
             <Plus />
             Nova demanda
           </Button>
@@ -156,6 +160,14 @@ export default function DemandasPage() {
           statusFilter === "todos"
             ? "Nenhuma demanda. Clique em 'Nova demanda' pra começar."
             : `Nenhuma demanda com status "${DEMAND_STATUS_LABELS[statusFilter as DemandStatus]}".`
+        }
+        emptyAction={
+          statusFilter === "todos"
+            ? {
+                label: "Nova demanda",
+                onClick: () => newDemandBtnRef.current?.click(),
+              }
+            : undefined
         }
       />
 
