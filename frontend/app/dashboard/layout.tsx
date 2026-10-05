@@ -84,21 +84,31 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  // Hint otimista do último /me (sessionStorage): no F5 o menu pintava com o
-  // conjunto DEFAULT e depois itens sumiam/apareciam quando o /me chegava
-  // ("pisca"). Com o hint, o primeiro frame já sai certo; o /me real corrige
-  // em seguida se algo mudou (e o backend continua sendo a trava de verdade).
-  const [me, setMe] = useState<Me | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      const raw = sessionStorage.getItem("mn_me_hint");
-      return raw ? (JSON.parse(raw) as Me) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [me, setMe] = useState<Me | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const lastY = useRef(0);
+
+  // Hint otimista do último /me (sessionStorage): no F5 o menu ficava com o
+  // conjunto DEFAULT até o /me chegar e só então itens sumiam/apareciam
+  // ("pisca"). Com o hint, o menu acerta logo após a hidratação; o /me real
+  // corrige em seguida se algo mudou (e o backend continua sendo a trava de
+  // verdade).
+  // Lido em effect, NÃO no inicializador do useState: o servidor não enxerga
+  // sessionStorage, então o primeiro render do cliente precisa sair igual ao
+  // HTML do servidor (me = null). No inicializador, o cliente já nascia com
+  // itens que o HTML não tinha (Censo, nome da campanha) → React #418/#423 em
+  // todo F5 e a raiz inteira re-renderizada. `cur ?? hint` não pisa num /me
+  // que já tenha chegado.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("mn_me_hint");
+      if (!raw) return;
+      const hint = JSON.parse(raw) as Me;
+      setMe((cur) => cur ?? hint);
+    } catch {
+      /* sessionStorage indisponível ou hint corrompido — segue sem hint */
+    }
+  }, []);
 
   useEffect(() => {
     api<Me>("/v1/auth/me")
