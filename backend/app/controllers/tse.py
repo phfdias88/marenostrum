@@ -22,7 +22,7 @@ from fastapi import (
 from fastapi.responses import ORJSONResponse
 
 from app.models.user import User
-from sqlalchemy import and_, case, false, func, or_, select, text
+from sqlalchemy import and_, case, false, func, or_, select, text, union
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.config import get_settings
@@ -39,7 +39,9 @@ from app.services.election_queries import get_elected, get_electorate_profile
 from app.services.comparecimento import get_turnout
 from app.services.eleicao_comparada import get_bancada, get_virada
 from app.utils import apuracao
-from app.utils.partidos import numero_sucessor, partido_atual, trechos_da_linhagem
+from app.utils.partidos import (
+    numero_sucessor, partido_atual, sigla_no_ano, trechos_da_linhagem,
+)
 from app.services.tse_ingest import arquivos_prontos, cobertura
 
 log = _structlog.get_logger("marenostrum.controllers.tse")
@@ -1324,26 +1326,38 @@ def candidate_trajectory(
     name_norm_expr = func.coalesce(
         Candidate.name_unaccent, func.lower(func.f_unaccent(Candidate.name))
     )
-    base_name_norm = base.name_unaccent or func.lower(func.f_unaccent(base.name))
-    name_match = and_(
-        name_norm_expr == base_name_norm,
-        state_key_expr == base_state_key,
-    )
-    if base.cpf:
-        match_where = or_(
-            Candidate.cpf == base.cpf,
-            and_(
-                or_(Candidate.cpf.is_(None), Candidate.cpf == ""),
-                name_match,
-            ),
+    #
+    # DOIS RAMOS, cada um por um indice, unidos por id. Num WHERE so
+    # (cpf = X OR (cpf IS NULL AND nome...)) o banco abria as 290 mil
+    # candidaturas sem CPF para comparar o nome, e a comparacao por
+    # coalesce(name_unaccent, f_unaccent(name)) nao usa indice nenhum: ~30s por
+    # pagina de candidato — e todo candidato de 2026 ainda esta sem CPF. O nome
+    # entra pela coluna materializada `name_unaccent` (preenchida em toda linha
+    # por gatilho); so a linha que nao a tiver cai na expressao antiga.
+    if base.name_unaccent:
+        name_match = and_(
+            Candidate.name_unaccent == base.name_unaccent,
+            state_key_expr == base_state_key,
         )
     else:
-        match_where = name_match
+        name_match = and_(
+            name_norm_expr == func.lower(func.f_unaccent(base.name)),
+            state_key_expr == base_state_key,
+        )
+    if base.cpf:
+        ids = union(
+            select(Candidate.id).where(Candidate.cpf == base.cpf),
+            select(Candidate.id).where(
+                or_(Candidate.cpf.is_(None), Candidate.cpf == ""), name_match,
+            ),
+        ).subquery()
+    else:
+        ids = select(Candidate.id).where(name_match).subquery()
     stmt = (
         select(Candidate, Election, Party)
         .join(Election, Candidate.election_id == Election.id)
         .join(Party, Candidate.party_id == Party.id)
-        .where(match_where)
+        .where(Candidate.id.in_(select(ids.c.id)))
         .order_by(Election.year.desc(), Candidate.office_code.asc())
     )
     rows = db.execute(stmt).all()
@@ -2232,26 +2246,38 @@ def election_stats(
     # sobre vote_results) é CARO (~72s em eleições grandes, estoura o
     # statement_timeout) → fica a cargo do script de background
     # (populate_election_stats.py), e até lá vem como null ("—" na UI).
-    if election.stats_candidates is None:
-        election.stats_candidates = int(
+    #
+    # Na eleicao EM APURACAO nada e guardado: o numero muda a cada passada, e a
+    # coluna congelava o que valia na primeira visita (quem abriu a tela com
+    # 60% das urnas ficava com aquele total para sempre).
+    ao_vivo = (
+        apuracao.ANO_EM_APURACAO is not None
+        and election.year == apuracao.ANO_EM_APURACAO
+    )
+    candidatos, votos = election.stats_candidates, election.stats_total_votes
+    if ao_vivo or candidatos is None:
+        candidatos = int(
             db.execute(
                 select(func.count(Candidate.id)).where(Candidate.election_id == election_id)
             ).scalar_one()
         )
-        election.stats_total_votes = int(
+        votos = int(
             db.execute(
                 select(func.coalesce(func.sum(Candidate.total_votes), 0)).where(
                     Candidate.election_id == election_id
                 )
             ).scalar_one()
         )
-        db.commit()
+        if not ao_vivo:
+            election.stats_candidates = candidatos
+            election.stats_total_votes = votos
+            db.commit()
 
     return ElectionStatsResponse(
         election=ElectionRead.model_validate(election),
-        candidates_count=election.stats_candidates,
+        candidates_count=candidatos,
         municipalities_count=election.stats_municipalities,
-        total_votes=election.stats_total_votes,
+        total_votes=votos,
     )
 
 
@@ -2289,37 +2315,31 @@ def party_performance(
     if state is not None:
         cand_filters.append(Candidate.state == state.upper())
 
-    # 1) Votos por partido.
+    # Votos, candidatos e eleitos por partido, numa leitura so de candidatos.
     #
-    # Em eleicao fechada: soma do voto por municipio dos candidatos filtrados.
-    # Na eleicao EM APURACAO: soma do total oficial de cada candidato. O voto
-    # por municipio so anda quando uma varredura passa e nao tem o exterior —
-    # com ele, o partido aparecia com o voto de horas atras (ou zero, na UF
-    # ainda nao varrida) ao lado de candidatos e eleitos atualizados. Fica
-    # restrito ao ano em apuracao porque so nele ha garantia de um registro por
-    # candidato; nos anos antigos o registro de 2o turno poderia entrar em dobro.
-    if apuracao.ANO_EM_APURACAO is not None and year == apuracao.ANO_EM_APURACAO:
-        votes_rows = db.execute(
-            select(
-                Candidate.party_id,
-                func.coalesce(func.sum(Candidate.total_votes), 0),
-            )
-            .where(*cand_filters)
-            .group_by(Candidate.party_id)
-        ).all()
-    else:
-        votes_rows = db.execute(
-            select(
-                Candidate.party_id,
-                func.coalesce(func.sum(VoteResult.votes), 0),
-            )
-            .join(VoteResult, VoteResult.candidate_id == Candidate.id)
-            .where(*cand_filters)
-            .group_by(Candidate.party_id)
-        ).all()
-    votes_by_party = {pid: int(v) for pid, v in votes_rows}
-
-    # 2) Contagem de candidatos + eleitos por partido
+    # O voto e a soma do TOTAL OFICIAL de cada candidato (`total_votes`), em
+    # todo ano. Ja foi a soma do voto por municipio (tse_vote_results) nos anos
+    # fechados, e deixou de ser:
+    #   * da o mesmo numero — conferido em producao partido a partido (prefeito
+    #     2024: 113.519.425 votos nos dois caminhos, 29 partidos, zero diferenca);
+    #     e a mesma soma que a evolucao do partido e o resultado por UF ja usam;
+    #   * custava minutos com o cache frio: sao 30 milhoes de linhas que nao
+    #     cabem na memoria do banco. Depois de cada deploy o reaquecimento
+    #     disparava quatro dessas juntas e o painel devolvia 504;
+    #   * na eleicao em apuracao o voto por municipio fica atras do placar e
+    #     nao tem o exterior;
+    #   * 2002-2012 nao tem voto por municipio carregado e saiam com zero voto.
+    #
+    # Candidato SEM total cai na soma do voto por municipio dele (o COALESCE so
+    # executa a subconsulta nesse caso). O importador consolidado cria candidato
+    # sem `total_votes`; sem esta rede, um ano recem-importado mostraria o
+    # partido com eleitos e zero voto ate alguem recalcular os totais.
+    votos_por_municipio = (
+        select(func.sum(VoteResult.votes))
+        .where(VoteResult.candidate_id == Candidate.id)
+        .correlate(Candidate)
+        .scalar_subquery()
+    )
     counts_rows = db.execute(
         select(
             Candidate.party_id,
@@ -2327,19 +2347,23 @@ def party_performance(
             func.count(Candidate.id).filter(
                 Candidate.result_status.like("ELEITO%")
             ),
+            func.coalesce(
+                func.sum(func.coalesce(Candidate.total_votes, votos_por_municipio)), 0
+            ),
         )
         .where(*cand_filters)
         .group_by(Candidate.party_id)
     ).all()
+    votes_by_party = {pid: int(v) for pid, _, _, v in counts_rows}
 
-    party_ids = [pid for pid, _, _ in counts_rows]
+    party_ids = [pid for pid, _, _, _ in counts_rows]
     parties_map = {
         p.id: p
         for p in db.execute(select(Party).where(Party.id.in_(party_ids))).scalars()
     }
 
     items = []
-    for pid, n_cand, n_elected in counts_rows:
+    for pid, n_cand, n_elected, _ in counts_rows:
         p = parties_map.get(pid)
         if p is None:
             continue
@@ -2453,7 +2477,11 @@ def winners_map(
             lat=float(r["latitude"]),
             lng=float(r["longitude"]),
             party_number=int(r["party_number"]),
-            party_abbreviation=r["party_abbreviation"],
+            # Sigla da EPOCA: a tabela guarda a de hoje, e a legenda de um ano
+            # antigo dizia "PRD" onde quem ganhou foi o DEM.
+            party_abbreviation=sigla_no_ano(
+                int(r["party_number"]), year, r["party_abbreviation"],
+            ),
             winner_name=r["winner_name"],
             votes=int(r["votes"]),
         )
@@ -3871,8 +3899,8 @@ def turnout(
     summary="Bancada por partido: quem fica e quem entra",
     description="""Quadro da casa legislativa por partido, comparando com a eleicao de 4 anos antes.
 
-**Senado (`office_code=5`)**: `antes` sao os senadores eleitos ha 4 anos, que
-seguem no mandato; `eleitos` sao os proclamados agora; `total` soma os dois.
+**Senado (`office_code=5`)**: `antes` sao os senadores que seguem no mandato;
+`eleitos` sao os proclamados agora; `total` soma os dois.
 
 **Camara (`office_code=6`)**: a casa e renovada inteira, entao `antes` e a
 bancada eleita ha 4 anos (que sai) e `total` conta so quem entra.
@@ -3880,8 +3908,11 @@ bancada eleita ha 4 anos (que sai) e `total` conta so quem entra.
 `a_frente` existe so no Senado: os mais votados nas UFs em que o TSE ainda nao
 proclamou o resultado. **Nao sao eleitos** e vem separados de proposito.
 
-O partido de `antes` e o da eleicao em que a pessoa foi eleita — o TSE nao
-publica troca de partido durante o mandato.
+`fonte_do_mandato` diz de onde vem `antes` no Senado: `"senado"` e a lista de
+senadores em exercicio do proprio Senado, pela filiacao de hoje (considera troca
+de partido e suplente que assumiu; `papel` traz "Titular" ou "1º Suplente");
+`"tse"` e quem foi eleito ha 4 anos, pelo partido daquela eleicao — o TSE nao
+publica troca de partido durante o mandato. Na Camara vem vazio.
 """,
 )
 def bancada(

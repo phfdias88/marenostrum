@@ -262,7 +262,9 @@ export default function CompararPartidosPage() {
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">{electedLabel}</p>
-                    <p className="text-2xl font-bold text-primary">{numberFmt.format(elected)}</p>
+                    <p className="text-2xl font-bold text-primary">
+                      {perf ? numberFmt.format(elected) : "…"}
+                    </p>
                     <div className="mt-1 h-2 rounded-full bg-muted overflow-hidden">
                       <div
                         className="h-full bg-primary transition-all"
@@ -270,12 +272,14 @@ export default function CompararPartidosPage() {
                       />
                     </div>
                   </div>
+                  {/* Enquanto o desempenho não chega, reticências: "0 eleitos"
+                      durante o carregamento parece resultado. */}
                   <Metric
                     label="Votos nominais"
-                    value={item?.total_votes ?? 0}
+                    value={perf ? item?.total_votes ?? 0 : null}
                     title="Soma dos votos dados aos candidatos do partido (não inclui votos de legenda)."
                   />
-                  <Metric label="Candidatos" value={item?.candidates_count ?? 0} />
+                  <Metric label="Candidatos" value={perf ? item?.candidates_count ?? 0 : null} />
                 </div>
               </div>
             );
@@ -286,11 +290,13 @@ export default function CompararPartidosPage() {
   );
 }
 
-function Metric({ label, value, title }: { label: string; value: number; title?: string }) {
+function Metric({ label, value, title }: { label: string; value: number | null; title?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 text-sm border-t border-border/40 pt-2">
       <span className="text-muted-foreground" title={title}>{label}</span>
-      <span className="font-mono font-semibold">{numberFmt.format(value)}</span>
+      <span className="font-mono font-semibold">
+        {value == null ? "…" : numberFmt.format(value)}
+      </span>
     </div>
   );
 }
