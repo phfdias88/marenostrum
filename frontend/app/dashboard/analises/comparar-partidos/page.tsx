@@ -21,6 +21,7 @@ const MAX = 4;
 const numberFmt = new Intl.NumberFormat("pt-BR");
 
 import { OFFICES_BY_YEAR, YEAR_OPTIONS } from "@/lib/elections";
+import { somarPorLinhagem } from "@/lib/partidos";
 import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 
 export default function CompararPartidosPage() {
@@ -72,19 +73,28 @@ export default function CompararPartidosPage() {
   }, []);
 
   useEffect(() => {
+    // Só depois de ler a URL, e sem deixar resposta antiga vencer a nova: a
+    // busca do padrão (2024/Prefeito) podia chegar depois da do link e ficar
+    // na tela sob os seletores do link.
+    if (hydrating) return;
+    let cancelada = false;
     setPerf(null);
     const p = new URLSearchParams({ year, office_code: office });
     if (state) p.set("state", state);
     api<TsePartyPerformanceResponse>(`/v1/tse/stats/party-performance?${p.toString()}`)
-      .then(setPerf)
-      .catch(() => setPerf(null));
-  }, [year, office, state]);
+      .then((r) => {
+        if (!cancelada) setPerf(r);
+      })
+      .catch(() => {
+        if (!cancelada) setPerf(null);
+      });
+    return () => {
+      cancelada = true;
+    };
+  }, [hydrating, year, office, state]);
 
-  const perfByNumber = useMemo(() => {
-    const m = new Map<number, TsePartyPerformanceItem>();
-    (perf?.items ?? []).forEach((i) => m.set(i.party.number, i));
-    return m;
-  }, [perf]);
+  // Por linhagem: o PRD de 2022 é PTB + Patriota, e o 14 de 2022 não é o Missão.
+  const perfByNumber = useMemo(() => somarPorLinhagem(perf?.items ?? []), [perf]);
 
   const partyByNumber = useMemo(() => {
     const m = new Map<number, TseParty>();

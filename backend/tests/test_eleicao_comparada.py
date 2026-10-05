@@ -207,6 +207,17 @@ def test_municipio_sem_um_dos_lados_fica_fora_e_e_contado():
     assert [p["municipality_id"] for p in r["pontos"]] == ["a"]
 
 
+def test_municipio_que_falta_no_ano_novo_tambem_e_contado():
+    """O caso da noite da eleicao: 2022 completo, 2026 so com parte carregada.
+    Contando so o lado novo, a tela dizia que nada tinha ficado de fora."""
+    r = cruzar_vencedores(
+        [_venc("a", 13, "PT"), _venc("b", 13, "PT"), _venc("c", 22, "PL")],
+        [_venc("a", 13, "PT")],
+        2022, 2026,
+    )
+    assert (r["municipios"], r["sem_comparacao"]) == (1, 2)
+
+
 def test_transicoes_vem_da_maior_para_a_menor():
     r = cruzar_vencedores(
         [_venc("a", 13, "PT"), _venc("b", 13, "PT"), _venc("c", 22, "PL")],

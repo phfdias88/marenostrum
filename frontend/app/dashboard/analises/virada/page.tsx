@@ -186,17 +186,6 @@ export default function ViradaPage() {
               />
             )}
 
-            {/* Como ler o mapa */}
-            <div className="absolute bottom-3 left-3 z-[400] mn-glass rounded-lg px-3 py-2 text-[11px] leading-relaxed">
-              <p className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-foreground/80 ring-1 ring-foreground/40 ring-offset-1 ring-offset-transparent" />
-                virou — cor de quem passou a ganhar
-              </p>
-              <p className="flex items-center gap-2 mt-0.5">
-                <span className="w-2 h-2 rounded-full bg-foreground/30 ml-0.5 mr-0.5" />
-                manteve o partido
-              </p>
-            </div>
           </div>
         </div>
 
@@ -232,6 +221,18 @@ export default function ViradaPage() {
                 onClick={() => alternar({ tipo: "mantiveram" })}
               />
             </div>
+            {/* Como ler o mapa. Fica aqui, e não por cima do mapa, para o
+                canto dele ficar livre para o seletor de camada. */}
+            <div className="mt-3 space-y-1 text-[11px] text-muted-foreground">
+              <p className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-foreground/70 ring-1 ring-foreground/40 ring-offset-1 ring-offset-card" />
+                virou — maior, na cor de quem passou a ganhar
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-foreground/30 mx-0.5" />
+                manteve o partido
+              </p>
+            </div>
           </div>
 
           {/* Para onde foi */}
@@ -241,7 +242,9 @@ export default function ViradaPage() {
             </p>
             {data && viradas.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Nenhum município mudou de partido.
+                {data.municipios === 0
+                  ? `Ainda não há resultado por município de ${data.para} para este cargo.`
+                  : "Nenhum município mudou de partido."}
               </p>
             )}
             <ul className="space-y-1">

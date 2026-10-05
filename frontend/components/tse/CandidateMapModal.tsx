@@ -44,7 +44,6 @@ import type {
 import type { VotesBarItem } from "@/components/tse/VotesBarChart";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
-import { MapLayoutSelector } from "@/components/map/MapLayoutSelector";
 
 const CandidateVoteMap = dynamic(
   () => import("@/components/map/CandidateVoteMap"),
@@ -712,7 +711,6 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 label="Locais"
               />
             </div>
-            <MapLayoutSelector />
           </div>
         </header>
 

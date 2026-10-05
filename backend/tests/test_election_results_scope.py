@@ -96,6 +96,42 @@ def test_municipality_scope_narrows_result(client, tenant_a, db_session):
     assert body["total_votes"] == 110
 
 
+def test_presidente_no_pais_usa_o_total_oficial_do_candidato(
+    client, tenant_a, db_session,
+):
+    """Na apuracao, a soma por municipio fica atras do placar nacional e nao
+    tem o voto do exterior. O total do pais e o `total_votes` do candidato."""
+    _, _, token = tenant_a
+    election = Election(tse_code=6257, year=2026, round=1, name="Federal 2026")
+    party = Party(number=98, abbreviation="XY", name="Partido XY")
+    muni = Municipality(tse_code=90101, name="Cidade Tres", state="RJ")
+    db_session.add_all([election, party, muni])
+    db_session.flush()
+    cand = Candidate(
+        election_id=election.id, party_id=party.id, sq_candidato=900101,
+        number=98, name="PRESIDENCIAVEL", urn_name="PRESIDENCIAVEL",
+        office_code=1, office_name="PRESIDENTE", state="BR", total_votes=1000,
+    )
+    db_session.add(cand)
+    db_session.flush()
+    db_session.add(VoteResult(candidate_id=cand.id, municipality_id=muni.id, votes=700))
+    db_session.commit()
+
+    pais = client.get(
+        "/api/v1/tse/election-results?year=2026&office_code=1", headers=_auth(token),
+    )
+    assert pais.status_code == 200, pais.text
+    assert pais.json()["results"][0]["votes"] == 1000
+    assert pais.json()["total_votes"] == 1000
+
+    # Recortado por UF continua sendo a soma dos municipios daquela UF.
+    uf = client.get(
+        "/api/v1/tse/election-results?year=2026&office_code=1&state=RJ",
+        headers=_auth(token),
+    )
+    assert uf.json()["results"][0]["votes"] == 700
+
+
 def test_year_and_office_are_required(client, tenant_a):
     _, _, token = tenant_a
     # Sem office_code → 422 (evita misturar cargos na mesma lista).
@@ -112,3 +148,40 @@ def test_unknown_municipality_returns_404(client, tenant_a):
         headers=_auth(token),
     )
     assert r.status_code == 404
+
+
+def test_desempenho_do_partido_na_apuracao_usa_o_total_oficial(
+    client, tenant_a, db_session, monkeypatch,
+):
+    """Na apuracao o voto por municipio so anda quando a varredura passa. Somar
+    por ele mostrava o partido com o voto de horas atras ao lado de candidatos
+    e eleitos atualizados. Fora da apuracao, a soma por municipio continua."""
+    from app.utils import agg_cache, apuracao
+
+    _, _, token = tenant_a
+    election = Election(tse_code=6259, year=2026, round=1, name="Estaduais 2026")
+    party = Party(number=97, abbreviation="XZ", name="Partido XZ")
+    muni = Municipality(tse_code=90201, name="Cidade Quatro", state="RJ")
+    db_session.add_all([election, party, muni])
+    db_session.flush()
+    cand = Candidate(
+        election_id=election.id, party_id=party.id, sq_candidato=900201,
+        number=97, name="GOVERNADORAVEL", urn_name="GOVERNADORAVEL",
+        office_code=3, office_name="GOVERNADOR", state="RJ", total_votes=1000,
+    )
+    db_session.add(cand)
+    db_session.flush()
+    db_session.add(VoteResult(candidate_id=cand.id, municipality_id=muni.id, votes=700))
+    db_session.commit()
+
+    url = "/api/v1/tse/stats/party-performance?year=2026&office_code=3"
+
+    monkeypatch.setattr(apuracao, "ANO_EM_APURACAO", 2026)
+    r = client.get(url, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["items"][0]["total_votes"] == 1000
+
+    agg_cache.clear_agg_cache()
+    monkeypatch.setattr(apuracao, "ANO_EM_APURACAO", None)
+    r = client.get(url, headers=_auth(token))
+    assert r.json()["items"][0]["total_votes"] == 700

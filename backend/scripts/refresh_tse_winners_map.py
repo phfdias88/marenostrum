@@ -19,6 +19,7 @@ USO:
     docker compose exec -T -e PYTHONPATH=/app api \
         python /tmp/refresh_tse_winners_map.py            # tudo
     ... python /tmp/refresh_tse_winners_map.py --year 2024 # so um ano
+    ... python /tmp/refresh_tse_winners_map.py --year 2026 --cargos 1,3,5
 """
 from __future__ import annotations
 
@@ -77,7 +78,10 @@ ON CONFLICT (year, office_code, municipality_id) DO UPDATE SET
 def main() -> int:
     p = argparse.ArgumentParser(description="Materializa o vencedor por municipio.")
     p.add_argument("--year", type=int, help="processa so este ano")
+    p.add_argument("--cargos", default="",
+                   help="so estes cargos, ex: 1,3,5 (padrao: todos)")
     args = p.parse_args()
+    so_cargos = {int(c) for c in args.cargos.split(",") if c.strip().isdigit()}
 
     db = SessionLocal()
     try:
@@ -95,6 +99,10 @@ def main() -> int:
               AND (CAST(:year AS integer) IS NULL OR e.year = CAST(:year AS integer))
             ORDER BY e.year DESC, c.office_code
         """), {"year": args.year}).all()
+        if so_cargos:
+            # Deputado no pais inteiro e ordenar milhoes de linhas (minutos por
+            # cargo). Quem roda de dez em dez minutos pede so os majoritarios.
+            combos = [c for c in combos if c[1] in so_cargos]
         log.info("combinacoes_a_processar", total=len(combos))
 
         t0 = time.perf_counter()

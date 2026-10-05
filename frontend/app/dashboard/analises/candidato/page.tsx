@@ -29,6 +29,7 @@ import { FavoriteStar } from "@/components/tse/FavoriteStar";
 import { CandidateListSkeleton } from "@/components/tse/Skeletons";
 import { EmptyState } from "@/components/tse/EmptyState";
 import { ANO_EM_APURACAO } from "@/lib/elections";
+import { detalhePorMunicipioIncompleto, totalDoCandidato } from "@/lib/votosDoCandidato";
 import { downloadCsv } from "@/lib/csv";
 import { OUTCOME_LABEL, classifyResult } from "@/lib/types";
 
@@ -43,18 +44,6 @@ function useDebounce<T>(value: T, ms: number): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return debounced;
-}
-
-/**
- * Total de votos do painel lateral.
- *
- * O painel soma o voto por município. Quando esse detalhe ainda não foi
- * carregado (deputado na eleição em apuração), a soma dá zero para quem teve
- * voto — aí vale o total oficial do candidato.
- */
-function votosDoPainel(details: TseCandidateResults, candidate: TseCandidate): number {
-  if (details.results.length > 0) return details.total_votes;
-  return details.candidate.total_votes ?? candidate.total_votes ?? 0;
 }
 
 export default function CandidatoAnalysisPage() {
@@ -602,7 +591,7 @@ function CandidateDetail({
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded-md bg-card/60 border border-border p-3">
               <p className="text-2xl font-bold text-primary">
-                {numberFmt.format(votosDoPainel(details, candidate))}
+                {numberFmt.format(totalDoCandidato(details, candidate))}
               </p>
               <p className="text-xs text-muted-foreground">Total de votos</p>
             </div>
@@ -613,9 +602,11 @@ function CandidateDetail({
               <p className="text-xs text-muted-foreground">Municípios</p>
             </div>
           </div>
-          {details.results.length === 0 && votosDoPainel(details, candidate) > 0 && (
+          {detalhePorMunicipioIncompleto(details, candidate) && (
             <p className="text-xs text-muted-foreground">
-              Voto por município ainda não carregado para esta candidatura.
+              {details.results.length === 0
+                ? "Voto por município ainda não carregado para esta candidatura."
+                : "O total é o oficial do TSE; a lista por município ainda está sendo atualizada e não inclui o voto no exterior."}
             </p>
           )}
 

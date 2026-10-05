@@ -14,6 +14,8 @@
  * NÃO substitui o HTTP cache do browser — soma. Memory cache morre no
  * reload da página (é volátil), então não há risco de "dado preso".
  */
+import { ANO_EM_APURACAO } from "./elections";
+
 
 type Entry = { data: unknown; expires: number };
 
@@ -22,8 +24,17 @@ const inflight = new Map<string, Promise<unknown>>();
 
 /** TTL por tipo de rota (ms). TSE = público/imutável → longo. Tenant → curto. */
 export function ttlFor(path: string): number {
+  // Privado do tenant, embora more sob /v1/tse/: cruza os contatos do cliente.
+  // O servidor já manda no-store, mas este cache não lê cabeçalho e a chave é
+  // só o caminho — quem trocasse de cliente na mesma aba via a análise do
+  // anterior. Zero = não guarda (ver setCached).
+  if (path.includes("/ai-territory")) return 0;
   // Dados TSE históricos não mudam — cache agressivo de 5 min em memória.
-  if (path.startsWith("/v1/tse/")) return 5 * 60 * 1000;
+  // Com eleição em apuração o número muda a cada 2 minutos: 1 min basta para
+  // o vai-e-volta entre telas e não segura resultado velho.
+  if (path.startsWith("/v1/tse/")) {
+    return (ANO_EM_APURACAO == null ? 5 : 1) * 60 * 1000;
+  }
   // Censo IBGE é estático — voltar pro mesmo município não re-baixa nada.
   if (path.startsWith("/v1/census/")) return 10 * 60 * 1000;
   // Dados do tenant (contatos, demandas, monitorados): 30s — fresco o
@@ -96,6 +107,7 @@ export function getCached(key: string): unknown | undefined {
 }
 
 export function setCached(key: string, data: unknown, ttlMs: number): void {
+  if (ttlMs <= 0) return; // rota que não pode ser guardada (ver ttlFor)
   // Teto defensivo: não deixa o cache crescer infinito (LRU simplão).
   if (memCache.size > 200) {
     const oldest = memCache.keys().next().value;

@@ -36,6 +36,7 @@ async def _lifespan(app: FastAPI):
     task.cancel()
 
 from app.config import get_settings
+from app.utils.apuracao import cache_do_tse
 from app.controllers import api_router
 from app.core.errors import register_exception_handlers
 from app.core.logging import setup_logging
@@ -253,13 +254,11 @@ def create_app() -> FastAPI:
             # - /sync: status do job pode mudar a qualquer momento
             and "/sync" not in path
         ):
-            # max-age 5 min + stale-while-revalidate 24h: navegacao continua
-            # rapida (cache "morno") mas evolucoes de schema/dados aparecem
-            # em ate 5 min sem precisar hard-refresh. Antes era 1h, que deixava
-            # mudancas presas (ex: campo "round" adicionado nao apareceu por 1h).
-            response.headers["Cache-Control"] = (
-                "public, max-age=300, stale-while-revalidate=86400"
-            )
+            # Historico: max-age 5 min + stale-while-revalidate 24h — navegacao
+            # rapida (cache "morno") e mudancas aparecem em ate 5 min. Antes era
+            # 1h, que deixava mudancas presas (o campo "round" nao apareceu por 1h).
+            # Com eleicao em apuracao a regra encurta: ver app/utils/apuracao.py.
+            response.headers["Cache-Control"] = cache_do_tse()
         # Endpoints de estado mutavel ganham no-cache explicito
         elif (
             request.method == "GET"

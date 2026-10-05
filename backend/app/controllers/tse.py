@@ -22,7 +22,7 @@ from fastapi import (
 from fastapi.responses import ORJSONResponse
 
 from app.models.user import User
-from sqlalchemy import and_, case, func, or_, select, text
+from sqlalchemy import and_, case, false, func, or_, select, text
 from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.config import get_settings
@@ -36,8 +36,10 @@ import structlog as _structlog
 
 from app.services.election_data_service import get_aggregated_votes
 from app.services.election_queries import get_elected, get_electorate_profile
+from app.services.comparecimento import get_turnout
 from app.services.eleicao_comparada import get_bancada, get_virada
-from app.utils.partidos import partido_atual, trechos_da_linhagem
+from app.utils import apuracao
+from app.utils.partidos import numero_sucessor, partido_atual, trechos_da_linhagem
 from app.services.tse_ingest import arquivos_prontos, cobertura
 
 log = _structlog.get_logger("marenostrum.controllers.tse")
@@ -321,6 +323,40 @@ def list_parties(
     ]
 
 
+def _cond_linhagem(db: Session, number: int):
+    """Filtro de candidato: pertence ao partido que HOJE usa `number`.
+
+    Segue a LINHAGEM, nao o numero. Filtrar pelo numero poria o PTB na pagina
+    do Missao (os dois foram 14) e deixaria o PRD sem o passado do PTB e do
+    Patriota, que se fundiram nele. Toda rota que recebe `party_number` passa
+    por aqui — a evolucao, a busca de candidatos e o ranking —, senao uma tela
+    mostra a linhagem e a outra, logo ao lado, o numero.
+
+    A faixa de ano vai por subconsulta em election_id porque nem todo chamador
+    faz join com a eleicao.
+    """
+    trechos = trechos_da_linhagem(number)
+    ids_por_numero: dict[int, list[UUID]] = {}
+    for p in db.execute(
+        select(Party).where(Party.number.in_({n for n, _, _ in trechos}))
+    ).scalars():
+        ids_por_numero.setdefault(p.number, []).append(p.id)
+    conds = []
+    for n, depois_de, ate in trechos:
+        if n not in ids_por_numero:
+            continue
+        cond = [Candidate.party_id.in_(ids_por_numero[n])]
+        anos = []
+        if depois_de is not None:
+            anos.append(Election.year > depois_de)
+        if ate is not None:
+            anos.append(Election.year <= ate)
+        if anos:
+            cond.append(Candidate.election_id.in_(select(Election.id).where(*anos)))
+        conds.append(and_(*cond))
+    return or_(*conds) if conds else false()
+
+
 @router.get(
     "/parties/{number}/evolution",
     response_model=PartyEvolutionResponse,
@@ -335,6 +371,11 @@ def party_evolution(
     ctx: CurrentTenant,
     db: Session = Depends(get_db),
 ) -> PartyEvolutionResponse:
+    _key = f"party_evo:{number}"
+    _hit = agg_get(_key)
+    if _hit is not None:
+        return _hit
+
     # O cabecalho usa o partido que responde pelo numero HOJE.
     linhas = db.execute(
         select(Party).where(Party.number == number)
@@ -343,26 +384,7 @@ def party_evolution(
     if party is None:
         raise NotFoundError("Partido não encontrado")
 
-    # A serie segue a LINHAGEM, nao o numero. Somar tudo que ja usou o numero
-    # poria a historia do PTB na pagina do Missao (os dois foram 14), e
-    # deixaria o PRD sem o passado do PTB e do Patriota, que se fundiram nele.
-    trechos = trechos_da_linhagem(number)
-    ids_por_numero: dict[int, list[UUID]] = {}
-    for p in db.execute(
-        select(Party).where(Party.number.in_({n for n, _, _ in trechos}))
-    ).scalars():
-        ids_por_numero.setdefault(p.number, []).append(p.id)
-    da_linhagem = []
-    for n, depois_de, ate in trechos:
-        if n not in ids_por_numero:
-            continue
-        cond = [Candidate.party_id.in_(ids_por_numero[n])]
-        if depois_de is not None:
-            cond.append(Election.year > depois_de)
-        if ate is not None:
-            cond.append(Election.year <= ate)
-        da_linhagem.append(and_(*cond))
-
+    # A serie segue a LINHAGEM, nao o numero (ver _cond_linhagem).
     rows = db.execute(
         select(
             Election.year,
@@ -373,7 +395,7 @@ def party_evolution(
             func.coalesce(func.sum(Candidate.total_votes), 0).label("votos"),
         )
         .join(Election, Candidate.election_id == Election.id)
-        .where(or_(*da_linhagem))
+        .where(_cond_linhagem(db, number))
         .group_by(Election.year)
         .order_by(Election.year.asc())
     ).all()
@@ -387,10 +409,14 @@ def party_evolution(
         )
         for r in rows
     ]
-    return PartyEvolutionResponse(
+    # Varre todas as candidaturas do partido em todos os anos (5s a frio para
+    # um partido grande) e so muda quando entra dado novo do TSE.
+    _result = PartyEvolutionResponse(
         party=PartyRead.model_validate(party),
         items=items,
     )
+    agg_set(_key, _result)
+    return _result
 
 
 @router.get(
@@ -519,8 +545,7 @@ def list_candidates(
         search_order = [_relevance, _elected_rank, _office_rank, Candidate.urn_name]
 
     if party_number is not None:
-        party_id_subq = select(Party.id).where(Party.number == party_number)
-        stmt = stmt.where(Candidate.party_id.in_(party_id_subq))
+        stmt = stmt.where(_cond_linhagem(db, party_number))
 
     if elected_only:
         stmt = stmt.where(Candidate.result_status.like("ELEITO%"))
@@ -1478,7 +1503,17 @@ def election_results(
     # próprio `total_votes` pré-computado — validado contra a soma real (bate
     # ao voto). Sem ele, Dep. Estadual de SP (~2 mil candidatos × 645
     # municípios) estourava o tempo limite.
-    use_precomputed = scope == "state" and office_code != PRESIDENT_OFFICE_CODE
+    #
+    # Vale tambem para PRESIDENTE NO PAIS INTEIRO: o total nacional e o proprio
+    # `total_votes`. Conferido em producao — identico a soma por municipio,
+    # candidato a candidato, em 2014, 2018 e 2022. Na eleicao em apuracao os
+    # dois divergem, e quem esta certo e o `total_votes`: ele vem do placar
+    # nacional do TSE a cada passada, enquanto a soma por municipio nao tem o
+    # voto do exterior e so se atualiza quando a varredura passa de novo.
+    presidente_no_pais = scope == "national" and office_code == PRESIDENT_OFFICE_CODE
+    use_precomputed = presidente_no_pais or (
+        scope == "state" and office_code != PRESIDENT_OFFICE_CODE
+    )
 
     if use_precomputed:
         votes_col = func.coalesce(Candidate.total_votes, 0)
@@ -1492,8 +1527,9 @@ def election_results(
             .order_by(votes_col.desc())
             .limit(limit)
         )
+        _onde = Municipality.state != "ZZ" if presidente_no_pais else Municipality.state == uf
         munis_count = db.execute(
-            select(func.count()).select_from(Municipality).where(Municipality.state == uf)
+            select(func.count()).select_from(Municipality).where(_onde)
         ).scalar_one()
     else:
         votes_sum = func.sum(VoteResult.votes)
@@ -2253,16 +2289,34 @@ def party_performance(
     if state is not None:
         cand_filters.append(Candidate.state == state.upper())
 
-    # 1) Votos por partido (soma vote_results dos candidatos filtrados)
-    votes_rows = db.execute(
-        select(
-            Candidate.party_id,
-            func.coalesce(func.sum(VoteResult.votes), 0),
-        )
-        .join(VoteResult, VoteResult.candidate_id == Candidate.id)
-        .where(*cand_filters)
-        .group_by(Candidate.party_id)
-    ).all()
+    # 1) Votos por partido.
+    #
+    # Em eleicao fechada: soma do voto por municipio dos candidatos filtrados.
+    # Na eleicao EM APURACAO: soma do total oficial de cada candidato. O voto
+    # por municipio so anda quando uma varredura passa e nao tem o exterior —
+    # com ele, o partido aparecia com o voto de horas atras (ou zero, na UF
+    # ainda nao varrida) ao lado de candidatos e eleitos atualizados. Fica
+    # restrito ao ano em apuracao porque so nele ha garantia de um registro por
+    # candidato; nos anos antigos o registro de 2o turno poderia entrar em dobro.
+    if apuracao.ANO_EM_APURACAO is not None and year == apuracao.ANO_EM_APURACAO:
+        votes_rows = db.execute(
+            select(
+                Candidate.party_id,
+                func.coalesce(func.sum(Candidate.total_votes), 0),
+            )
+            .where(*cand_filters)
+            .group_by(Candidate.party_id)
+        ).all()
+    else:
+        votes_rows = db.execute(
+            select(
+                Candidate.party_id,
+                func.coalesce(func.sum(VoteResult.votes), 0),
+            )
+            .join(VoteResult, VoteResult.candidate_id == Candidate.id)
+            .where(*cand_filters)
+            .group_by(Candidate.party_id)
+        ).all()
     votes_by_party = {pid: int(v) for pid, v in votes_rows}
 
     # 2) Contagem de candidatos + eleitos por partido
@@ -2292,6 +2346,7 @@ def party_performance(
         items.append(
             PartyPerformanceItem(
                 party=PartyRead.model_validate(p),
+                lineage_number=numero_sucessor(p.number, year),
                 total_votes=votes_by_party.get(pid, 0),
                 elected_count=int(n_elected or 0),
                 candidates_count=int(n_cand),
@@ -2442,8 +2497,7 @@ def top_candidates(
     if state is not None:
         stmt = stmt.where(Candidate.state == state.upper())
     if party_number is not None:
-        party_ids_sub = select(Party.id).where(Party.number == party_number)
-        stmt = stmt.where(Candidate.party_id.in_(party_ids_sub))
+        stmt = stmt.where(_cond_linhagem(db, party_number))
     if elected_only:
         stmt = stmt.where(Candidate.result_status.like("ELEITO%"))
     stmt = stmt.order_by(Candidate.total_votes.desc()).limit(limit)
@@ -3785,6 +3839,31 @@ def elected(
         db, ano=year, uf=uf, municipio=municipality, cargo=office_code,
         eleito=elected, meios_contato=contacts, limit=limit,
     )
+
+
+@router.get(
+    "/stats/turnout",
+    summary="Comparecimento, abstencao, brancos e nulos, ano a ano",
+    description="""Serie do cargo no recorte pedido, uma linha por eleicao que tenha o dado.
+
+`uf=BR` (padrao) e o pais inteiro, com o exterior.
+
+Percentuais: **abstencao** sobre comparecimento + abstencoes; **brancos** e
+**nulos** sobre o total de votos do cargo (validos + brancos + nulos). Para o
+Senado em ano de duas vagas isso importa: cada eleitor da dois votos.
+
+`parcial=true` marca a eleicao que ainda esta sendo apurada; `pct_secoes` diz
+quanto ja entrou.
+""",
+)
+def turnout(
+    ctx: CurrentTenant,
+    office_code: int = Query(1, description="1=presidente, 3=governador, 5=senador…"),
+    uf: str = Query("BR", min_length=2, max_length=2),
+    round: int = Query(1, ge=1, le=2),
+    db: Session = Depends(get_db),
+) -> dict:
+    return get_turnout(db, cargo=office_code, uf=uf, turno=round)
 
 
 @router.get(

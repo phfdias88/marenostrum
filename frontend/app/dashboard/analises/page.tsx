@@ -31,6 +31,7 @@ import {
   RefreshCw,
   ScanSearch,
   Trophy,
+  Tv,
   Users,
   UsersRound,
   Vote,
@@ -145,6 +146,13 @@ const CARDS: Card[] = [
     label: "Mapa da virada",
     icon: Repeat2,
     description: "Onde o partido mais votado mudou de 2022 para 2026, cidade por cidade.",
+    group: "Explorar",
+  },
+  {
+    href: "/dashboard/analises/placar",
+    label: "Placar 2026",
+    icon: Tv,
+    description: "A apuração em cartões grandes: foto, votos e percentual, com abstenção, brancos e nulos comparados a 2018 e 2022.",
     group: "Explorar",
   },
   {

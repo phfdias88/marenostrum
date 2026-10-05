@@ -5,6 +5,7 @@
  * - converte erros do backend em ApiError com {status, code, message}
  */
 import { getToken } from "./auth";
+import { ANO_EM_APURACAO } from "./elections";
 import {
   bustCache,
   bustPrefixesFor,
@@ -110,7 +111,21 @@ async function _doFetch<T>(
   const isPublicRead =
     method === "GET" &&
     (path.startsWith("/v1/tse/") || path.startsWith("/v1/census/"));
-  const cacheMode: RequestCache = isPublicRead ? "default" : "no-store";
+  // skipCache é "quero o número de agora" (botão Atualizar, atualização
+  // automática do placar). Limpar só a memória do app não bastava: o navegador
+  // ainda devolvia a própria cópia sem ir à rede. "no-cache" obriga a
+  // revalidar com o servidor.
+  //
+  // Com eleição em apuração, TODA leitura do TSE revalida. O servidor já manda
+  // max-age curto, mas isso só vale para resposta nova: quem abriu a tela
+  // antes tem no navegador a cópia antiga, marcada para ser reaproveitada por
+  // 24h, e veria primeiro o número de horas atrás. O custo é pequeno — o
+  // cache em memória do app segura o vai-e-volta e o nginx responde do dele.
+  const cacheMode: RequestCache = !isPublicRead
+    ? "no-store"
+    : opts.skipCache || ANO_EM_APURACAO != null
+      ? "no-cache"
+      : "default";
 
   // Remove chaves nao-padrao do RequestInit antes de passar ao fetch.
   const { skipCache: _sk, body: _b, ...rest } = opts;

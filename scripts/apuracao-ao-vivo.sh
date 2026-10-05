@@ -63,6 +63,18 @@ fi
   rc=$?
   echo "captura terminou com codigo $rc"
 
+  # O mapa de vencedores e tabela materializada: quando o voto por municipio
+  # muda, ela precisa ser refeita, senao mapa partidario e mapa da virada
+  # continuam mostrando o vencedor da ultima varredura. So os cargos que os
+  # mapas oferecem (presidente, governador, senador): poucos segundos. Deputado
+  # no pais inteiro levaria minutos a cada passada, e fica para a varredura.
+  if [ "$rc" -eq 0 ] && [ "$MODO" != "totais" ]; then
+    docker compose exec -T -e PYTHONPATH=/app api \
+      python - --year "${DATA_PLEITO##*/}" --cargos 1,3,5 \
+      < backend/scripts/refresh_tse_winners_map.py > /dev/null
+    echo "mapa de vencedores terminou com codigo $?"
+  fi
+
   if [ "$rc" -eq 0 ]; then
     # Token de vida curta emitido pelo proprio servidor, so para avisar a API.
     TOKEN=$(docker compose exec -T -e PYTHONPATH=/app api python - <<'PY' 2>/dev/null | tail -1

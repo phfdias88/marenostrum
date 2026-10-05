@@ -175,10 +175,18 @@ export default function EleicaoAnalysisPage() {
 
   // Carrega resultados assim que os campos mínimos estiverem preenchidos.
   useEffect(() => {
+    // Espera a URL ser lida. A tela abre com um padrão que JÁ busca
+    // (Presidente no Brasil); sem esta espera, quem chega por um link
+    // compartilhado dispara duas buscas, e se a do padrão responder por
+    // último ela fica na tela sob os filtros do link.
+    if (!hydrated) return;
     if (!canSearch) {
       setResults(null);
       return;
     }
+    // Trocar de filtro no meio de uma busca: a resposta antiga não pode
+    // sobrescrever a nova.
+    let cancelada = false;
     setResultsLoading(true);
     const params = new URLSearchParams({
       limit: "500",
@@ -191,10 +199,19 @@ export default function EleicaoAnalysisPage() {
     else if (state) params.set("state", state);
 
     api<TseElectionResults>(`/v1/tse/election-results?${params.toString()}`)
-      .then(setResults)
-      .catch(() => setResults(null))
-      .finally(() => setResultsLoading(false));
-  }, [canSearch, selectedMuni, office, year, state]);
+      .then((r) => {
+        if (!cancelada) setResults(r);
+      })
+      .catch(() => {
+        if (!cancelada) setResults(null);
+      })
+      .finally(() => {
+        if (!cancelada) setResultsLoading(false);
+      });
+    return () => {
+      cancelada = true;
+    };
+  }, [hydrated, canSearch, selectedMuni, office, year, state]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-8">

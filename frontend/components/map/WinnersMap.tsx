@@ -10,6 +10,9 @@
  *    so os municipios do partido escolhido.
  *  - Imperative pan/zoom via `focusRequest` (chips UF na pagina pai).
  *
+ *  - Clique/toque num município abre um popup com os dados e o atalho para
+ *    a página dele (no celular não existe "passar o mouse").
+ *
  * PERFORMANCE: os pontos (ate ~5570 municipios) sao desenhados como UMA camada
  * imperativa de L.circleMarker no renderer canvas — NAO como 5570 componentes
  * React <CircleMarker> + 5570 portals de <Tooltip>. O realce por partido
@@ -22,6 +25,7 @@ import "leaflet/dist/leaflet.css";
 
 import { partyColor } from "@/lib/partyColors";
 import type { TseWinnerMapPoint } from "@/lib/types";
+import { botaoDoMunicipio, esc, useAbrirMunicipio } from "./popupMunicipio";
 import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -77,6 +81,7 @@ function MarkersLayer({
   highlightedParty?: number | null;
 }) {
   const map = useMap();
+  useAbrirMunicipio(map);
   const markersRef = useRef<Array<{ marker: L.CircleMarker; party: number }>>([]);
   const hlRef = useRef(highlightedParty);
   hlRef.current = highlightedParty;
@@ -88,10 +93,18 @@ function MarkersLayer({
       const { radius, ...path } = styleFor(p.party_number, hlRef.current);
       const marker = L.circleMarker([p.lat, p.lng], { radius, ...path });
       const color = partyColor(p.party_number);
+      const partido = `<b style="color:${color}">${esc(p.party_abbreviation)}</b>`;
       marker.bindTooltip(
-        `${p.name}/${p.state} · <b style="color:${color}">${p.party_abbreviation}</b> ` +
-          `${p.winner_name} · ${numberFmt.format(p.votes)}`,
+        `${esc(p.name)}/${p.state} · ${partido} ` +
+          `${esc(p.winner_name)} · ${numberFmt.format(p.votes)}`,
         { direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1 },
+      );
+      // No toque (celular) não há tooltip: o popup é o único jeito de ler o ponto.
+      marker.bindPopup(
+        `<b>${esc(p.name)}/${p.state}</b><br/>` +
+          `${partido} ${esc(p.winner_name)}<br/>` +
+          `${numberFmt.format(p.votes)} votos<br/>` +
+          botaoDoMunicipio(p.municipality_id),
       );
       marker.addTo(group);
       built.push({ marker, party: p.party_number });

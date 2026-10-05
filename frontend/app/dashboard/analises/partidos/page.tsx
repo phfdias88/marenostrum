@@ -210,7 +210,11 @@ function PartyPerformance({
 
           <div className="rounded-lg border bg-card divide-y divide-border">
             {ranked.map((i, idx) => {
-              const party = partyByNumber.get(i.party.number) ?? i.party;
+              // O detalhe abre no partido de HOJE daquela linhagem: clicar no
+              // PTB de 2022 leva ao PRD, que é onde a história dele continua —
+              // não ao Missão, que só herdou o número 14.
+              const party =
+                partyByNumber.get(i.lineage_number ?? i.party.number) ?? i.party;
               const pct = (i.elected_count / maxElected) * 100;
               return (
                 <button

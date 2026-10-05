@@ -313,7 +313,7 @@ export default function BancadaPage() {
                       {soma ? "Eleitos" : data.ano}
                     </th>
                     {mostrarAFrente && (
-                      <th className="text-right font-medium pb-2 px-2">À frente</th>
+                      <th className="text-right font-medium pb-2 px-2 whitespace-nowrap">À frente</th>
                     )}
                     {soma && <th className="text-right font-medium pb-2 pr-2">Total</th>}
                   </tr>

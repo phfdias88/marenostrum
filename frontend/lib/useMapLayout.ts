@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * Layout (camada de tiles) escolhido pelo usuário pros mapas: claro, escuro
- * ou satélite. Persistido em localStorage e compartilhado entre todas as
+ * Layout (camada de tiles) escolhido pelo usuário pros mapas: claro, escuro,
+ * ruas ou satélite. Persistido em localStorage e compartilhado entre todas as
  * instâncias de mapa via um evento custom (mn-map-layout) — assim o seletor
  * e o ThemedTileLayer (componentes separados dentro do mesmo mapa) sincronizam.
  */
 import { useEffect, useState } from "react";
 
-export type MapLayout = "light" | "dark" | "satellite";
+export type MapLayout = "light" | "dark" | "streets" | "satellite";
+
+/** Fundo claro pede contorno escuro nos pontos; fundo escuro, o contrário. */
+export function fundoClaro(layout: MapLayout): boolean {
+  return layout === "light" || layout === "streets";
+}
 
 const KEY = "mn_map_layout";
 const EVENT = "mn-map-layout";
@@ -16,7 +21,7 @@ const EVENT = "mn-map-layout";
 function read(): MapLayout {
   if (typeof window === "undefined") return "light";
   const v = window.localStorage.getItem(KEY);
-  return v === "dark" || v === "satellite" ? v : "light";
+  return v === "dark" || v === "satellite" || v === "streets" ? v : "light";
 }
 
 export function useMapLayout(): [MapLayout, (l: MapLayout) => void] {

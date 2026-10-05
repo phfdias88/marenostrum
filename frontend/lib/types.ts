@@ -689,6 +689,8 @@ export type TseTopCandidatesResponse = {
 
 export type TsePartyPerformanceItem = {
   party: TseParty;
+  /** Número, HOJE, do partido a que este pertence (PTB de 2022 → 25, do PRD). */
+  lineage_number?: number | null;
   total_votes: number;
   elected_count: number;
   candidates_count: number;
@@ -867,4 +869,35 @@ export type TseViradaResponse = {
   sem_comparacao: number;
   transicoes: TseViradaTransicao[];
   pontos: TseViradaPoint[];
+};
+
+// ---------- Comparecimento (abstenção, brancos, nulos) ----------
+
+export type TseTurnoutAno = {
+  ano: number;
+  eleitorado: number;
+  comparecimento: number;
+  abstencao: number;
+  validos: number;
+  brancos: number;
+  nulos: number;
+  /** Votos em candidato indeferido ou sub judice: nem válidos, nem nulos. */
+  anulados: number;
+  /** Sobre comparecimento + abstenções. null quando ainda não há voto. */
+  pct_abstencao: number | null;
+  /** Sobre o total de votos do cargo (válidos + brancos + nulos). */
+  pct_brancos: number | null;
+  pct_nulos: number | null;
+  secoes_total: number | null;
+  secoes_apuradas: number | null;
+  pct_secoes: number | null;
+  /** true enquanto a eleição daquele ano ainda está sendo apurada. */
+  parcial: boolean;
+};
+
+export type TseTurnoutResponse = {
+  cargo: number;
+  uf: string;
+  turno: number;
+  anos: TseTurnoutAno[];
 };

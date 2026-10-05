@@ -20,6 +20,7 @@ import type {
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
 import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { somarPorLinhagem } from "@/lib/partidos";
 import { partyTheme } from "@/lib/partyColors";
 import { VoteBar } from "@/components/ui/VoteBar";
 import { PartyLogo } from "@/components/tse/PartyLogo";
@@ -150,13 +151,16 @@ export default function PartyDetailPage() {
 
   // Stats deste partido + ranking nacional
   const { mine, rank } = useMemo(() => {
-    const ranked = (perf?.items ?? [])
-      .filter((i) => i.elected_count > 0 || i.total_votes > 0)
-      .sort((a, b) => b.elected_count - a.elected_count || b.total_votes - a.total_votes);
-    const idx = ranked.findIndex((i) => i.party.number === num);
+    // Por LINHAGEM, não por número: em 2022 o 14 era do PTB, que hoje é PRD.
+    // Casando pelo número, a página do Missão mostrava os eleitos do PTB.
+    const porLinhagem = somarPorLinhagem(perf?.items ?? []);
+    const ranked = [...porLinhagem.entries()]
+      .filter(([, t]) => t.elected_count > 0 || t.total_votes > 0)
+      .sort(([, a], [, b]) => b.elected_count - a.elected_count || b.total_votes - a.total_votes);
+    const idx = ranked.findIndex(([numero]) => numero === num);
     // Os números do partido NÃO passam pelo filtro do ranking: partido sem
     // eleito e sem voto carregado ainda tem candidatos, e o card dizia "0".
-    const mine = (perf?.items ?? []).find((i) => i.party.number === num) ?? null;
+    const mine = porLinhagem.get(num) ?? null;
     return { mine, rank: idx >= 0 ? idx + 1 : null };
   }, [perf, num]);
 

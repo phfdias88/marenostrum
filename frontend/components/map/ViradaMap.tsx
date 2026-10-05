@@ -19,7 +19,8 @@ import "leaflet/dist/leaflet.css";
 
 import { partyColor } from "@/lib/partyColors";
 import type { TseViradaPoint as ViradaPoint } from "@/lib/types";
-import { useMapLayout } from "@/lib/useMapLayout";
+import { fundoClaro, useMapLayout } from "@/lib/useMapLayout";
+import { botaoDoMunicipio, esc, useAbrirMunicipio } from "./popupMunicipio";
 import { ThemedTileLayer } from "./ThemedTileLayer";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
@@ -38,7 +39,7 @@ function casa(p: ViradaPoint, f: ViradaFiltro): boolean {
 }
 
 // O contorno é o que faz o ponto "saltar": precisa contrastar com o FUNDO do
-// mapa, que o usuário escolhe. Branco some no mapa claro (o padrão).
+// mapa, que o usuário escolhe. Branco some no mapa claro (o padrão) e no de ruas.
 const ANEL_NO_CLARO = "#0f172a";
 const ANEL_NO_ESCURO = "#ffffff";
 
@@ -57,7 +58,10 @@ function styleFor(p: ViradaPoint, f: ViradaFiltro | null | undefined, anel: stri
   }
   return p.virou
     ? { radius: 5, color: anel, fillColor: color, fillOpacity: 0.95, weight: 1.1 }
-    : { radius: 3, color, fillColor: color, fillOpacity: 0.3, weight: 0.4 };
+    : // Pequeno, bem transparente e sem contorno: nas regiões densas (SP, Sul)
+      // centenas de pontos "manteve" se sobrepõem, e com mais tinta eles
+      // viravam uma mancha tão escura quanto quem virou.
+      { radius: 2.5, color, fillColor: color, fillOpacity: 0.2, weight: 0 };
 }
 
 type Props = {
@@ -101,7 +105,8 @@ function Camada({
 }) {
   const map = useMap();
   const [layout] = useMapLayout();
-  const anel = layout === "light" ? ANEL_NO_CLARO : ANEL_NO_ESCURO;
+  const anel = fundoClaro(layout) ? ANEL_NO_CLARO : ANEL_NO_ESCURO;
+  useAbrirMunicipio(map);
   const ref = useRef<Array<{ marker: L.CircleMarker; p: ViradaPoint }>>([]);
   // Lidos por ref na construção: mudar o destaque ou o fundo reestiliza os
   // pontos no lugar (efeito abaixo), sem recriar os 5.570 marcadores.
@@ -116,23 +121,23 @@ function Camada({
     // Quem manteve vai primeiro: assim os que viraram são desenhados POR CIMA
     // e não ficam escondidos atrás de um vizinho nas regiões densas.
     const ordenados = [...points].sort((a, b) => Number(a.virou) - Number(b.virou));
-    // O nome vem do TSE e vai para dentro de HTML (bindTooltip): escapar.
-    const esc = (s: string) =>
-      s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     for (const p of ordenados) {
       const { radius, ...path } = styleFor(p, hlRef.current, anelRef.current);
       const marker = L.circleMarker([p.lat, p.lng], { radius, ...path });
       const cA = partyColor(p.antes.party_number);
       const cD = partyColor(p.depois.party_number);
       const titulo = p.virou ? "virou" : "manteve";
-      marker.bindTooltip(
+      const texto =
         `<b>${esc(p.name)}/${p.state}</b> · ${titulo}<br/>` +
-          `${anoAntes}: <b style="color:${cA}">${esc(p.antes.party_abbreviation)}</b> ` +
-          `${esc(p.antes.winner_name)} · ${numberFmt.format(p.antes.votes)}<br/>` +
-          `${anoDepois}: <b style="color:${cD}">${esc(p.depois.party_abbreviation)}</b> ` +
-          `${esc(p.depois.winner_name)} · ${numberFmt.format(p.depois.votes)}`,
-        { direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1 },
-      );
+        `${anoAntes}: <b style="color:${cA}">${esc(p.antes.party_abbreviation)}</b> ` +
+        `${esc(p.antes.winner_name)} · ${numberFmt.format(p.antes.votes)}<br/>` +
+        `${anoDepois}: <b style="color:${cD}">${esc(p.depois.party_abbreviation)}</b> ` +
+        `${esc(p.depois.winner_name)} · ${numberFmt.format(p.depois.votes)}`;
+      marker.bindTooltip(texto, {
+        direction: "top", offset: [0, -4], className: "mn-tip", opacity: 1,
+      });
+      // No toque (celular) não há tooltip: o popup é o único jeito de ler o ponto.
+      marker.bindPopup(`${texto}<br/>${botaoDoMunicipio(p.municipality_id)}`);
       marker.addTo(group);
       built.push({ marker, p });
     }

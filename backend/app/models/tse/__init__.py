@@ -24,6 +24,7 @@ from app.models.tse.section_vote import TseSectionVote
 from app.models.tse.sync_job import TseSyncJob, SyncJobStatus
 from app.models.tse.runoff_section_vote import TseRunoffSectionVote
 from app.models.tse.runoff_vote import TseRunoffVote
+from app.models.tse.turnout import TseTurnout
 from app.models.tse.vote_result import VoteResult
 from app.models.tse.voting_place import TseVotingPlace
 from app.models.tse.zone_vote import CandidateZoneVote
@@ -35,6 +36,7 @@ __all__ = [
     "Municipality",
     "TseRunoffSectionVote",
     "TseRunoffVote",
+    "TseTurnout",
     "VoteResult",
     "TseSyncJob",
     "SyncJobStatus",

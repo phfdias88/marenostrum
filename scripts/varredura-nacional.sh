@@ -20,6 +20,11 @@
 #
 # O cache da API e o do nginx NAO sao limpos aqui: o cron do placar
 # (apuracao-ao-vivo.sh, de 2 em 2 minutos) ja faz isso a cada passada.
+#
+# SE O CRON DE MUNICIPIOS ESTIVER LIGADO (apuracao-ao-vivo.sh MODO=municipios),
+# passe em UFS a lista SEM as UFs que ele ja cobre (hoje, o RJ). Os dois gravam
+# as mesmas linhas; rodando juntos, um espera a trava do outro a varredura
+# inteira e, no pior caso, o Postgres mata um deles por deadlock.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."

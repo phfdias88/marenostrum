@@ -39,6 +39,7 @@ import httpx
 from sqlalchemy import func, select, text
 
 from app.core.database import SessionLocal
+from app.services import comparecimento
 from app.services import tse_live as live
 from app.utils.tse_sync import ALL_UFS, CACHE_DIR, DATASETS, download_zip
 
@@ -106,6 +107,8 @@ CARGO_NACIONAL = 1
 # minutos para 688 arquivos — quase tudo espera de rede. Oito em paralelo
 # derruba isso sem virar martelada no TSE em dia de eleicao.
 PARALELOS = 8
+# Municipios baixados e gravados por vez na varredura (ver passo_municipios).
+LOTE_DE_MUNICIPIOS = 40
 
 
 def cargo_existe_na_uf(cargo: int, uf: str) -> bool:
@@ -167,27 +170,51 @@ def passo_candidatos(db) -> dict:
 
 
 def passo_totais(db, cliente, eleicoes, candidatos) -> dict:
-    """Total e situacao de cada candidato, pelo arquivo de nivel UF ou BR."""
-    alvos: list[tuple[str, int, str]] = []          # (uf, cargo, url)
+    """Total e situacao de cada candidato, pelo arquivo de nivel UF ou BR.
+
+    Do mesmo arquivo sai o comparecimento (abstencao, brancos, nulos e quanto
+    da apuracao ja entrou), gravado em tse_turnout.
+    """
+    # (uf, cargo, url, vale_para_o_total_do_candidato)
+    alvos: list[tuple[str, int, str, bool]] = []
     for el in eleicoes:
         for cargo in el["cargos"]:
-            areas = ["br"] if cargo == CARGO_NACIONAL else [u.lower() for u in ALL_UFS]
+            nacional = cargo == CARGO_NACIONAL
+            areas = ["br"] if nacional else [u.lower() for u in ALL_UFS]
             for uf in areas:
                 if uf != "br" and not cargo_existe_na_uf(cargo, uf):
                     continue
                 alvos.append(
-                    (uf, cargo, live.url_do_arquivo(ANO, el["codigo"], uf, cargo)))
+                    (uf, cargo, live.url_do_arquivo(ANO, el["codigo"], uf, cargo), True))
+            if nacional:
+                # Presidente por UF: SO para o comparecimento. O voto do
+                # candidato ali e o da UF — gravar como total faria o placar
+                # nacional mostrar a votacao de um estado so.
+                for uf in ALL_UFS:
+                    alvos.append((
+                        uf.lower(), cargo,
+                        live.url_do_arquivo(ANO, el["codigo"], uf.lower(), cargo),
+                        False,
+                    ))
 
     dados = baixar_varios(cliente, [a[2] for a in alvos])
 
     ok = falhou = atualizados = 0
     andamento_por_uf: dict[str, dict] = {}
-    for (uf, cargo, _url), dado in zip(alvos, dados):
+    for (uf, cargo, _url, vale_total), dado in zip(alvos, dados):
         if dado is None:
             falhou += 1
             continue
         ok += 1
         and_ = live.andamento(dado)
+        numeros = comparecimento.do_feed(dado)
+        if numeros is not None:
+            comparecimento.gravar(
+                db, ano=ANO, turno=and_["turno"], cargo=cargo, uf=uf,
+                numeros=numeros,
+            )
+        if not vale_total:
+            continue
         atualizados += live.gravar_totais_do_candidato(
             db, candidatos_por_sq=candidatos, turno=and_["turno"],
             candidatos=live.extrair_candidatos(dado),
@@ -218,21 +245,30 @@ def passo_municipios(db, cliente, eleicoes, candidatos, ufs, so_cargos=None) -> 
                     continue
                 if not cargo_existe_na_uf(cargo, uf):
                     continue
-                urls = [live.url_do_arquivo(ANO, el["codigo"], uf, cargo, cod)
-                        for cod, _mid in munis]
-                for (_cod, mid), dado in zip(munis, baixar_varios(cliente, urls)):
-                    if dado is None:
-                        falhou += 1
-                        continue
-                    ok += 1
-                    g, p = live.gravar_votos_do_municipio(
-                        db, candidatos_por_sq=candidatos, municipio_id=mid,
-                        turno=live.andamento(dado)["turno"],
-                        candidatos=live.extrair_candidatos(dado),
-                    )
-                    gravados += g
-                    sem_candidato += p
-                db.commit()
+                # Em LOTES, e nao a UF inteira de uma vez. O arquivo de deputado
+                # traz a lista completa da UF em cada municipio (~1 MB ja
+                # lido): os 853 de MG juntos passam de 1 GB, e o container da
+                # API tem 768 MB — a varredura derrubaria a propria API.
+                for i in range(0, len(munis), LOTE_DE_MUNICIPIOS):
+                    lote = munis[i : i + LOTE_DE_MUNICIPIOS]
+                    urls = [live.url_do_arquivo(ANO, el["codigo"], uf, cargo, cod)
+                            for cod, _mid in lote]
+                    for (_cod, mid), dado in zip(lote, baixar_varios(cliente, urls)):
+                        if dado is None:
+                            falhou += 1
+                            continue
+                        ok += 1
+                        g, p = live.gravar_votos_do_municipio(
+                            db, candidatos_por_sq=candidatos, municipio_id=mid,
+                            turno=live.andamento(dado)["turno"],
+                            candidatos=live.extrair_candidatos(dado),
+                        )
+                        gravados += g
+                        sem_candidato += p
+                    # Commit por lote: solta as travas de linha cedo (o cron do
+                    # RJ grava as mesmas linhas) e nao deixa um milhao de
+                    # linhas pendurado numa transacao so.
+                    db.commit()
                 print(f"  {uf} eleicao {el['codigo']} cargo {cargo}: "
                       f"{ok} arquivos, {gravados} linhas", flush=True)
     return {"arquivos_ok": ok, "arquivos_sem_resposta": falhou,
@@ -254,7 +290,11 @@ def main() -> int:
 
     inicio = time.time()
     db = SessionLocal()
-    db.execute(select(func.set_config("statement_timeout", "0", True)))
+    # is_local=False: vale para a SESSAO. Com True valia so ate o primeiro
+    # commit, e do segundo cargo em diante a varredura rodava sob o timeout do
+    # servidor — uma espera por trava de linha bastava para derrubar a passada.
+    db.execute(select(func.set_config("statement_timeout", "0", False)))
+    db.commit()
     saida: dict = {"quando": datetime.now(timezone.utc).isoformat(), "data": args.data}
 
     if args.candidatos:

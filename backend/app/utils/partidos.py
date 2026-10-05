@@ -120,6 +120,9 @@ def partido_atual(linhas: list[Any]) -> Any | None:
 # corrente ate o partido de hoje.
 _SUCESSOES: dict[int, tuple[int, int]] = {
     # numero antigo: (ultimo ano em que valeu, numero do sucessor)
+    18: (2002, 22),  # PST -> PL (incorporado em 2003); desde 2015 o 18 e da Rede
+    30: (2002, 22),  # PGT -> PL (incorporado em 2003); desde 2015 o 30 e do Novo
+    41: (2002, 14),  # PSD antigo -> PTB (incorporado em 2003)
     26: (2006, 14),  # PAN -> PTB (incorporado em 2006)
     56: (2006, 22),  # PRONA -> PR, hoje PL (fusao em 2006)
     31: (2018, 19),  # PHS -> Podemos (incorporado em 2019)
@@ -132,6 +135,12 @@ _SUCESSOES: dict[int, tuple[int, int]] = {
     90: (2024, 77),  # PROS -> Solidariedade (incorporado em 2023)
     19: (2024, 20),  # Podemos trocou o 19 pelo 20 ao incorporar o PSC (2023)
 }
+
+
+# Numeros que, depois de o dono antigo sair, foram dados a OUTRO partido. Os
+# demais da tabela simplesmente deixaram de existir (17, 19, 26, 31, 41, 51,
+# 54, 56, 90): ninguem os usou de novo.
+_REAPROVEITADOS = frozenset({14, 18, 25, 30, 44})
 
 
 def numero_sucessor(numero: int, ano: int) -> int:
@@ -156,9 +165,17 @@ def trechos_da_linhagem(numero: int) -> list[tuple[int, int | None, int | None]]
     E o que impede a pagina do Missao (14) de exibir a historia do PTB.
     """
     propria = _SUCESSOES.get(numero)
-    trechos: list[tuple[int, int | None, int | None]] = [
-        (numero, propria[0] if propria else None, None),
-    ]
+    if propria is None:
+        proprio = (numero, None, None)
+    elif numero in _REAPROVEITADOS:
+        # O numero trocou de dono: so vale o que veio depois da troca.
+        proprio = (numero, propria[0], None)
+    else:
+        # Partido extinto cujo numero ninguem reusou: a pagina dele mostra a
+        # propria historia, ate o fim. (Antes devolvia "so depois do fim" e a
+        # pagina do PSL, do Patriota ou do PROS vinha vazia.)
+        proprio = (numero, None, propria[0])
+    trechos: list[tuple[int, int | None, int | None]] = [proprio]
     for antigo, (ate, _) in sorted(_SUCESSOES.items()):
         if antigo != numero and numero_sucessor(antigo, ate) == numero:
             trechos.append((antigo, None, ate))

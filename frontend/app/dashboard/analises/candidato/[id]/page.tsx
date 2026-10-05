@@ -43,6 +43,7 @@ import type {
   TsePathToVictory,
 } from "@/lib/types";
 import { classifyResult, OUTCOME_LABEL } from "@/lib/types";
+import { detalhePorMunicipioIncompleto, totalDoCandidato } from "@/lib/votosDoCandidato";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -323,7 +324,7 @@ export default function CandidateDetailPage() {
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div className="rounded-lg border bg-card/60 p-4 text-center">
             <p className="text-3xl font-bold text-primary tabular-nums">
-              <AnimatedNumber value={data.total_votes} />
+              <AnimatedNumber value={totalDoCandidato(data)} />
             </p>
             <p className="text-xs text-muted-foreground">Total de votos</p>
           </div>
@@ -334,6 +335,13 @@ export default function CandidateDetailPage() {
             <p className="text-xs text-muted-foreground">Municípios</p>
           </div>
         </div>
+        {detalhePorMunicipioIncompleto(data) && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {data.results.length === 0
+              ? "O total é o oficial do TSE. O voto por município desta candidatura ainda não foi carregado."
+              : "O total é o oficial do TSE; a lista por município ainda está sendo atualizada e não inclui o voto no exterior."}
+          </p>
+        )}
 
         {/* Perfil rico */}
         <div className="mt-4">

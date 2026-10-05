@@ -352,7 +352,9 @@ export function CensusMap({
       {/* Legenda — tokens do tema (bg-card/border/foreground) pra funcionar no
           claro E no escuro; antes era bg-black/75 com texto branco fixo, que
           destoava no tema claro. */}
-      <div className="absolute bottom-3 right-3 z-[400] rounded-xl bg-card/85 backdrop-blur-md px-3.5 py-2.5 border border-border shadow-xl shadow-black/20 text-[11px] text-foreground">
+      {/* No celular sobe: o seletor de camada ocupa o canto de baixo e, numa
+          tela de 360px, cobria a borda esquerda desta legenda. */}
+      <div className="absolute bottom-24 sm:bottom-3 right-3 z-[400] rounded-xl bg-card/85 backdrop-blur-md px-3.5 py-2.5 border border-border shadow-xl shadow-black/20 text-[11px] text-foreground">
         {(() => {
           // Faixas com o MESMO texto viram uma só. Com poucos valores
           // distintos os quantis colapsam e a legenda repetia a mesma linha

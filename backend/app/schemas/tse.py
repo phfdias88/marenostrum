@@ -222,6 +222,9 @@ class ElectionStatsResponse(BaseModel):
 class PartyPerformanceItem(BaseModel):
     """Desempenho de um partido: votos + eleitos + candidatos."""
     party: PartyRead
+    # Numero, HOJE, do partido a que este pertence (o PTB de 2022 responde 25,
+    # do PRD). As telas de partido somam por ele, nao por party.number.
+    lineage_number: int | None = None
     total_votes: int
     elected_count: int
     candidates_count: int

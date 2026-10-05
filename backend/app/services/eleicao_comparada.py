@@ -311,9 +311,11 @@ def cruzar_vencedores(antes, depois, de: int, para: int) -> dict[str, Any]:
         "municipios": len(pontos),
         "viraram": viraram,
         "mantiveram": len(pontos) - viraram,
-        # Municipios com vencedor em so um dos anos (carga incompleta de um
-        # deles). Fora do mapa, mas contados para o numero nao sumir calado.
-        "sem_comparacao": len(depois) - len(pontos),
+        # Municipios com vencedor em so UM dos anos, de qualquer dos lados
+        # (carga incompleta). Fora do mapa, mas contados para o numero nao sumir
+        # calado: com 2026 carregado so para o RJ, a conta antiga (so o lado
+        # novo) dizia "0 de fora" enquanto 5.478 municipios estavam fora.
+        "sem_comparacao": len(antes) + len(depois) - 2 * len(pontos),
         "transicoes": sorted(
             transicoes.values(), key=lambda t: (-t["municipios"], t["chave"]),
         ),
