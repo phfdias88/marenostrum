@@ -22,10 +22,21 @@ LOG="${LOG:-/tmp/deploy-web.log}"
   rc=$?
   echo "build terminou com codigo $rc"
   if [ "$rc" -eq 0 ]; then
-    docker compose up -d web
+    # --no-deps: troca SO o web. Sem isso o compose confere a saude da API
+    # antes, e um "unhealthy" passageiro dela (o healthcheck estoura com a CPU
+    # do proprio build) deixa o web recriado e PARADO — o site sai do ar.
+    # Aconteceu em 05/10/2026. A API ja esta no ar; nao ha o que esperar dela.
+    docker compose up -d --no-deps web
     rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "up do web falhou (codigo $rc) — tentando de novo em 20s"
+      sleep 20
+      docker compose up -d --no-deps web
+      rc=$?
+    fi
     sleep 12
     docker compose exec -T nginx nginx -s reload
+    docker compose ps -a --format '{{.Name}} {{.Status}}' web
   fi
   echo "FIM rc=$rc $(date '+%F %T')"
 } > "$LOG" 2>&1

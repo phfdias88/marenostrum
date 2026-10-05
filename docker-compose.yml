@@ -99,11 +99,17 @@ services:
     # start_period folgado cobre o `alembic upgrade head` do entrypoint, que
     # roda ANTES do uvicorn — sem ele, o container seria marcado unhealthy
     # durante a migration. Usa python (a imagem slim nao tem curl/wget).
+    #
+    # Prazos FOLGADOS de proposito: o teste sobe um interpretador python dentro
+    # de um container com 0,4 vCPU. Com um build ou uma captura rodando, so
+    # abrir o python passava dos 5s e a API saia como "unhealthy" respondendo
+    # normalmente — e em 05/10/2026 isso fez o `up -d web` recriar o frontend e
+    # se recusar a inicia-lo (o web depende da API saudavel): site fora do ar.
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:8000/api/health\", timeout=3).status==200 else 1)'"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://127.0.0.1:8000/api/health\", timeout=10).status==200 else 1)'"]
       interval: 15s
-      timeout: 5s
-      retries: 5
+      timeout: 25s
+      retries: 8
       start_period: 90s
     env_file:
       - ./backend/.env
