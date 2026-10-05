@@ -114,6 +114,19 @@ def _limpa_cache_de_agregacao():
 
 
 @pytest.fixture(autouse=True)
+def _zera_rate_limit():
+    """O contador do slowapi tambem vive no processo (storage em memoria) e
+    todo request do TestClient sai do mesmo IP: sem zerar, os logins de
+    arquivos diferentes somam na mesma janela de 10/minute e, do 11o em diante,
+    o teste recebe 429 no lugar da resposta que queria checar — e so' quando a
+    suite roda rapido o bastante (CI), o que faz a falha parecer aleatoria.
+    O limite continua LIGADO; so' nao vaza de um teste pro outro."""
+    from app.utils.rate_limit import limiter
+    limiter.reset()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _disable_geocoding(monkeypatch):
     """
     SEMPRE mockado: nenhum teste bate no Nominatim real.
