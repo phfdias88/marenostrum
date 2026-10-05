@@ -58,6 +58,10 @@ import { StateFlag } from "@/components/tse/StateFlag";
 // não tem o módulo liberado, então a seção simplesmente não aparece.
 type CensusArea = { cd_mun: string; nm_mun: string; nome: string; kind: string; uf: string };
 
+// Partido achado na busca. `antiga` = sigla de outra época (DEM, PMDB…) que
+// casou quando nada do partido de hoje casava — a linha mostra "DEM → hoje UNIÃO".
+type PartyHit = { party: TseParty; antiga?: string };
+
 // ------------------------------------------------------------- Páginas do app
 // Lista estática filtrada no cliente (match sem acento). Só rotas visíveis
 // por padrão pra todo usuário do dashboard: as áreas com flag do owner são
@@ -102,6 +106,15 @@ function norm(s: string): string {
     if (cp < 0x300 || cp > 0x36f) out += ch;
   }
   return out.toLowerCase();
+}
+
+/**
+ * Sigla sem acento, espaço nem pontuação: "PT do B" e "ptdob" são o mesmo
+ * partido, e "uniao" tem que achar o UNIÃO. Mesma regra do backend
+ * (normalizar_sigla), para a busca não discordar do que o banco agrupa.
+ */
+function chaveSigla(s: string): string {
+  return norm(s).replace(/[^a-z0-9]/g, "");
 }
 
 // ---------------------------------------------------------------- Recentes
@@ -237,17 +250,42 @@ export function GlobalSearch() {
     api<TseParty[]>("/v1/tse/parties").then(setAllParties).catch(() => {});
   }, []);
 
+  // A lista traz o partido de HOJE; quem digita "DEM", "PMDB" ou "PFL" procura
+  // uma sigla que não existe mais, e ela só casa pelas siglas antigas da
+  // linhagem. Sem isso "dem" devolvia nome parecido e nunca o UNIÃO.
   const parties = useMemo(() => {
-    const t = debounced.trim().toLowerCase();
-    if (t.length < 2) return [];
-    return allParties
-      .filter(
-        (p) =>
-          p.abbreviation.toLowerCase().includes(t) ||
-          p.name.toLowerCase().includes(t) ||
-          String(p.number) === t,
-      )
-      .slice(0, 4);
+    // Nome e número casam pelo termo sem acento (como o filtro de Páginas);
+    // sigla casa pela chave, que ainda ignora espaço e pontuação.
+    const t = norm(debounced.trim());
+    const ts = chaveSigla(t);
+    if (ts.length < 2) return [];
+    const achados: (PartyHit & { ordem: number })[] = [];
+    for (const p of allParties) {
+      const sigla = chaveSigla(p.abbreviation);
+      const antigas = p.former_abbreviations ?? [];
+      const peloAtual =
+        sigla.includes(ts) || norm(p.name).includes(t) || String(p.number) === t;
+      const antigaExata = antigas.find((a) => chaveSigla(a) === ts);
+      const antiga = antigaExata ?? antigas.find((a) => chaveSigla(a).includes(ts));
+      if (!peloAtual && !antiga) continue;
+      achados.push({
+        party: p,
+        // Só avisa da sigla antiga quando foi ELA que achou o partido.
+        antiga: peloAtual ? undefined : antiga,
+        // Sigla atual exata > sigla antiga exata > sigla atual que começa com
+        // o termo > sigla atual que o contém > o resto (nome, sigla antiga
+        // parcial). O corte em 4 vem depois: sem as faixas da sigla atual,
+        // "dem" trazia PDT/MDB/PODE pelo NOME e deixava o DEMOCRATA de fora.
+        ordem:
+          sigla === ts ? 0
+          : antigaExata ? 1
+          : sigla.startsWith(ts) ? 2
+          : sigla.includes(ts) ? 3
+          : 4,
+      });
+    }
+    // sort é estável: dentro de cada faixa vale a ordem que a API devolveu.
+    return achados.sort((a, b) => a.ordem - b.ordem).slice(0, 4);
   }, [allParties, debounced]);
 
   // Páginas do app — filtro estático sem acento, aparece no topo.
@@ -528,7 +566,7 @@ function ResultList({
   pages: PageLink[];
   contacts: Contact[];
   cands: TseCandidate[];
-  parties: TseParty[];
+  parties: PartyHit[];
   munis: TseMunicipality[];
   areas: CensusArea[];
   onGo: (href: string, recent?: { label: string; sub?: string }) => void;
@@ -652,7 +690,7 @@ function ResultList({
           <p className={sectCls}>
             <Building2 className={mobile ? "w-3.5 h-3.5" : "w-3 h-3"} /> Partidos
           </p>
-          {parties.map((p) => (
+          {parties.map(({ party: p, antiga }) => (
             <button
               key={p.id}
               onClick={() =>
@@ -667,7 +705,19 @@ function ResultList({
               <PartyLogo number={p.number} abbreviation={p.abbreviation} size={mobile ? "md" : "sm"} />
               <div className="flex-1 min-w-0">
                 <p className={titleCls}>{p.abbreviation}</p>
-                <p className={subCls}>{p.name}</p>
+                <p className={subCls}>
+                  {/* Quem digitou a sigla antiga precisa ver por que caiu num
+                      partido de outro nome. */}
+                  {antiga && (
+                    <>
+                      <span className="text-primary/80">
+                        {antiga} → hoje {p.abbreviation}
+                      </span>
+                      {" · "}
+                    </>
+                  )}
+                  {p.name}
+                </p>
               </div>
               <span className="text-primary font-mono text-xs shrink-0">
                 {p.number}

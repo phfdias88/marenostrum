@@ -213,14 +213,26 @@ function PartyPerformance({
               // O detalhe abre no partido de HOJE daquela linhagem: clicar no
               // PTB de 2022 leva ao PRD, que é onde a história dele continua —
               // não ao Missão, que só herdou o número 14.
+              //
+              // `i.party` é o partido DA ÉPOCA. Só serve de reserva quando ele
+              // mesmo é o de hoje; abrir o DEM de 2016 por ele punha "DEM" no
+              // cabeçalho de uma lista que segue o número 25 (a linhagem do
+              // PRD). Enquanto a lista de partidos não chega, a linha não abre.
+              const numeroHoje = i.lineage_number ?? i.party.number;
               const party =
-                partyByNumber.get(i.lineage_number ?? i.party.number) ?? i.party;
+                parties === null
+                  ? null
+                  : partyByNumber.get(numeroHoje) ??
+                    (i.party.number === numeroHoje ? i.party : null);
               const pct = (i.elected_count / maxElected) * 100;
               return (
                 <button
                   key={i.party.id}
-                  onClick={() => onSelect(party)}
-                  className="w-full text-left p-3 hover:bg-accent/40 flex items-center gap-3"
+                  onClick={() => party && onSelect(party)}
+                  disabled={!party}
+                  className={`w-full text-left p-3 flex items-center gap-3 ${
+                    party ? "hover:bg-accent/40" : "cursor-default"
+                  }`}
                 >
                   <span className="w-6 text-center text-sm font-bold text-muted-foreground">
                     {idx + 1}
@@ -241,7 +253,11 @@ function PartyPerformance({
                       {numberFmt.format(i.total_votes)} votos · {numberFmt.format(i.candidates_count)} candidatos
                     </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  {/* invisible (não some): a seta guarda o lugar e a barra não
+                      pula de largura quando a lista de partidos chega. */}
+                  <ArrowRight
+                    className={`w-4 h-4 text-muted-foreground shrink-0 ${party ? "" : "invisible"}`}
+                  />
                 </button>
               );
             })}
@@ -310,29 +326,49 @@ function PartyGrid({
       {parties
         .slice()
         .sort((a, b) => a.number - b.number)
-        .map((p) => (
-          <button
-            key={p.id}
-            onClick={() => onSelect(p)}
-            className="text-left rounded-lg border bg-card p-4 hover:border-primary/60 hover:bg-card/80 transition-all hover:-translate-y-0.5"
-          >
-            <div className="flex items-center gap-3">
-              <PartyLogo
-                number={p.number}
-                abbreviation={p.abbreviation}
-                size="md"
-              />
-              <div className="min-w-0">
-                <p className="font-bold">{p.abbreviation}</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {p.name}
-                </p>
+        .map((p) => {
+          const antes = siglasAntigas(p);
+          return (
+            <button
+              key={p.id}
+              onClick={() => onSelect(p)}
+              className="text-left rounded-lg border bg-card p-4 hover:border-primary/60 hover:bg-card/80 transition-all hover:-translate-y-0.5"
+            >
+              <div className="flex items-center gap-3">
+                <PartyLogo
+                  number={p.number}
+                  abbreviation={p.abbreviation}
+                  size="md"
+                />
+                <div className="min-w-0">
+                  <p className="font-bold">{p.abbreviation}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {p.name}
+                  </p>
+                  {/* O card é do partido de HOJE, mas a lista dele reúne as
+                      candidaturas das siglas que vieram antes — quem procura o
+                      DEM precisa achar o UNIÃO. */}
+                  {antes && (
+                    <p className="text-[11px] text-muted-foreground/70 truncate">
+                      antes: {antes}
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
     </div>
   );
+}
+
+const MAX_SIGLAS_ANTIGAS = 4;
+
+/** "DEM, PSL, PFL" — no máximo 4, depois "…". Vazio quando o partido não tem sigla antiga. */
+function siglasAntigas(p: TseParty): string {
+  const antigas = p.former_abbreviations ?? [];
+  const visiveis = antigas.slice(0, MAX_SIGLAS_ANTIGAS).join(", ");
+  return antigas.length > MAX_SIGLAS_ANTIGAS ? `${visiveis}, …` : visiveis;
 }
 
 // ----------------------------------------------------------------- drill-down
@@ -568,7 +604,17 @@ function PartyDrillDown({
               {c.number}
             </span>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold truncate">{c.urn_name}</p>
+              <p className="font-semibold flex items-center gap-2">
+                <span className="truncate">{c.urn_name}</span>
+                {/* A lista segue a LINHAGEM e mistura épocas: quem concorreu
+                    pelo DEM em 2016 aparece sob o UNIÃO. A sigla e o ano da
+                    candidatura dizem por que ele está aqui. */}
+                {c.party.abbreviation !== party.abbreviation && (
+                  <span className="shrink-0 rounded border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">
+                    {c.party.abbreviation} · {c.election.year}
+                  </span>
+                )}
+              </p>
               <p className="text-xs text-muted-foreground truncate">
                 {c.name} · {c.office_name} · {c.state}
                 {c.primary_municipality_name ? ` · ${c.primary_municipality_name}` : ""}

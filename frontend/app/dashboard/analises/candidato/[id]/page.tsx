@@ -339,7 +339,7 @@ export default function CandidateDetailPage() {
           <p className="mt-2 text-xs text-muted-foreground">
             {data.results.length === 0
               ? "O total é o oficial do TSE. O voto por município desta candidatura ainda não foi carregado."
-              : "O total é o oficial do TSE; a lista por município ainda está sendo atualizada e não inclui o voto no exterior."}
+              : "O total é o oficial do TSE. A lista por município pode somar um pouco menos: o arquivo por município do TSE ainda tem algumas seções pendentes."}
           </p>
         )}
 

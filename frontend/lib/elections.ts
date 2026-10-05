@@ -57,6 +57,15 @@ export const VOTOS_NOMINAIS_HINT =
  */
 export const ANO_EM_APURACAO: number | null = 2026;
 
+/**
+ * Eleição municipal (prefeito/vereador) cai em ano múltiplo de 4 — 2000, 2004…
+ * 2024, 2028; a geral, nos pares que sobram. É regra, não lista: a lista fixa
+ * (2016/2020/2024) rotulava 2004, 2008 e 2012 como "Geral".
+ */
+export function ehAnoMunicipal(ano: number): boolean {
+  return ano % 4 === 0;
+}
+
 /** Anos elegíveis pra seletor genérico (mais recente primeiro). */
 export const YEAR_OPTIONS: OfficeOption[] = [
   { value: "2026", label: "2026 (Federal/Estadual)" },

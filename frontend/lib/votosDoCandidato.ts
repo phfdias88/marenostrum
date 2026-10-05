@@ -4,7 +4,8 @@
  * A resposta de /candidates/{id}/results traz DOIS totais, e eles divergem:
  *
  *  - `total_votes` da resposta: soma do voto por município. Só anda quando uma
- *    varredura por município passa, e nunca inclui o exterior.
+ *    varredura por município passa, e fica um pouco abaixo do oficial enquanto
+ *    o arquivo por município do TSE tem seções pendentes (o exterior já entra).
  *  - `candidate.total_votes`: o total oficial do candidato, que na apuração
  *    vem do placar do TSE a cada 2 minutos.
  *

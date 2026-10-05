@@ -25,6 +25,7 @@ import type {
   TseMunicipality,
   TseMunicipalityResults,
 } from "@/lib/types";
+import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { PartyLogo } from "@/components/tse/PartyLogo";
 import { ResultBadge } from "@/components/tse/ResultBadge";
@@ -42,23 +43,45 @@ function useDebounce<T>(v: T, ms: number): T {
   return d;
 }
 
-// Cargos proporcionais — eleitos via QE + D'Hondt (nao majoritarios)
-const OFFICES: { code: string; label: string; year: string }[] = [
+// Cargos proporcionais — eleitos via QE + D'Hondt (nao majoritarios).
+//
+// Cada opção é cargo + eleição-base. Deputado aparece duas vezes (2026 e 2022)
+// com o MESMO código, então o código sozinho não identifica mais a escolha:
+// procurar a opção por ele devolveria sempre a primeira (2026) e a base de
+// 2022 nunca seria usada. Quem identifica é `key` (código:ano) — no select e
+// no estado.
+type OfficeOption = { key: string; code: string; label: string; year: string };
+
+const OFFICES: OfficeOption[] = [
+  // Primeira da lista = a que a página abre.
   { code: "13", label: "Vereador (2024)", year: "2024" },
+  // Deputado: a eleição mais recente vem antes; 2022 segue disponível.
+  { code: "6", label: "Deputado Federal (2026)", year: "2026" },
+  { code: "7", label: "Deputado Estadual (2026)", year: "2026" },
+  { code: "8", label: "Deputado Distrital (2026)", year: "2026" },
   { code: "6", label: "Deputado Federal (2022)", year: "2022" },
   { code: "7", label: "Deputado Estadual (2022)", year: "2022" },
   { code: "8", label: "Deputado Distrital (2022)", year: "2022" },
-];
+].map((o) => ({ ...o, key: `${o.code}:${o.year}` }));
 
 // Estimativa default de cadeiras pra cargo (usuario pode ajustar manual)
 // Constituição Art. 29: vereador varia por populacao (9 a 55).
 // Dep Federal/Estadual: por estado.
+// Por CÓDIGO de cargo de propósito: o nº de cadeiras é do cargo, não do ano.
 const DEFAULT_SEATS: Record<string, number> = {
   "13": 13,    // vereador medio
   "6": 8,      // dep federal min por estado
   "7": 24,     // dep estadual min por estado
   "8": 24,     // dep distrital DF
 };
+
+// Eleitos de verdade na base (situação do TSE): é deles que sai o nº de
+// cadeiras, e é por eles que a tela sabe se o número é real ou só o padrão.
+function contarEleitos(d: TseMunicipalityResults): number {
+  return d.results.filter((r) =>
+    (r.candidate.result_status ?? "").toUpperCase().startsWith("ELEITO"),
+  ).length;
+}
 
 // -------------------------------- D'Hondt
 type PartyAgg = {
@@ -120,9 +143,14 @@ function applyDHondt(parties: PartyAgg[], seats: number, qe: number): DHondtResu
 }
 
 export default function ProjecaoPage() {
-  const [office, setOffice] = useState<string>("13");
-  const [year, setYear] = useState<string>("2024");
-  const [seats, setSeats] = useState<number>(13);
+  // Um estado só para cargo + ano: guardados separados, os dois podiam ficar um
+  // render fora de sincronia (cargo novo com o ano do anterior) e disparar uma
+  // busca do par errado.
+  const [optionKey, setOptionKey] = useState<string>(OFFICES[0].key);
+  const option = OFFICES.find((o) => o.key === optionKey) ?? OFFICES[0];
+  const office = option.code;
+  const year = option.year;
+  const [seats, setSeats] = useState<number>(DEFAULT_SEATS[OFFICES[0].code] ?? 13);
 
   // Busca cidade
   const [muniSearch, setMuniSearch] = useState("");
@@ -138,13 +166,13 @@ export default function ProjecaoPage() {
   // Edicoes "e se" — map party_number -> override de votos
   const [overrides, setOverrides] = useState<Record<number, number>>({});
 
-  // Quando muda cargo, atualiza year e seats default
+  // Quando muda a opção — o cargo OU só o ano-base (deputado 2026 ↔ 2022) —,
+  // volta as cadeiras ao default e descarta o "e se": os votos editados eram
+  // de outra eleição.
   useEffect(() => {
-    const opt = OFFICES.find((o) => o.code === office);
-    if (opt) setYear(opt.year);
     setSeats(DEFAULT_SEATS[office] ?? 13);
     setOverrides({});
-  }, [office]);
+  }, [office, year]);
 
   // Busca cidades conforme digita
   useEffect(() => {
@@ -160,26 +188,35 @@ export default function ProjecaoPage() {
 
   // Carrega top candidatos quando cidade + cargo + ano definidos
   useEffect(() => {
-    if (!selectedMuni) { setResults(null); return; }
+    if (!selectedMuni) { setResults(null); setLoading(false); return; }
     setLoading(true);
     setOverrides({});
+    // Resposta de uma opção anterior (2026 fria, lenta) não pode cair em cima
+    // da atual (2022 em cache, instantânea): o select mostraria uma eleição e
+    // a tabela, o QE e o CSV seriam de outra.
+    let cancelled = false;
     const p = new URLSearchParams({ limit: "500", year, office_code: office });
     api<TseMunicipalityResults>(
       `/v1/tse/municipalities/${selectedMuni.id}/top-candidates?${p.toString()}`,
     )
       .then((d) => {
+        if (cancelled) return;
         setResults(d);
         // Auto-preenche o nº de cadeiras com o total REALMENTE eleito nessa
         // cidade/cargo (ex: BH elege 41 vereadores, não 13). Sem isso, um
         // número genérico distorce o quociente eleitoral e o resultado.
-        const elected = d.results.filter((r) =>
-          (r.candidate.result_status ?? "").toUpperCase().startsWith("ELEITO"),
-        ).length;
-        if (elected > 0) setSeats(elected);
+        // Sem eleito na base (2026 antes de o TSE fechar o cargo) volta ao
+        // padrão: ficar com as cadeiras da cidade anterior seria pior.
+        const elected = contarEleitos(d);
+        setSeats(elected > 0 ? elected : DEFAULT_SEATS[office] ?? 13);
       })
-      .catch(() => setResults(null))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!cancelled) setResults(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedMuni, office, year]);
+
+  // A dica das cadeiras só pode dizer "nº real" quando a base tem eleito.
+  const eleitosNaBase = useMemo(() => (results ? contarEleitos(results) : 0), [results]);
 
   // Agrega por partido + aplica overrides
   const parties: PartyAgg[] = useMemo(() => {
@@ -259,12 +296,12 @@ export default function ProjecaoPage() {
         <div className="md:col-span-3">
           <label className="text-xs uppercase tracking-wider text-muted-foreground">Cargo (proporcional)</label>
           <select
-            value={office}
-            onChange={(e) => setOffice(e.target.value)}
+            value={optionKey}
+            onChange={(e) => setOptionKey(e.target.value)}
             className="w-full mt-1 py-2 px-3 rounded-md bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
           >
             {OFFICES.map((o) => (
-              <option key={o.code} value={o.code}>{o.label}</option>
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
@@ -278,9 +315,11 @@ export default function ProjecaoPage() {
             onChange={(e) => setSeats(Math.max(1, parseInt(e.target.value) || 1))}
             className="w-full mt-1 py-2 px-3 rounded-md bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
-          {results && (
+          {results && !loading && (
             <p className="text-[10px] text-muted-foreground mt-1">
-              Preenchido com o nº real de eleitos na cidade. Edite para simular.
+              {eleitosNaBase > 0
+                ? "Preenchido com o nº real de eleitos na cidade. Edite para simular."
+                : "Sem eleitos nesta base: preenchido com o padrão do cargo. Informe o nº real de cadeiras."}
             </p>
           )}
         </div>
@@ -320,6 +359,10 @@ export default function ProjecaoPage() {
           )}
         </div>
       </section>
+
+      {/* Com 2026 de base a projeção roda sobre voto ainda parcial — mesmo
+          aviso das outras telas; some sozinho quando a apuração fechar. */}
+      <AvisoApuracao year={year} office={office} className="mb-4 -mt-3" />
 
       {/* Dropdown cidades */}
       {!selectedMuni && muniResults.length > 0 && (
@@ -384,7 +427,7 @@ export default function ProjecaoPage() {
                   });
                 });
                 downloadCsv(
-                  `projecao-${selectedMuni.name}-${OFFICES.find((o) => o.code === office)?.label.replace(/[^a-zA-Z0-9]+/g, "-")}-${year}`.toLowerCase(),
+                  `projecao-${selectedMuni.name}-${option.label.replace(/[^a-zA-Z0-9]+/g, "-")}-${year}`.toLowerCase(),
                   [
                     { key: "partido", label: "Partido" },
                     { key: "partido_votos", label: "Votos do partido" },

@@ -606,7 +606,7 @@ function CandidateDetail({
             <p className="text-xs text-muted-foreground">
               {details.results.length === 0
                 ? "Voto por município ainda não carregado para esta candidatura."
-                : "O total é o oficial do TSE; a lista por município ainda está sendo atualizada e não inclui o voto no exterior."}
+                : "O total é o oficial do TSE. A lista por município pode somar um pouco menos: o arquivo por município do TSE ainda tem algumas seções pendentes."}
             </p>
           )}
 

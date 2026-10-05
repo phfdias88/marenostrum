@@ -145,7 +145,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/virada",
     label: "Mapa da virada",
     icon: Repeat2,
-    description: "Onde o partido mais votado mudou de 2022 para 2026, cidade por cidade.",
+    description: "Onde o partido mais votado mudou de 2022 para 2026, cidade por cidade. Senador compara com 2018.",
     group: "Explorar",
   },
   {
@@ -216,7 +216,7 @@ const CARDS: Card[] = [
     href: "/dashboard/analises/projecao",
     label: "Projeção eleitoral",
     icon: Calculator,
-    description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base nas eleições de 2022 e 2024. Modo 'e se' com edição de votos por partido.",
+    description: "Simule quantas cadeiras cada partido elegeria (vereador/deputado) com base nas eleições de 2022, 2024 e 2026. Modo 'e se' com edição de votos por partido.",
     group: "Ferramentas de campanha",
   },
   {

@@ -220,6 +220,8 @@ export type TseParty = {
   number: number;
   abbreviation: string;
   name: string;
+  /** Siglas de outras épocas da mesma linhagem, da mais recente para a mais antiga (44/UNIÃO → DEM, PSL, PFL). Só vem em /tse/parties. */
+  former_abbreviations?: string[];
 };
 
 export type TseElection = {

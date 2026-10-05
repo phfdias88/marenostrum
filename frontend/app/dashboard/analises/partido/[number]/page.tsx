@@ -19,7 +19,7 @@ import type {
   TseTopCandidatesResponse,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
-import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT } from "@/lib/elections";
+import { ANO_EM_APURACAO, VOTOS_NOMINAIS_HINT, ehAnoMunicipal } from "@/lib/elections";
 import { somarPorLinhagem } from "@/lib/partidos";
 import { partyTheme } from "@/lib/partyColors";
 import { VoteBar } from "@/components/ui/VoteBar";
@@ -34,6 +34,13 @@ import { EmptyState } from "@/components/tse/EmptyState";
 import { AvisoApuracao } from "@/components/tse/AvisoApuracao";
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
+// "DEM, PSL e PFL" — enumeração em português, com "e" antes do último. Na mão,
+// e não com Intl.ListFormat: navegador antigo (Safari < 14.1) não tem a API e,
+// criada no escopo do módulo, a falta dela derrubava a página inteira.
+function listaPt(itens: string[]): string {
+  if (itens.length <= 1) return itens.join("");
+  return `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
+}
 
 const _MUNI = [
   { value: "11", label: "Prefeito" },
@@ -231,6 +238,13 @@ export default function PartyDetailPage() {
             </p>
             <h1 className="text-2xl font-bold">{party?.abbreviation ?? "…"}</h1>
             <p className="text-sm text-muted-foreground">{party?.name ?? ""}</p>
+            {/* A página soma a LINHAGEM: sem este aviso, eleitos de 2016 sob
+                um partido criado em 2022 parecem erro de dado. */}
+            {party?.former_abbreviations && party.former_abbreviations.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Reúne também as candidaturas de {listaPt(party.former_abbreviations)}.
+              </p>
+            )}
           </div>
         </div>
 
@@ -365,7 +379,15 @@ export default function PartyDetailPage() {
                       </p>
                       <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                         <StateFlag uf={r.candidate.state} size="sm" />
-                        {r.candidate.office_name} · {r.candidate.number}
+                        {r.candidate.office_name}
+                        {/* O ranking segue a linhagem: em 2016 o candidato do
+                            UNIÃO concorreu pelo DEM, e é essa a sigla que vale
+                            para ele. Só aparece quando difere do cabeçalho. */}
+                        {party && r.candidate.party.abbreviation !== party.abbreviation
+                          ? ` · ${r.candidate.party.abbreviation}`
+                          : ""}
+                        {" · "}
+                        {r.candidate.number}
                       </p>
                       <VoteBar
                         value={r.total_votes}
@@ -449,7 +471,9 @@ function Select({
 function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
   const fmt = new Intl.NumberFormat("pt-BR");
   const maxElected = Math.max(1, ...evolution.items.map((i) => i.elected_count));
-  const isMuni = (y: number) => [2024, 2020, 2016].includes(y);
+  // A evolução vai além de 2016: com uma lista fixa de anos municipais,
+  // 2004/2008/2012 saíam como "Geral" e entravam na tendência do tipo errado.
+  const isMuni = ehAnoMunicipal;
   const first = evolution.items[0];
   const last = evolution.items[evolution.items.length - 1];
 
@@ -473,7 +497,7 @@ function PartyEvolution({ evolution }: { evolution: TsePartyEvolution }) {
       </p>
       <div className="rounded-lg border bg-card p-4 space-y-2.5">
         {evolution.items.map((it) => {
-          const muni = [2024, 2020, 2016].includes(it.year);
+          const muni = isMuni(it.year);
           return (
             <div key={it.year}>
               <div className="flex items-center justify-between gap-2 text-sm mb-0.5">

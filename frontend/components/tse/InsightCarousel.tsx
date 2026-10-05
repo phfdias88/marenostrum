@@ -117,7 +117,9 @@ export function InsightCarousel() {
           metric: { value: it.elected_count, label: "prefeitos eleitos" },
           cta: {
             label: "Ver partido",
-            href: `/dashboard/analises/partido/${it.party.number}`,
+            // A página do partido é endereçada pelo número de HOJE da linhagem;
+            // o número do item é o da época e pode ter mudado de dono.
+            href: `/dashboard/analises/partido/${it.lineage_number ?? it.party.number}`,
           },
           icon: TrendingUp,
           tone: "emerald",
