@@ -229,6 +229,42 @@ def test_transicoes_vem_da_maior_para_a_menor():
     ]
 
 
+def test_rotulo_do_grupo_junta_as_siglas_que_se_fundiram():
+    """PSL (17) e DEM (25) de 2018 sao o Uniao (44) de hoje: caem no mesmo
+    grupo. O rotulo era o da primeira linha lida — dizia "DEM → PL" para um
+    grupo com gente do PSL, e mudava com a ordem das linhas."""
+    antes = [_venc("a", 25, "DEM"), _venc("b", 17, "PSL"), _venc("c", 17, "PSL"),
+             _venc("d", 17, "PSL")]
+    depois = [_venc("a", 22, "PL"), _venc("b", 22, "PL"), _venc("c", 22, "PL"),
+              _venc("d", 44, "UNIÃO")]
+
+    for ordem in (antes, antes[::-1]):
+        r = cruzar_vencedores(ordem, depois, 2018, 2026)
+        rotulos = {t["chave"]: (t["de"]["sigla"], t["para"]["sigla"]) for t in r["transicoes"]}
+        # A sigla com mais municipios vem primeiro; a ordem das linhas nao muda nada.
+        assert rotulos["44>22"] == ("PSL/DEM", "PL")
+        # Quem manteve leva o nome de hoje, nao o do partido extinto.
+        assert rotulos["44>44"] == ("UNIÃO", "UNIÃO")
+        assert all("_de" not in t and "_para" not in t for t in r["transicoes"])
+
+
+def test_rotulo_da_virada_e_o_da_epoca_de_cada_lado():
+    """O mapa materializado guarda a sigla de HOJE do numero. Em 2018 o 25 era
+    o DEM e o 44 era o PRP: sem corrigir, a tela dizia "PRD → PL" e "UNIÃO → PL"."""
+    r = cruzar_vencedores(
+        [_venc("a", 25, "PRD"), _venc("b", 44, "UNIÃO"), _venc("c", 22, "PL")],
+        [_venc("a", 22, "PL"), _venc("b", 22, "PL"), _venc("c", 22, "PL")],
+        2018, 2026,
+    )
+    rotulos = {t["chave"]: t["de"]["sigla"] for t in r["transicoes"]}
+    assert rotulos["44>22"] == "DEM"          # o DEM de 2018 e do Uniao (44) hoje
+    assert rotulos["25>22"] == "PRP"          # o PRP de 2018 foi parar no PRD (25)
+    # 22 era "PR" em 2018 e e "PL" hoje: manteve, e leva o nome de hoje.
+    assert rotulos["22>22"] == "PL"
+    antes = {p["municipality_id"]: p["antes"]["party_abbreviation"] for p in r["pontos"]}
+    assert antes == {"a": "DEM", "b": "PRP", "c": "PR"}
+
+
 def test_virada_recusa_anos_invertidos(client, tenant_a):
     _, _, token = tenant_a
     r = client.get(

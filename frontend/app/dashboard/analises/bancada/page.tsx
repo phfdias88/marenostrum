@@ -4,7 +4,9 @@
  * Bancada por partido: quem já está no mandato e quem está entrando agora.
  *
  * Senado: a casa renova em partes, então há dois grupos de verdade — os
- * senadores eleitos em 2022 (seguem até 2031) e os eleitos em 2026.
+ * senadores que seguem no mandato até 2031 e os eleitos em 2026. Quem segue
+ * vem da lista de senadores em exercício do próprio Senado (partido de hoje,
+ * suplente que assumiu); sem ela, de quem o TSE deu como eleito em 2022.
  * Câmara: todo mundo é trocado; o mesmo quadro vira "bancada de 2022 x 2026".
  *
  * A REGRA QUE NÃO PODE QUEBRAR: quem só está À FRENTE numa UF que o TSE ainda
@@ -93,6 +95,8 @@ export default function BancadaPage() {
   }, [pendentes, carregar]);
 
   const destaque = sobMouse ?? fixado;
+  // Com a lista do Senado, "no mandato" é quem está lá hoje — não "os de 2022".
+  const doSenado = data?.fonte_do_mandato === "senado";
   const soma = data?.modo === "soma";
 
   // As cadeiras entram no desenho na ordem da tabela, para a fatia de cada
@@ -103,18 +107,24 @@ export default function BancadaPage() {
     const porPartido = (a: TseBancadaCadeira, b: TseBancadaCadeira) =>
       (ordem.get(a.numero) ?? 99) - (ordem.get(b.numero) ?? 99);
 
+    // Quem ocupa a cadeira pode ser o suplente: só a lista do Senado sabe.
+    const noMandato = (c: TseBancadaCadeira) => {
+      if (data.modo !== "soma") return `eleito em ${data.ano_anterior}`;
+      if (data.fonte_do_mandato !== "senado") {
+        return `no mandato, eleito em ${data.ano_anterior}`;
+      }
+      const suplente =
+        c.papel && c.papel !== "Titular" ? `, ${c.papel.toLowerCase()} em exercício` : "";
+      return `no mandato até ${data.mandato_ate}${suplente}`;
+    };
+
     const antes = data.cadeiras
       .filter((c) => c.situacao === "antes")
       .sort((a, b) => porPartido(a, b) || b.votos - a.votos)
       .map<Assento>((c) => ({
         partido: c.numero,
         estado: "firme",
-        titulo: titulo(
-          c,
-          data.modo === "soma"
-            ? `no mandato, eleito em ${data.ano_anterior}`
-            : `eleito em ${data.ano_anterior}`,
-        ),
+        titulo: titulo(c, noMandato(c)),
       }));
 
     // Dentro da fatia do partido, primeiro os eleitos (cheios) e depois quem
@@ -255,7 +265,11 @@ export default function BancadaPage() {
                     destaque={destaque}
                     onPassar={setSobMouse}
                     onClicar={(n) => setFixado((f) => (f === n ? null : n))}
-                    rotulo={`${esquerda.length} cadeiras de ${data.ano_anterior}`}
+                    rotulo={
+                      doSenado
+                        ? `${esquerda.length} senadores no mandato até ${data.mandato_ate}`
+                        : `${esquerda.length} cadeiras de ${data.ano_anterior}`
+                    }
                     className="w-full h-auto text-foreground"
                   />
                   <figcaption className="mt-3 text-center">
@@ -264,7 +278,11 @@ export default function BancadaPage() {
                     </p>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {numberFmt.format(data.antes)}{" "}
-                      {soma ? `· eleitos em ${data.ano_anterior}` : "deputados"}
+                      {!soma
+                        ? "deputados"
+                        : doSenado
+                          ? `· em exercício, até ${data.mandato_ate}`
+                          : `· eleitos em ${data.ano_anterior}`}
                     </p>
                   </figcaption>
                 </figure>

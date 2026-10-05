@@ -7,9 +7,10 @@
  * O mapa partidário mostra quem ganhou. Este mostra o que MUDOU — que é a
  * pergunta de quem planeja a próxima campanha: onde o terreno se moveu.
  *
- * Só Presidente e Governador. Senador fica de fora de propósito: as cadeiras
- * em disputa em 2026 são as de 2018, não as de 2022, então comparar com 2022
- * seria comparar eleições de vagas diferentes.
+ * Cada cargo compara com a última eleição das MESMAS vagas. Presidente e
+ * governador, com 2022. Senador, com 2018: as duas cadeiras por UF em disputa
+ * em 2026 são as de 2018 — em 2022 a eleição foi da outra, de uma vaga só, e
+ * comparar com ela seria comparar disputas diferentes.
  */
 import { ArrowLeft, ArrowRight, Loader2, Repeat2, X } from "lucide-react";
 import Link from "next/link";
@@ -37,12 +38,12 @@ const pctFmt = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 1,
 });
 
-const DE = 2022;
 const PARA = 2026;
 
 const OPTIONS = [
-  { value: "1", label: "Presidente" },
-  { value: "3", label: "Governador" },
+  { value: "1", label: "Presidente", de: 2022 },
+  { value: "3", label: "Governador", de: 2022 },
+  { value: "5", label: "Senador", de: 2018 },
 ];
 
 // Mesmos atalhos do mapa partidário.
@@ -73,13 +74,18 @@ export default function ViradaPage() {
     { lat: number; lng: number; zoom: number; key: number } | null
   >(null);
 
+  const opcao = OPTIONS.find((o) => o.value === cargo) ?? OPTIONS[0];
+  const de = opcao.de;
+
   useEffect(() => {
     let vivo = true;
     setLoading(true);
     setErro(false);
     setFiltro(null);
+    // Sem isto, ao trocar de cargo o mapa antigo ficaria sob o título novo.
+    setData(null);
     api<TseViradaResponse>(
-      `/v1/tse/stats/virada?office_code=${cargo}&from_year=${DE}&to_year=${PARA}`,
+      `/v1/tse/stats/virada?office_code=${cargo}&from_year=${de}&to_year=${PARA}`,
     )
       .then((d) => vivo && setData(d))
       .catch(() => {
@@ -91,7 +97,7 @@ export default function ViradaPage() {
     return () => {
       vivo = false;
     };
-  }, [cargo]);
+  }, [cargo, de]);
 
   const viradas = useMemo(
     () => (data ? data.transicoes.filter((t) => t.virou).slice(0, 10) : []),
@@ -106,7 +112,7 @@ export default function ViradaPage() {
     setFiltro((atual) => (mesmoFiltro(atual, f) ? null : f));
   }
 
-  const cargoNome = OPTIONS.find((o) => o.value === cargo)?.label ?? "";
+  const cargoNome = opcao.label;
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
@@ -124,11 +130,13 @@ export default function ViradaPage() {
           </span>
           <div>
             <h1 className="text-2xl font-bold">
-              Mapa da virada · {DE} → {PARA}
+              Mapa da virada · {de} → {PARA}
             </h1>
             <p className="text-sm text-muted-foreground">
               Onde o partido mais votado para {cargoNome.toLowerCase()} mudou de
               uma eleição para a outra. 1º turno dos dois lados.
+              {cargo === "5" &&
+                " Senador compara com 2018, a última vez em que estas mesmas duas vagas por UF foram disputadas; vale o candidato mais votado em cada município."}
             </p>
           </div>
         </div>
@@ -280,7 +288,8 @@ export default function ViradaPage() {
 
             <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
               Clique numa linha para ver só esses municípios no mapa. Partido que
-              se fundiu conta como o sucessor (PTB e Patriota → PRD).
+              se fundiu conta como o sucessor (
+              {de < 2022 ? "PSL e DEM → União; " : ""}PTB e Patriota → PRD).
               {data && data.sem_comparacao > 0 && (
                 <>
                   {" "}

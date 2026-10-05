@@ -7,11 +7,13 @@ entao o mesmo quadro vira "bancada eleita ha quatro anos x eleita agora".
 
 Tres limites do dado, todos ditos na resposta em vez de escondidos:
 
-  * O PARTIDO E O DA ELEICAO. O TSE nao publica troca de partido durante o
-    mandato, nem suplente que assumiu. "No mandato" e quem foi ELEITO ha quatro
-    anos, pelo partido de entao (levado ao sucessor legal, quando houve fusao).
-    Por isso o numero pode diferir do que a imprensa mostra, que usa a filiacao
-    de hoje.
+  * QUEM ESTA NO MANDATO VEM DO SENADO, QUANDO HA. O TSE nao publica troca de
+    partido durante o mandato, nem suplente que assumiu. Para a eleicao mais
+    recente, "no mandato" e a lista de senadores em exercicio do proprio
+    Senado, pela filiacao de hoje (`fonte_do_mandato = "senado"`). Sem essa
+    lista, ou para eleicao antiga, cai em quem foi ELEITO ha quatro anos, pelo
+    partido de entao levado ao sucessor legal (`"tse"`) — e ai o numero pode
+    diferir do que a imprensa mostra.
   * ELEITO E SO QUEM O TSE PROCLAMOU. Na noite da apuracao a situacao chega UF
     por UF. Onde ainda nao chegou, os mais votados entram como "a frente" —
     separados dos eleitos, nunca somados a eles como se fossem oficiais.
@@ -25,19 +27,21 @@ memoria — o cruzamento direto em tse_vote_results custaria minutos.
 """
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
+from types import SimpleNamespace
 from typing import Any
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.errors import DomainError
 from app.models.tse.candidate import Candidate
 from app.models.tse.election import Election
 from app.models.tse.party import Party
+from app.services import senado as senado_federal
 from app.utils.agg_cache import cached_agg
-from app.utils.partidos import numero_sucessor
+from app.utils.partidos import normalizar_sigla, numero_sucessor, sigla_no_ano
 
 log = structlog.get_logger("marenostrum.services.eleicao_comparada")
 
@@ -79,9 +83,14 @@ def get_bancada(db: Session, *, ano: int, cargo: int) -> dict[str, Any]:
         raise DomainError(
             "Bancada existe para senador (5) e deputado federal (6)."
         )
-    return cached_agg(
-        f"bancada:{ano}:{cargo}", lambda: _calcular_bancada(db, ano, cargo),
-    )
+    chave = f"bancada:{ano}:{cargo}"
+    if cargo == SENADOR:
+        # A lista do Senado e carregada por um script, fora deste processo: sem
+        # a versao dela na chave, a tela seguia ate 4h com a filiacao da carga
+        # anterior (ou com os eleitos de 2022, se a primeira visita veio antes
+        # da primeira carga). O ano continua na chave para a limpeza da apuracao.
+        chave += f":{senado_federal.versao_da_lista(db)}"
+    return cached_agg(chave, lambda: _calcular_bancada(db, ano, cargo))
 
 
 def _candidatos(db: Session, ano: int, cargo: int):
@@ -97,12 +106,76 @@ def _candidatos(db: Session, ano: int, cargo: int):
     ).all()
 
 
+# Senador sem partido: linha propria, fora da numeracao do TSE.
+_SEM_PARTIDO = 0
+
+
+def _em_exercicio(db: Session, ano: int, do_ano) -> list[SimpleNamespace]:
+    """Senadores no mandato segundo o Senado, no formato das linhas do TSE.
+
+    Vazio quando o retrato nao serve: tabela sem carga, ou `ano` que nao e a
+    eleicao mais recente — a lista e de HOJE, e pinta-la sobre 2022 misturaria
+    a filiacao de agora com os eleitos de entao.
+    """
+    mais_recente = db.execute(
+        select(func.max(Election.year)).where(Election.year % 4 == ano % 4)
+    ).scalar()
+    if mais_recente != ano:
+        return []
+    membros = senado_federal.no_mandato(db, ano)
+    if not membros:
+        return []
+
+    # O Senado da a SIGLA; a tela soma por NUMERO. A sigla sozinha e ambigua
+    # na nossa tabela (PSD foi 41 e e 55; PODE foi 19 e e 20), entao o numero
+    # vem de quem concorre no ano — primeiro para senador, depois qualquer cargo.
+    numero_de: dict[str, tuple[int, str]] = {}
+    for r in do_ano:
+        numero_de.setdefault(normalizar_sigla(r.abbreviation), (r.number, r.abbreviation))
+    if any(normalizar_sigla(m.party_abbr) not in numero_de for m in membros):
+        for numero, sigla in db.execute(
+            select(Party.number, Party.abbreviation)
+            .join(Candidate, Candidate.party_id == Party.id)
+            .join(Election, Election.id == Candidate.election_id)
+            .where(Election.year == ano)
+            .distinct()
+        ).all():
+            numero_de.setdefault(normalizar_sigla(sigla), (numero, sigla))
+
+    linhas: list[SimpleNamespace] = []
+    fora_do_tse: dict[str, int] = {}
+    for m in membros:
+        chave = normalizar_sigla(m.party_abbr)
+        if chave in numero_de:
+            numero, sigla = numero_de[chave]
+        elif chave in ("SPARTIDO", "SEMPARTIDO", ""):
+            numero, sigla = _SEM_PARTIDO, "Sem partido"
+        else:
+            # Legenda que o Senado cita e nao concorreu no ano: linha propria,
+            # com numero negativo para nao colidir com nenhum partido do TSE.
+            numero = fora_do_tse.setdefault(chave, -(len(fora_do_tse) + 1))
+            sigla = m.party_abbr
+        linhas.append(SimpleNamespace(
+            state=m.state, urn_name=m.name, total_votes=0, result_status=None,
+            number=numero, abbreviation=sigla, papel=m.role,
+        ))
+    return linhas
+
+
 def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
     anterior = ano - _INTERVALO
     senado = cargo == SENADOR
 
     do_ano = _candidatos(db, ano, cargo)
-    de_antes = [r for r in _candidatos(db, anterior, cargo) if _eleito(r.result_status)]
+    em_exercicio = _em_exercicio(db, ano, do_ano) if senado else []
+    if em_exercicio:
+        # Ja vem com o numero de hoje: nada de levar ao sucessor de 2022.
+        de_antes, ano_de_antes = em_exercicio, ano
+    else:
+        de_antes = [
+            r for r in _candidatos(db, anterior, cargo) if _eleito(r.result_status)
+        ]
+        ano_de_antes = anterior
 
     por_uf: dict[str, list] = defaultdict(list)
     for r in do_ano:
@@ -153,7 +226,7 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
     # PSC em 2022 esta hoje na bancada do Podemos, que o incorporou.
     sigla_de: dict[int, str] = {}
     for r in de_antes:
-        sigla_de.setdefault(numero_sucessor(r.number, anterior), r.abbreviation)
+        sigla_de.setdefault(numero_sucessor(r.number, ano_de_antes), r.abbreviation)
     for r in do_ano:
         sigla_de[numero_sucessor(r.number, ano)] = r.abbreviation
 
@@ -172,9 +245,12 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
                 "uf": r.state, "nome": r.urn_name, "numero": numero,
                 "sigla": sigla_de[numero], "situacao": campo,
                 "votos": int(r.total_votes or 0),
+                # So o retrato do Senado sabe se quem ocupa a cadeira e o
+                # titular ou o suplente; nas linhas do TSE fica vazio.
+                "papel": getattr(r, "papel", None),
             })
 
-    _contar(de_antes, anterior, "antes")
+    _contar(de_antes, ano_de_antes, "antes")
     _contar(eleitos, ano, "eleitos")
     _contar(a_frente, ano, "a_frente")
 
@@ -189,14 +265,32 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
         key=lambda p: (-p["total"], -p["eleitos"], -p["antes"], p["sigla"]),
     )
 
+    fonte_do_mandato = mandato_ate = mandato_atualizado_em = None
     if senado:
-        observacao = (
-            f"'No mandato' são os senadores eleitos em {anterior}, pelo partido "
-            "daquela eleição: o TSE não publica troca de partido durante o "
-            "mandato nem suplente que assumiu, então o número pode diferir do "
-            "que usa a filiação de hoje. 'À frente' são os mais votados nas UFs "
-            "onde o TSE ainda não proclamou o resultado — não são eleitos."
+        mandato_ate = senado_federal.fim_do_mandato_de_quem_fica(ano)
+        a_frente_txt = (
+            " 'À frente' são os mais votados nas UFs onde o TSE ainda não "
+            "proclamou o resultado — não são eleitos."
         )
+        if em_exercicio:
+            fonte_do_mandato = "senado"
+            carga = senado_federal.atualizado_em(db)
+            mandato_atualizado_em = carga.isoformat() if carga else None
+            quando = f" (lista de {carga:%d/%m/%Y})" if carga else ""
+            observacao = (
+                f"'No mandato' são os senadores em exercício com mandato até "
+                f"{mandato_ate}, pela filiação de hoje segundo o Senado "
+                f"Federal{quando}: já considera troca de partido e suplente "
+                "que assumiu a cadeira." + a_frente_txt
+            )
+        else:
+            fonte_do_mandato = "tse"
+            observacao = (
+                f"'No mandato' são os senadores eleitos em {anterior}, pelo "
+                "partido daquela eleição: o TSE não publica troca de partido "
+                "durante o mandato nem suplente que assumiu, então o número "
+                "pode diferir do que usa a filiação de hoje." + a_frente_txt
+            )
     else:
         observacao = (
             f"A Câmara é renovada por inteiro: a coluna de {anterior} é a "
@@ -213,6 +307,7 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
     log.info(
         "bancada_pronta", ano=ano, cargo=cargo, antes=len(de_antes),
         eleitos=len(eleitos), a_frente=len(a_frente), pendentes=len(ufs_pendentes),
+        fonte_do_mandato=fonte_do_mandato,
     )
     return {
         "ano": ano,
@@ -227,6 +322,11 @@ def _calcular_bancada(db: Session, ano: int, cargo: int) -> dict[str, Any]:
         "a_frente": len(a_frente),
         "ufs": len(por_uf),
         "ufs_pendentes": ufs_pendentes,
+        # De onde vem "no mandato": "senado" (em exercicio, partido de hoje),
+        # "tse" (eleitos ha 4 anos, partido de entao) ou nada, na Camara.
+        "fonte_do_mandato": fonte_do_mandato,
+        "mandato_ate": mandato_ate,
+        "mandato_atualizado_em": mandato_atualizado_em,
         "observacao": observacao,
         "partidos": lista,
         "cadeiras": cadeiras,
@@ -280,15 +380,22 @@ def cruzar_vencedores(antes, depois, de: int, para: int) -> dict[str, Any]:
             continue
         num_a = numero_sucessor(int(a["party_number"]), de)
         num_d = numero_sucessor(int(r["party_number"]), para)
+        # O mapa materializado guarda a sigla de HOJE do numero: o DEM de 2018
+        # vinha como "PRD". O rotulo e o da epoca de cada lado.
+        sigla_a = sigla_no_ano(int(a["party_number"]), de, a["party_abbr"])
+        sigla_d = sigla_no_ano(int(r["party_number"]), para, r["party_abbr"])
         virou = num_a != num_d
         viraram += virou
         chave = f"{num_a}>{num_d}"
         t = transicoes.setdefault(chave, {
             "chave": chave, "virou": virou, "municipios": 0,
-            "de": {"numero": num_a, "sigla": a["party_abbr"]},
-            "para": {"numero": num_d, "sigla": r["party_abbr"]},
+            "de": {"numero": num_a, "sigla": ""},
+            "para": {"numero": num_d, "sigla": ""},
+            "_de": Counter(), "_para": Counter(),
         })
         t["municipios"] += 1
+        t["_de"][sigla_a] += 1
+        t["_para"][sigla_d] += 1
         pontos.append({
             "municipality_id": mid,
             "name": r["municipality"],
@@ -298,14 +405,28 @@ def cruzar_vencedores(antes, depois, de: int, para: int) -> dict[str, Any]:
             "transicao": chave,
             "virou": virou,
             "antes": {
-                "party_number": num_a, "party_abbreviation": a["party_abbr"],
+                "party_number": num_a, "party_abbreviation": sigla_a,
                 "winner_name": a["urn_name"], "votes": int(a["votes"]),
             },
             "depois": {
-                "party_number": num_d, "party_abbreviation": r["party_abbr"],
+                "party_number": num_d, "party_abbreviation": sigla_d,
                 "winner_name": r["urn_name"], "votes": int(r["votes"]),
             },
         })
+
+    # O grupo e por SUCESSOR, entao pode juntar mais de uma sigla antiga (PSL e
+    # DEM de 2018 caem os dois no 44). Rotular pela primeira linha lida dizia
+    # "DEM → PL · 5" para um grupo com 3 do DEM e 2 do PSL — e qual das duas
+    # aparecia dependia da ordem em que o banco devolveu as linhas.
+    def _rotulo(siglas: Counter) -> str:
+        return "/".join(s for s, _ in sorted(siglas.items(), key=lambda x: (-x[1], x[0])))
+
+    for t in transicoes.values():
+        t["para"]["sigla"] = _rotulo(t.pop("_para"))
+        de = _rotulo(t.pop("_de"))
+        # Quem manteve aparece numa linha so, com um nome so: o de chegada. O
+        # municipio que era PSL e hoje e Uniao "manteve o Uniao", nao "o PSL".
+        t["de"]["sigla"] = de if t["virou"] else t["para"]["sigla"]
 
     return {
         "municipios": len(pontos),

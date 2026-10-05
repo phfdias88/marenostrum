@@ -353,3 +353,24 @@ def test_partido_renomeado_mantem_a_historia_inteira(client, tenant_a, db_sessio
     assert r.status_code == 200, r.text
     assert r.json()["party"]["abbreviation"] == "DEMOCRATA"
     assert [i["year"] for i in r.json()["items"]] == [2024, 2026]
+
+
+# ------------------------------------------------------- sigla de cada epoca
+
+def test_sigla_no_ano_devolve_o_nome_que_o_numero_tinha():
+    from app.utils.partidos import sigla_no_ano
+
+    # 25: PFL, depois DEM, hoje PRD.
+    assert [sigla_no_ano(25, a, "PRD") for a in (2002, 2006, 2010, 2018, 2020, 2024, 2026)] == [
+        "PFL", "PFL", "DEM", "DEM", "DEM", "PRD", "PRD",
+    ]
+    # 22: PL, virou PR e voltou a ser PL — a epoca do meio nao pode sumir.
+    assert [sigla_no_ano(22, a, "PL") for a in (2006, 2010, 2018, 2022)] == [
+        "PL", "PR", "PR", "PL",
+    ]
+    # 44 era PRP ate 2018; o Uniao so existe depois.
+    assert (sigla_no_ano(44, 2018, "UNIÃO"), sigla_no_ano(44, 2022, "UNIÃO")) == ("PRP", "UNIÃO")
+    # Numero sem troca de nome: vale o que esta no banco.
+    assert sigla_no_ano(13, 2002, "PT") == "PT"
+    # 14 e 35 ja tem linha por epoca no banco: a tabela nao mexe.
+    assert sigla_no_ano(14, 2018, "PTB") == "PTB"

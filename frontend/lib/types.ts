@@ -808,6 +808,8 @@ export type TseBancadaCadeira = {
   sigla: string;
   situacao: TseBancadaSituacao;
   votos: number;
+  /** "Titular", "1º Suplente"… Só vem quando a fonte do mandato é o Senado. */
+  papel?: string | null;
 };
 
 export type TseBancadaResponse = {
@@ -824,6 +826,15 @@ export type TseBancadaResponse = {
   a_frente: number;
   ufs: number;
   ufs_pendentes: string[];
+  /**
+   * De onde vem "no mandato" no Senado: "senado" = em exercício, pela filiação
+   * de hoje; "tse" = eleitos há 4 anos, pelo partido de então. Câmara: null.
+   */
+  fonte_do_mandato: "senado" | "tse" | null;
+  /** Ano em que termina o mandato de quem fica (Senado). */
+  mandato_ate: number | null;
+  /** Dia (ISO) da lista do Senado usada, quando a fonte é "senado". */
+  mandato_atualizado_em: string | null;
   observacao: string;
   partidos: TseBancadaPartido[];
   cadeiras: TseBancadaCadeira[];

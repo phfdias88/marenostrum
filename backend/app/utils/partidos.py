@@ -180,3 +180,44 @@ def trechos_da_linhagem(numero: int) -> list[tuple[int, int | None, int | None]]
         if antigo != numero and numero_sucessor(antigo, ate) == numero:
             trechos.append((antigo, None, ate))
     return trechos
+
+
+# ------------------------------------------------------- sigla de cada epoca
+#
+# Sigla com que cada numero concorreu ATE certo ano. As linhas de `tse_parties`
+# ainda guardam so o nome de hoje para a maior parte dos numeros (25 = "PRD",
+# 44 = "UNIÃO"), entao um mapa de 2018 pintava o DEM como "PRD" e o PRP como
+# "UNIÃO". Enquanto as epocas nao viram linhas no banco, quem mostra partido de
+# ano antigo corrige o ROTULO por aqui. So o rotulo: as somas continuam por
+# numero e por `numero_sucessor`.
+#
+# Fonte: consulta_coligacao do TSE, 2002 a 2024, eleicao ordinaria (uma sigla
+# por numero e ano). 14 (PTB -> MISSAO) e 35 (PMB -> DEMOCRATA) nao estao aqui
+# porque ja tem linha propria no banco. Quando as epocas forem criadas la,
+# esta tabela e a semente delas.
+_SIGLA_ATE: dict[int, tuple[tuple[int, str], ...]] = {
+    10: ((2018, "PRB"),),                  # REPUBLICANOS desde 2019
+    11: ((2002, "PPB"),),                  # PP desde 2003
+    15: ((2016, "PMDB"),),                 # MDB desde 2018
+    18: ((2002, "PST"),),                  # REDE desde 2015
+    19: ((2016, "PTN"),),                  # PODE de 2017 a 2022
+    20: ((2022, "PSC"),),                  # PODE desde 2023
+    22: ((2006, "PL"), (2018, "PR")),      # PL de novo desde 2019
+    23: ((2018, "PPS"),),                  # CIDADANIA desde 2019
+    25: ((2006, "PFL"), (2020, "DEM")),    # PRD desde 2023
+    27: ((2016, "PSDC"),),                 # DC desde 2018
+    30: ((2002, "PGT"),),                  # NOVO desde 2015
+    33: ((2022, "PMN"),),                  # MOBILIZA desde 2023
+    36: ((2020, "PTC"),),                  # AGIR desde 2022
+    44: ((2018, "PRP"),),                  # UNIÃO desde 2022
+    70: ((2016, "PT do B"),),              # AVANTE desde 2017
+    77: ((2016, "SD"),),                   # SOLIDARIEDADE (mesma legenda, sigla nova)
+}
+
+
+def sigla_no_ano(numero: int, ano: int, sigla_do_banco: str) -> str:
+    """A sigla que aquele numero usava naquele ano; a do banco, se era a mesma."""
+    for ate, sigla in _SIGLA_ATE.get(numero, ()):
+        if ano <= ate:
+            return sigla
+    return sigla_do_banco

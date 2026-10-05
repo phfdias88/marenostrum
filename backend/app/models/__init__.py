@@ -15,6 +15,7 @@ from app.models.agenda_event import AgendaEvent
 from app.models.interaction import Interaction
 from app.models.message_template import MessageTemplate
 from app.models.monitored_candidate import MonitoredCandidate
+from app.models.senado import SenateMember
 from app.models.subscription import BillingEvent, Subscription
 from app.models.tenant import Tenant
 from app.models.tse import (
@@ -54,6 +55,8 @@ __all__ = [
     "User",
     "UserRole",
     "VotingPlace",
+    # Senado (dado publico: quem esta em exercicio, com o partido de hoje)
+    "SenateMember",
     # TSE (dados publicos compartilhados)
     "Candidate",
     "Election",
