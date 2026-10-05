@@ -98,3 +98,41 @@ def clear_agg_cache() -> None:
     """Esvazia tudo — chamado após disparar uma sincronização do TSE."""
     with _lock:
         _store.clear()
+
+
+def _ano(token: str) -> int | None:
+    return int(token) if len(token) == 4 and token.isdigit() and 1990 <= int(token) <= 2100 else None
+
+
+def _so_historico(key: str, ano_vivo: int) -> bool:
+    """A chave fala SÓ de eleição fechada? (então o valor dela não muda)
+
+    As chaves são "prefixo:campo:campo:...", com o ano num dos campos. Na dúvida
+    a resposta é não — errar para o lado de limpar custa uma consulta refeita;
+    errar para o lado de manter mostraria número velho da apuração.
+    """
+    partes = key.split(":")
+    if partes[0] == "cand":
+        # Busca de candidato: o texto digitado é um campo livre (pode ser
+        # "2022") e sem filtro de ano a busca atravessa todas as eleições. Só
+        # o campo do ano decide — o 7º a contar do fim.
+        ano = _ano(partes[-7]) if len(partes) >= 8 else None
+        return ano is not None and ano != ano_vivo
+    anos = {a for a in map(_ano, partes[1:]) if a is not None}
+    return bool(anos) and ano_vivo not in anos
+
+
+def limpar_cache_da_apuracao(ano_vivo: int) -> tuple[int, int]:
+    """Tira do cache o que a apuração pode ter mudado; devolve (removidas, mantidas).
+
+    A captura ao vivo avisa a API a cada 2 minutos. Esvaziar TUDO, como se fazia,
+    jogava fora junto as agregações pesadas das eleições antigas (desempenho de
+    partido de 2022 = dezenas de segundos neste servidor), que nunca mais
+    ficavam quentes: a tela de qualquer ano fechado recalculava do zero a cada
+    visita, durante os dias inteiros da apuração.
+    """
+    with _lock:
+        descartar = [k for k in _store if not _so_historico(k, ano_vivo)]
+        for k in descartar:
+            del _store[k]
+        return len(descartar), len(_store)

@@ -4001,6 +4001,7 @@ somente leitura e este e um POST.
 )
 def ingest_cache_clear(
     ctx: CurrentTenant,
+    everything: bool = Query(False, description="limpa tambem as eleicoes fechadas"),
     db: Session = Depends(get_db),
 ) -> dict:
     if ctx.role != "owner":
@@ -4010,10 +4011,18 @@ def ingest_cache_clear(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Apenas o responsavel da campanha pode limpar o cache.",
             )
-    from app.utils.agg_cache import clear_agg_cache
+    from app.utils import agg_cache
 
-    clear_agg_cache()
-    log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id))
+    # Na apuracao so sai o que ela pode ter mudado. Esvaziar tudo a cada 2
+    # minutos deixava as telas dos anos FECHADOS recalculando do zero a cada
+    # visita. `everything=true` forca a limpeza total.
+    if apuracao.ANO_EM_APURACAO is not None and not everything:
+        removidas, mantidas = agg_cache.limpar_cache_da_apuracao(apuracao.ANO_EM_APURACAO)
+        log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id),
+                 removidas=removidas, mantidas=mantidas)
+        return {"limpo": True, "removidas": removidas, "mantidas": mantidas}
+    agg_cache.clear_agg_cache()
+    log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id), tudo=True)
     return {"limpo": True}
 
 
