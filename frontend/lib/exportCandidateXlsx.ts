@@ -1,17 +1,25 @@
 /**
- * Exportação de DADOS BRUTOS do candidato em Excel (4 abas):
- *   Resumo · Votos por município · Votos por bairro · Votos por local.
+ * Exportação de DADOS BRUTOS do candidato em Excel (5 abas, do mais largo ao
+ * mais fino): Resumo · Votos por município · Votos por bairro · Votos por
+ * local · Votos por seção.
  *
  * Serviço isolado (separação de responsabilidades): o botão só chama
  * exportCandidateXlsx(); fetch + montagem do workbook vivem aqui.
  * A lib `xlsx` (SheetJS) entra por import dinâmico — só pesa no bundle de
  * quem realmente exporta.
  *
- * Cobertura: bairro/local dependem da votação por seção (2018/2020/2022 RJ,
- * 2024 Brasil) — sem dado, a aba sai com um aviso em vez de sumir (o usuário
- * entende que não é bug).
+ * Cobertura: bairro/local dependem da votação por seção (ver
+ * COBERTURA_VOTO_POR_SECAO) — sem dado, a aba sai com um aviso em vez de sumir
+ * (o usuário entende que não é bug). O detalhe POR SEÇÃO é carregado à parte e
+ * cobre menos que o voto por local (hoje: 2026 RJ).
+ *
+ * Três avisos diferentes, porque são três situações: a eleição não tem voto
+ * por seção; tem, mas o detalhe por seção ainda não foi carregado; e a
+ * CONSULTA falhou (aí o dado pode existir — o aviso manda exportar de novo em
+ * vez de afirmar que não há).
  */
 import { api } from "@/lib/api";
+import { COBERTURA_VOTO_POR_SECAO } from "@/lib/elections";
 import type {
   TseCandidateByNeighborhoodResponse,
   TseCandidateResults,
@@ -25,6 +33,24 @@ type PlaceRow = {
   municipality_name: string;
   municipality_state: string;
   votes: number;
+};
+
+// Um local com as seções em que o candidato teve voto: pares [seção, votos].
+type SectionPlaceRow = {
+  zone: number | null;
+  place: string;
+  neighborhood: string | null;
+  municipality_name: string;
+  municipality_state: string;
+  votes: number;
+  sections: [number, number][];
+};
+
+type BySectionResponse = {
+  places_total: number;
+  places_without_detail: number;
+  sections_total: number;
+  items: SectionPlaceRow[];
 };
 
 function slug(s: string): string {
@@ -41,19 +67,26 @@ export async function exportCandidateXlsx(
 ): Promise<void> {
   const c = results.candidate;
 
-  // Dados de bairro (SEM limit → todos) e de local, em paralelo. Falha em um
-  // deles não aborta o export: a aba sai com o aviso de indisponibilidade.
-  const [nb, places] = await Promise.all([
+  // Dados de bairro (SEM limit → todos), de local e de seção, em paralelo.
+  // Falha em um deles não aborta o export: fica `null`, e a aba sai com o
+  // aviso de que a consulta falhou (diferente de "não há dado").
+  const [nb, places, bySection] = await Promise.all([
     api<TseCandidateByNeighborhoodResponse>(
       `/v1/tse/candidates/${c.id}/by-neighborhood`,
     ).catch(() => null),
     api<PlaceRow[]>(`/v1/tse/candidates/${c.id}/by-place`).catch(() => null),
+    api<BySectionResponse>(`/v1/tse/candidates/${c.id}/by-section`).catch(
+      () => null,
+    ),
   ]);
 
   const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
-  const noSectionData =
-    "Sem votação por seção importada para esta eleição (cobertura: 2018/2020/2022 RJ e 2024 Brasil).";
+  const noSectionData = `Sem votação por seção importada para esta eleição (cobertura: ${COBERTURA_VOTO_POR_SECAO}).`;
+  const fetchFailed =
+    "Não foi possível consultar este dado agora. Exporte de novo em instantes.";
+  const failedCell = "falha na consulta";
+  const sectionPlaces = bySection?.items ?? [];
 
   // ---- Aba 1: Resumo ----
   const resumo = XLSX.utils.aoa_to_sheet([
@@ -66,8 +99,21 @@ export async function exportCandidateXlsx(
     ["Situação", c.result_status ?? ""],
     ["Total de votos", results.total_votes],
     ["Municípios com votos", results.municipalities_with_votes],
-    ["Bairros com votos", nb?.total_neighborhoods ?? "s/d"],
-    ["Locais de votação com votos", places?.length ?? "s/d"],
+    ["Bairros com votos", nb ? nb.total_neighborhoods : failedCell],
+    ["Locais de votação com votos", places ? places.length : failedCell],
+    [
+      "Seções eleitorais com votos",
+      !bySection
+        ? failedCell
+        : sectionPlaces.length > 0
+          ? bySection.sections_total
+          : "s/d",
+    ],
+    // Só aparece quando o detalhe por seção cobre parte dos locais: sem a
+    // linha, a aba por seção somaria menos que o total e pareceria erro.
+    ...(bySection && sectionPlaces.length > 0 && bySection.places_without_detail > 0
+      ? [["Locais sem detalhe por seção", bySection.places_without_detail]]
+      : []),
     [],
     ["Fonte", "TSE (dados abertos) · MareNostrum EleitoAI"],
   ]);
@@ -102,7 +148,7 @@ export async function exportCandidateXlsx(
             "Penetração %": i.penetration_pct ?? "",
           })),
         )
-      : XLSX.utils.aoa_to_sheet([[noSectionData]]);
+      : XLSX.utils.aoa_to_sheet([[nb ? noSectionData : fetchFailed]]);
   bairroSheet["!cols"] = [
     { wch: 26 }, { wch: 24 }, { wch: 5 }, { wch: 10 }, { wch: 16 },
     { wch: 14 }, { wch: 12 },
@@ -123,12 +169,53 @@ export async function exportCandidateXlsx(
             "Eleitores aptos": p.electors_total || "",
           })),
         )
-      : XLSX.utils.aoa_to_sheet([[noSectionData]]);
+      : XLSX.utils.aoa_to_sheet([[places ? noSectionData : fetchFailed]]);
   placeSheet["!cols"] = [
     { wch: 34 }, { wch: 34 }, { wch: 22 }, { wch: 24 }, { wch: 5 },
     { wch: 10 }, { wch: 14 },
   ];
   XLSX.utils.book_append_sheet(wb, placeSheet, "Votos por local");
+
+  // ---- Aba 5: Votos por seção eleitoral (dentro de cada local) ----
+  // Locais na mesma ordem da aba anterior; dentro do local, seção crescente.
+  // A Zona vai junto porque o número da seção só é único dentro dela.
+  const sectionRows: (string | number)[][] = [];
+  for (const p of sectionPlaces) {
+    for (const [secao, votos] of p.sections) {
+      sectionRows.push([
+        p.municipality_name,
+        p.municipality_state,
+        p.zone ?? "",
+        p.place,
+        p.neighborhood ?? "",
+        secao,
+        votos,
+      ]);
+    }
+  }
+  const sectionSheet =
+    sectionRows.length > 0
+      ? XLSX.utils.aoa_to_sheet([
+          [
+            "Município", "UF", "Zona", "Local de votação", "Bairro",
+            "Seção", "Votos",
+          ],
+          ...sectionRows,
+        ])
+      : XLSX.utils.aoa_to_sheet([
+          [
+            !bySection
+              ? fetchFailed
+              : bySection.places_total > 0
+                ? "O detalhe por seção eleitoral ainda não foi carregado para esta eleição (o total de cada local está na aba anterior)."
+                : noSectionData,
+          ],
+        ]);
+  sectionSheet["!cols"] = [
+    { wch: 24 }, { wch: 5 }, { wch: 6 }, { wch: 34 }, { wch: 22 },
+    { wch: 7 }, { wch: 10 },
+  ];
+  XLSX.utils.book_append_sheet(wb, sectionSheet, "Votos por seção");
 
   XLSX.writeFile(
     wb,

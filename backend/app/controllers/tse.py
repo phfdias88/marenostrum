@@ -2871,8 +2871,8 @@ def candidate_by_neighborhood(
 Agrega os votos por seção do candidato no nível de LOCAL de votação (escola).
 Alimenta a exportação de dados brutos (aba "Votos por local" do Excel).
 
-Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 Brasil);
-sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
+Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 Brasil,
+2026 RJ); sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
 a um município.
 """,
 )
@@ -2904,9 +2904,14 @@ def candidate_by_place(
         stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
     # group by PK do local: as demais colunas do local são funcionalmente
     # dependentes (Postgres aceita) — evita duplicar local homônimo.
+    # Desempate por nome e id: é a MESMA ordem do /by-section, para a aba por
+    # seção da planilha seguir a aba por local também nos empates (um deputado
+    # tem centenas de locais com 1, 2, 3 votos).
     stmt = stmt.group_by(
         TseVotingPlace.id, Municipality.name, Municipality.state
-    ).order_by(func.sum(TseSectionVote.votes).desc())
+    ).order_by(
+        func.sum(TseSectionVote.votes).desc(), TseVotingPlace.name, TseVotingPlace.id
+    )
 
     rows = db.execute(stmt).all()
     return ORJSONResponse(
@@ -2922,6 +2927,95 @@ def candidate_by_place(
             }
             for r in rows
         ],
+    )
+
+
+@router.get(
+    "/candidates/{candidate_id}/by-section",
+    summary="Votos do candidato por SEÇÃO eleitoral, dentro de cada local",
+    description="""\
+Um nível abaixo do `/by-place`: as seções de cada local de votação em que o
+candidato teve voto. Alimenta a aba "Votos por seção" do Excel.
+
+`items` segue a ordem do `/by-place` (local com mais voto primeiro) e cada
+local traz `sections` como pares `[seção, votos]` em ordem de seção. O número
+da seção só é único dentro da ZONA — por isso `zone` vem junto.
+
+O detalhe por seção é carregado à parte (`scripts/carregar_votacao_secao.py`)
+e cobre menos que o voto por local: `places_without_detail` diz quantos locais
+do candidato têm voto e ainda não têm o detalhe. Sem nenhum, `items` vem vazio.
+
+Não entra no cache de borda (`Cache-Control: private, no-store`): é o dado
+bruto da exportação, pedido poucas vezes, e assim toda chamada passa pela
+autenticação e reflete a carga mais recente.
+""",
+)
+def candidate_by_section(
+    candidate_id: UUID,
+    ctx: CurrentTenant,
+    municipality_id: UUID | None = Query(None),
+    db: Session = Depends(get_db),
+) -> Response:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise NotFoundError("Candidato nao encontrado")
+
+    # (candidato, local) é único em tse_section_votes: não há o que agrupar.
+    stmt = (
+        select(
+            TseVotingPlace.zone,
+            TseVotingPlace.name,
+            TseVotingPlace.address,
+            TseVotingPlace.neighborhood,
+            Municipality.name.label("municipality_name"),
+            Municipality.state.label("municipality_state"),
+            TseSectionVote.votes,
+            TseSectionVote.sections,
+        )
+        .join(TseVotingPlace, TseVotingPlace.id == TseSectionVote.voting_place_id)
+        .join(Municipality, Municipality.id == TseVotingPlace.municipality_id)
+        .where(TseSectionVote.candidate_id == candidate_id, TseSectionVote.votes > 0)
+    )
+    if municipality_id is not None:
+        stmt = stmt.where(TseVotingPlace.municipality_id == municipality_id)
+    stmt = stmt.order_by(
+        TseSectionVote.votes.desc(), TseVotingPlace.name, TseVotingPlace.id
+    )
+
+    items = []
+    sem_detalhe = 0
+    total_secoes = 0
+    for r in db.execute(stmt):
+        if not r.sections:
+            sem_detalhe += 1
+            continue
+        # As chaves do JSON são texto: ordenar como número ("9" antes de "10").
+        secoes = sorted(
+            (int(secao), int(votos))
+            for secao, votos in r.sections.items()
+            if int(votos) > 0
+        )
+        total_secoes += len(secoes)
+        items.append({
+            "zone": r.zone,
+            "place": r.name,
+            "address": r.address,
+            "neighborhood": r.neighborhood,
+            "municipality_name": r.municipality_name,
+            "municipality_state": r.municipality_state,
+            "votes": int(r.votes),
+            "sections": secoes,
+        })
+    return ORJSONResponse(
+        content={
+            "places_total": len(items) + sem_detalhe,
+            "places_without_detail": sem_detalhe,
+            "sections_total": total_secoes,
+            "items": items,
+        },
+        # O nginx guarda as rotas /tse pela URL, sem olhar quem pede: num
+        # acerto de cache a API nem é consultada. Esta fica de fora.
+        headers={"Cache-Control": "private, no-store"},
     )
 
 

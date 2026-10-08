@@ -1120,6 +1120,32 @@ def _process_consulta_cand(db: Session, job: TseSyncJob, zip_path: Path) -> None
 # ====================================================================
 
 
+def _upsert_voto_por_local(chunk: list[dict], now: datetime):
+    """Upsert de (candidato, local): re-rodar a UF sobrescreve o voto.
+
+    Este job NAO conhece o detalhe por secao (`sections`, preenchido por
+    scripts/carregar_votacao_secao.py). Se o voto do local MUDA aqui, o detalhe
+    que estava gravado deixou de fechar com ele — e apagado, e o local volta a
+    aparecer como "sem detalhe" ate a carga por secao rodar de novo. Mostrar
+    secoes que nao somam o voto do local seria pior que nao mostrar.
+    """
+    from sqlalchemy import case, null
+
+    tabela = TseSectionVote.__table__
+    stmt = pg_insert(tabela).values(chunk)
+    return stmt.on_conflict_do_update(
+        index_elements=["candidate_id", "voting_place_id"],
+        set_={
+            "votes": stmt.excluded.votes,
+            "sections": case(
+                (tabela.c.votes.is_distinct_from(stmt.excluded.votes), null()),
+                else_=tabela.c.sections,
+            ),
+            "updated_at": now,
+        },
+    )
+
+
 def _process_votacao_secao(
     db: Session, job: TseSyncJob, zip_path: Path, *, uf: str, year: int = 2024,
 ) -> None:
@@ -1252,13 +1278,7 @@ def _process_votacao_secao(
 
     for i in range(0, len(rows_out), CHUNK_SIZE):
         chunk = rows_out[i : i + CHUNK_SIZE]
-        stmt = pg_insert(TseSectionVote.__table__).values(chunk)
-        # Upsert: re-rodar a UF sobrescreve votos (caso TSE atualize dataset)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["candidate_id", "voting_place_id"],
-            set_={"votes": stmt.excluded.votes, "updated_at": now},
-        )
-        db.execute(stmt)
+        db.execute(_upsert_voto_por_local(chunk, now))
         db.commit()
         job.vote_results_imported = i + len(chunk)
         db.commit()

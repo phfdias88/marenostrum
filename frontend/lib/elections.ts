@@ -13,6 +13,14 @@
 
 export type OfficeOption = { value: string; label: string };
 
+/**
+ * Onde há voto por SEÇÃO carregado (é o que dá bairro e local de votação).
+ * Uma frase só, usada pela planilha e pelas telas — cada uma tinha a sua, e
+ * elas já diziam coberturas diferentes. Atualizar AQUI a cada carga nova.
+ */
+export const COBERTURA_VOTO_POR_SECAO =
+  "2024 (Brasil) · 2018, 2020, 2022 e 2026 (RJ)";
+
 // Cargos por tipo de pleito (códigos TSE: 11=prefeito, 13=vereador,
 // 3=governador, 5=senador, 6=dep. federal, 7=dep. estadual).
 const MUNICIPAL_OFFICES: OfficeOption[] = [

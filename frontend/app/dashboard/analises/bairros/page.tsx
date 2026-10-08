@@ -38,6 +38,7 @@ import type {
   TseNeighborhoodRanking,
 } from "@/lib/types";
 import { TSE_STATES } from "@/lib/types";
+import { COBERTURA_VOTO_POR_SECAO } from "@/lib/elections";
 import { CandidatePhoto } from "@/components/tse/CandidatePhoto";
 import { ResultBadge } from "@/components/tse/ResultBadge";
 import type { VotingPlacePoint } from "@/components/map/CandidateNeighborhoodMap";
@@ -861,7 +862,7 @@ function NeighborhoodXRay({
             : `Sem votos de seção para ${neighborhood}.`}
         </p>
         <p className="text-[11px] text-muted-foreground mt-1">
-          Cobertura: seções 2024 (Brasil) · 2020/2022 (RJ).
+          Cobertura: seções {COBERTURA_VOTO_POR_SECAO}.
         </p>
       </div>
     );
@@ -917,7 +918,8 @@ function NeighborhoodXRay({
         })}
       </ol>
       <p className="text-[10px] text-muted-foreground mt-2 pt-2 border-t border-border">
-        Votos por local de votação do bairro · cobertura: seções 2024 (BR) · 2020/2022 (RJ).
+        Votos por local de votação do bairro · cobertura: seções{" "}
+        {COBERTURA_VOTO_POR_SECAO}.
       </p>
     </div>
   );

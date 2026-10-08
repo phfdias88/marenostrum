@@ -249,8 +249,9 @@ export default function CandidateDetailPage() {
           <ExportShare
             targetRef={cardRef}
             filename={`candidato-${c.urn_name}`.toLowerCase().replace(/[^a-z0-9]+/g, "-")}
-            // Dados brutos em Excel (Resumo · Municípios · Bairros · Locais) —
-            // o serviço busca bairro/local completos e monta o workbook.
+            // Dados brutos em Excel (Resumo · Municípios · Bairros · Locais ·
+            // Seções) — o serviço busca bairro/local/seção completos e monta o
+            // workbook.
             onExportData={() => exportCandidateXlsx(data)}
           />
         </div>
