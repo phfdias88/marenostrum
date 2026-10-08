@@ -112,6 +112,11 @@ def _so_historico(key: str, ano_vivo: int) -> bool:
     errar para o lado de manter mostraria número velho da apuração.
     """
     partes = key.split(":")
+    if partes[0] == "census":
+        # Dado do IBGE: a apuração não muda bairro nem setor. Sem esta linha o
+        # índice da busca de bairros (10+ s para montar) era jogado fora a cada
+        # passada da captura, e a busca seguinte de cada usuário o refazia.
+        return True
     if partes[0] == "cand":
         # Busca de candidato: o texto digitado é um campo livre (pode ser
         # "2022") e sem filtro de ano a busca atravessa todas as eleições. Só

@@ -110,6 +110,19 @@ def test_chave_sem_ano_e_sempre_limpa():
     assert _chaves() == set()
 
 
+def test_dado_do_censo_sobrevive_a_limpeza_da_apuracao():
+    """A apuracao nao muda bairro nem setor, e o indice da busca de bairros
+    custa 10+ segundos para montar: jogar fora a cada passada da captura fazia
+    a busca seguinte de cada usuario refazer tudo."""
+    from app.utils.agg_cache import limpar_cache_da_apuracao
+
+    clear_agg_cache()
+    agg_set("census:area_index", [{"nome": "Centro"}])
+    agg_set("counts:None", {"x": 1})
+    limpar_cache_da_apuracao(2026)
+    assert _chaves() == {"census:area_index"}
+
+
 def test_busca_de_candidato_decide_pelo_campo_do_ano_e_nao_pelo_texto():
     """Quem digita "2022" na busca sem filtro de ano recebe candidatos de todas
     as eleicoes, inclusive a que esta apurando. O texto nao pode valer de ano."""

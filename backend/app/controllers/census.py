@@ -650,6 +650,60 @@ def _search_key(s: str) -> str:
     return re.sub(r"\s+", " ", x).strip()
 
 
+_AREA_INDEX_KEY = "census:area_index"
+
+# UM pedido monta o índice; os outros esperam e usam o mesmo. A busca global
+# dispara um pedido por tecla, e sem a trava cada um que chegava com o índice
+# fora do cache rodava a SUA varredura dos setores (468 mil desde a carga
+# nacional) e guardava a SUA cópia do resultado. Em 06/10/2026, três pessoas
+# digitando ao mesmo tempo somaram oito montagens: a API passou dos 768 MB e o
+# container foi morto (todo pedido em andamento voltou 502).
+_area_index_lock = _threading.Lock()
+
+
+def _montar_indice_de_areas(db: Session) -> list[dict]:
+    rows = db.execute(
+        text(
+            "SELECT DISTINCT cd_mun, nm_mun, "
+            "  CASE WHEN coalesce(nm_bairro,'') <> '' THEN nm_bairro "
+            "       ELSE nm_dist END AS nome, "
+            "  (coalesce(nm_bairro,'') <> '') AS is_bairro "
+            "FROM census_geo WHERE level='setor' "
+            "  AND (coalesce(nm_bairro,'') <> '' OR coalesce(nm_dist,'') <> '')"
+        )
+    )
+    # Direto do cursor para a lista final: `.mappings().all()` guardava uma
+    # segunda cópia de tudo só para ser percorrida uma vez.
+    return [
+        {
+            "cd_mun": str(cd_mun),
+            "nm_mun": nm_mun,
+            "nome": nome,
+            "kind": "Bairro" if is_bairro else "Distrito",
+            "uf": _UF_SIGLA.get(str(cd_mun)[:2], ""),
+            "_key": _search_key(str(nome)),
+        }
+        for cd_mun, nm_mun, nome, is_bairro in rows
+    ]
+
+
+def _indice_de_areas(db: Session) -> list[dict]:
+    """Índice (cd_mun, nome, kind, chave normalizada) em memória por 4h."""
+    index = agg_get(_AREA_INDEX_KEY)
+    if index is not None:
+        return index
+    # Quem vai esperar não fica segurando conexão do pool (ler o usuário já
+    # abriu uma transação): com vários na fila, faltaria conexão para o resto
+    # do site durante a montagem.
+    db.rollback()
+    with _area_index_lock:
+        index = agg_get(_AREA_INDEX_KEY)   # outro pedido montou enquanto este esperava
+        if index is None:
+            index = _montar_indice_de_areas(db)
+            agg_set(_AREA_INDEX_KEY, index)
+    return index
+
+
 @router.get(
     "/search-areas",
     summary="Bairros/distritos do censo para a busca global",
@@ -665,39 +719,13 @@ def census_search_areas(
     db: Session = Depends(get_db),
 ) -> list[dict]:
     from app.models.user import User
-    from app.utils.agg_cache import agg_get, agg_set
 
     # Módulo Censo é feature-flag por usuário — sem flag, sem resultados.
     user = db.get(User, ctx.user_id)
     if user is None or not getattr(user, "census_enabled", False):
         return []
 
-    # Índice (cd_mun, nome, kind, chave normalizada) em memória por 4h —
-    # o DISTINCT varre ~200k setores, mas só na primeira busca.
-    index = agg_get("census:area_index")
-    if index is None:
-        rows = db.execute(
-            text(
-                "SELECT DISTINCT cd_mun, nm_mun, "
-                "  CASE WHEN coalesce(nm_bairro,'') <> '' THEN nm_bairro "
-                "       ELSE nm_dist END AS nome, "
-                "  (coalesce(nm_bairro,'') <> '') AS is_bairro "
-                "FROM census_geo WHERE level='setor' "
-                "  AND (coalesce(nm_bairro,'') <> '' OR coalesce(nm_dist,'') <> '')"
-            )
-        ).mappings().all()
-        index = [
-            {
-                "cd_mun": str(r["cd_mun"]),
-                "nm_mun": r["nm_mun"],
-                "nome": r["nome"],
-                "kind": "Bairro" if r["is_bairro"] else "Distrito",
-                "uf": _UF_SIGLA.get(str(r["cd_mun"])[:2], ""),
-                "_key": _search_key(str(r["nome"])),
-            }
-            for r in rows
-        ]
-        agg_set("census:area_index", index)
+    index = _indice_de_areas(db)
 
     qk = _search_key(q)
     if not qk:
