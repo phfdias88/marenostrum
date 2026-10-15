@@ -11,7 +11,7 @@
  * Cobertura: bairro/local dependem da votação por seção (ver
  * COBERTURA_VOTO_POR_SECAO) — sem dado, a aba sai com um aviso em vez de sumir
  * (o usuário entende que não é bug). O detalhe POR SEÇÃO é carregado à parte e
- * cobre menos que o voto por local (hoje: 2026 RJ).
+ * cobre menos que o voto por local (hoje: 2026, Brasil inteiro).
  *
  * Três avisos diferentes, porque são três situações: a eleição não tem voto
  * por seção; tem, mas o detalhe por seção ainda não foi carregado; e a

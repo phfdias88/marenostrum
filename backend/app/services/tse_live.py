@@ -479,13 +479,21 @@ def trava_do_ano(ano: int, *, esperar: bool):
         conn.close()
 
 
-def consolidado_ja_entrou(db: Session, ano: int) -> str | None:
+def consolidado_ja_entrou(db: Session, ano: int, turno: int = 1) -> str | None:
     """A carga OFICIAL do ano ja rodou, ou esta rodando? Devolve o motivo.
 
     Depois que o numero oficial entra, a captura ao vivo nao tem mais nada a
     fazer no 1o turno — e escrever por cima trocaria dado consolidado por dado
     de divulgacao. Enquanto o job esta em andamento, escrever junto dobra voto.
+
+    So vale para o 1o TURNO. A captura do 2o grava em tabelas proprias
+    (tse_runoff_votes) e, do candidato, so a situacao — nada que o consolidado
+    do 1o turno tenha escrito. Sem esta distincao, carregar o consolidado do 1o
+    turno desligava em silencio a captura da noite do 2o (25/10/2026). A
+    escrita simultanea com o importador continua barrada pela trava do ano.
     """
+    if turno != 1:
+        return None
     from app.models.tse.sync_job import SyncJobStatus, TseSyncJob
 
     jobs = db.execute(

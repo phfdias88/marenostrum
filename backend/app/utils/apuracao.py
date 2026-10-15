@@ -9,9 +9,14 @@ por ate 24 horas a resposta antiga (stale-while-revalidate).
 Trocar para None quando o resultado consolidado do TSE for importado. O
 frontend tem a constante gemea em `frontend/lib/elections.ts` (ANO_EM_APURACAO),
 que desliga os avisos de apuracao parcial nas telas.
+
+2026: None desde 14/10/2026 (consolidado do 1o turno carregado). Para a noite
+do 2o turno (25/10) a captura limpa o cache pelo ANO dela (POST
+/tse/ingest/cache-clear?ano=2026), sem depender daqui; voltar para 2026 so se
+alguma tela precisar do cache curto e dos avisos de apuracao parcial.
 """
 
-ANO_EM_APURACAO: int | None = 2026
+ANO_EM_APURACAO: int | None = None
 
 # Cache-Control das respostas de /tse.
 #

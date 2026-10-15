@@ -90,12 +90,16 @@ print(create_access_token(user_id=u.id, tenant_id=u.tenant_id, role=role,
 PY
 )
     if [ -n "$TOKEN" ]; then
+      # ?ano= limpa so o que o ano da captura pode ter mudado, mesmo com o
+      # ANO_EM_APURACAO da API ja desligado (2o turno depois do consolidado do
+      # 1o): sem ele, cada passada esvaziava o cache inteiro.
       docker compose exec -T api python -c "
 import httpx, sys
 r = httpx.post('http://localhost:8000/api/v1/tse/ingest/cache-clear',
+               params={'ano': sys.argv[2]},
                headers={'Authorization': 'Bearer ' + sys.argv[1]}, timeout=20)
 print('cache da API:', r.status_code, r.text[:60])
-" "$TOKEN"
+" "$TOKEN" "${DATA_PLEITO##*/}"
     else
       echo "AVISO: sem token — o cache da API NAO foi limpo"
     fi

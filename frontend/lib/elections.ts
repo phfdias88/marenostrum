@@ -19,7 +19,7 @@ export type OfficeOption = { value: string; label: string };
  * elas já diziam coberturas diferentes. Atualizar AQUI a cada carga nova.
  */
 export const COBERTURA_VOTO_POR_SECAO =
-  "2024 (Brasil) · 2018, 2020, 2022 e 2026 (RJ)";
+  "2024 e 2026 (Brasil) · 2018, 2020 e 2022 (RJ)";
 
 // Cargos por tipo de pleito (códigos TSE: 11=prefeito, 13=vereador,
 // 3=governador, 5=senador, 6=dep. federal, 7=dep. estadual).
@@ -62,8 +62,10 @@ export const VOTOS_NOMINAIS_HINT =
  * não tiram conclusão de tendência em cima dela.
  *
  * Trocar para null quando o resultado consolidado do TSE for importado.
+ * 2026: null desde 14/10/2026 (consolidado do 1º turno carregado). Gêmea de
+ * backend/app/utils/apuracao.py — as duas mudam juntas.
  */
-export const ANO_EM_APURACAO: number | null = 2026;
+export const ANO_EM_APURACAO: number | null = null;
 
 /**
  * Eleição municipal (prefeito/vereador) cai em ano múltiplo de 4 — 2000, 2004…

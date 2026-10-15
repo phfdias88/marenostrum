@@ -58,9 +58,17 @@ const VotesBarChart = dynamic(
 );
 
 const numberFmt = new Intl.NumberFormat("pt-BR");
+// Sem ano na escolha: a lista de candidatos (top-candidates do município) já
+// usa a eleição MAIS RECENTE do cargo — municipal 2024 para prefeito/vereador,
+// geral 2026 para os demais (voto por seção do Brasil inteiro desde 14/10/2026).
 const OFFICES = [
-  { value: "11", label: "Prefeito" },
-  { value: "13", label: "Vereador" },
+  { value: "11", label: "Prefeito (2024)" },
+  { value: "13", label: "Vereador (2024)" },
+  { value: "1", label: "Presidente (2026)" },
+  { value: "3", label: "Governador (2026)" },
+  { value: "5", label: "Senador (2026)" },
+  { value: "6", label: "Deputado Federal (2026)" },
+  { value: "7", label: "Deputado Estadual (2026)" },
 ];
 
 function useDebounce<T>(v: T, ms: number): T {
@@ -132,8 +140,8 @@ export default function BairrosPage() {
         <div>
           <h1 className="text-2xl font-bold">Análise por Bairro</h1>
           <p className="text-sm text-muted-foreground">
-            Votos de um candidato distribuídos por bairro da cidade · eleição
-            municipal de 2024 (TSE).
+            Votos de um candidato distribuídos por bairro da cidade ·
+            eleições de 2024 (municipal) e 2026 (geral), TSE.
           </p>
         </div>
       </header>
@@ -594,21 +602,10 @@ function NeighborhoodResult({
       ) : !data || data.items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center bg-card/40">
           <p className="text-lg font-semibold">Dados de bairro indisponíveis</p>
-          {candidate.election?.year === 2022 ? (
-            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-              A análise <strong>por bairro</strong> existe apenas para a eleição
-              <strong> municipal de 2024</strong> (Prefeito/Vereador). Para os
-              cargos de 2022 (Presidente, Governador, etc.) o TSE só publica
-              votação até o nível de <strong>município</strong>. Use o botão
-              “Ver no mapa” na Análise de Candidato.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-              A votação por seção está disponível para a eleição{" "}
-              <strong>municipal de 2024</strong> (Brasil inteiro). Não há registro
-              por seção para este candidato em {muni.name}.
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+            Votação por seção carregada: {COBERTURA_VOTO_POR_SECAO}. Não há
+            registro por seção para este candidato em {muni.name}.
+          </p>
         </div>
       ) : (
         <div className="flex flex-col lg:flex-row gap-4">

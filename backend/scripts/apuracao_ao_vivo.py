@@ -44,6 +44,9 @@ from app.services import tse_live as live
 from app.utils.tse_sync import ALL_UFS, CACHE_DIR, DATASETS, download_zip
 
 ANO = 2026
+# Data do pleito no TSE -> turno. A carga consolidada do 1o turno so encerra a
+# captura do 1o; a do 2o turno segue (ver live.consolidado_ja_entrou).
+TURNO_DA_DATA = {"04/10/2026": 1, "25/10/2026": 2}
 ESTADO = CACHE_DIR / "_ao_vivo_status.json"
 
 
@@ -326,7 +329,8 @@ def main() -> int:
         saida["candidatos"] = passo_candidatos(db)
 
     if args.totais or args.municipios:
-        motivo = live.consolidado_ja_entrou(db, ANO)
+        motivo = live.consolidado_ja_entrou(
+            db, ANO, turno=TURNO_DA_DATA.get(args.data, 1))
         if motivo and not args.forcar:
             print(f"PULADO: {motivo}. O numero oficial manda; a captura ao vivo "
                   f"nao escreve por cima. (--forcar para ignorar)")

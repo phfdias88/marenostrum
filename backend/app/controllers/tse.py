@@ -2871,8 +2871,8 @@ def candidate_by_neighborhood(
 Agrega os votos por seção do candidato no nível de LOCAL de votação (escola).
 Alimenta a exportação de dados brutos (aba "Votos por local" do Excel).
 
-Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 Brasil,
-2026 RJ); sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
+Cobertura = mesma da votação por seção (2018/2020/2022 RJ, 2024 e 2026
+Brasil); sem dados de seção, retorna lista vazia. `municipality_id` opcional restringe
 a um município.
 """,
 )
@@ -3043,8 +3043,8 @@ candidatos com votos de seção nos locais do bairro.
 Use o `neighborhood` EXATAMENTE como devolvido pelo by-neighborhood (mesma
 normalização: trim + vazio vira `(Sem bairro)`).
 
-Cobertura: seções 2024 (Brasil) · 2020/2022 (RJ). Sem `year`, usa o ano mais
-recente com dados de seção no município.
+Cobertura: seções 2024 e 2026 (Brasil) · 2018/2020/2022 (RJ). Sem `year`, usa
+o ano mais recente com dados de seção no município.
 
 `electors_total` = eleitores aptos dos locais do bairro (soma por local, sem
 duplicar por candidato); `pct_electors` de cada candidato usa esse denominador.
@@ -4125,11 +4125,17 @@ muda de minutos em minutos.
 
 So responsavel da campanha ou superadmin. Chave de API nao chega aqui: ela e
 somente leitura e este e um POST.
+
+`ano`: limpa so o que esse ano pode ter mudado (e o que nao tem ano na chave),
+mesmo sem eleicao marcada como em apuracao. E o que a captura do 2o turno usa:
+esvaziar TUDO a cada passada recalcularia do zero as telas pesadas dos anos
+fechados a noite inteira.
 """,
 )
 def ingest_cache_clear(
     ctx: CurrentTenant,
     everything: bool = Query(False, description="limpa tambem as eleicoes fechadas"),
+    ano: int | None = Query(None, ge=1994, le=2100, description="limpa so o que este ano pode ter mudado"),
     db: Session = Depends(get_db),
 ) -> dict:
     if ctx.role != "owner":
@@ -4144,8 +4150,9 @@ def ingest_cache_clear(
     # Na apuracao so sai o que ela pode ter mudado. Esvaziar tudo a cada 2
     # minutos deixava as telas dos anos FECHADOS recalculando do zero a cada
     # visita. `everything=true` forca a limpeza total.
-    if apuracao.ANO_EM_APURACAO is not None and not everything:
-        removidas, mantidas = agg_cache.limpar_cache_da_apuracao(apuracao.ANO_EM_APURACAO)
+    ano_vivo = ano if ano is not None else apuracao.ANO_EM_APURACAO
+    if ano_vivo is not None and not everything:
+        removidas, mantidas = agg_cache.limpar_cache_da_apuracao(ano_vivo)
         log.info("tse_cache_limpo_pela_captura", user_id=str(ctx.user_id),
                  removidas=removidas, mantidas=mantidas)
         return {"limpo": True, "removidas": removidas, "mantidas": mantidas}

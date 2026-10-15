@@ -338,6 +338,15 @@ def test_numero_oficial_ja_gravado_encerra_a_captura(db_session):
     assert "oficiais" in consolidado_ja_entrou(db_session, 2026)
 
 
+def test_consolidado_do_1o_turno_nao_desliga_a_captura_do_2o(db_session):
+    """Na noite do 2o turno (25/10) o consolidado do 1o ja tera entrado. A
+    captura do 2o grava em tse_runoff_votes e so a situacao do candidato —
+    nada do que o consolidado escreveu."""
+    _job(db_session, SyncJobStatus.COMPLETED, votos=8_000_000)
+    assert consolidado_ja_entrou(db_session, 2026, turno=2) is None
+    assert "oficiais" in consolidado_ja_entrou(db_session, 2026, turno=1)
+
+
 def test_carga_que_falhou_ou_nao_gravou_nada_nao_bloqueia(db_session):
     """Um job recusado pelo portao do arquivo vazio fica FAILED — isso nao pode
     desligar a captura ao vivo pelo resto da noite."""
