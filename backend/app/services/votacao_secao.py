@@ -30,6 +30,17 @@ REGRAS (as mesmas do importador, para o numero nao mudar de uma carga a outra):
     zona NAO entra: o numero da secao so e unico dentro da zona, e num local
     antigo (zona nula, varios locais fundidos) a secao 12 de uma zona se
     misturaria com a 12 de outra.
+
+LOCAL QUE O RESULTADO USA E O CADASTRO NAO TEM. Em 2026, 1.209 locais (6,5 mi
+de votos, 1% do pais) aparecem no arquivo de resultado e nao no cadastro de
+locais de 04/10: secao remanejada para outro predio. O cadastro de 14/10 nao
+resolve — 579 daqueles codigos foram reaproveitados no 2o turno para OUTRO
+predio, com outro nome. A identidade fiel e a do proprio resultado (nome e
+endereco do local onde a secao votou): `locais_do_zip` le, `extrair_locais`
+grava, e `inserir_locais` cadastra so o que falta — sem bairro (o resultado
+nao traz), com o centro do municipio como coordenada e sem eleitores aptos
+(o local nao esta no cadastro; somar as secoes dele contaria o mesmo eleitor
+tambem no predio de origem). Nunca altera nem apaga local existente.
 """
 from __future__ import annotations
 
@@ -45,6 +56,8 @@ Linha = tuple[int, int, int, int, int, int]
 
 PREPARO = "stg_votacao_secao"
 _COLUNAS = "sq, cd_mun, zona, local_code, secao, votos"
+PREPARO_LOCAIS = "stg_locais_da_secao"
+_COLUNAS_LOCAIS = "cd_mun, zona, local_code, nome, endereco"
 
 
 # ------------------------------------------------------------------ extracao
@@ -67,8 +80,16 @@ def _inteiro(valor: str) -> int | None:
         return None
 
 
-def linhas_do_zip(zip_path: Path, *, turno: int = 1) -> Iterator[Linha]:
-    """Uma tupla por linha de candidato do CSV, sem somar nada."""
+def linhas_do_zip(
+    zip_path: Path, *, turno: int = 1, uf: str | None = None,
+) -> Iterator[Linha]:
+    """Uma tupla por linha de candidato do CSV, sem somar nada.
+
+    `uf` fica so com as linhas daquela UF (SG_UF). Serve ao arquivo NACIONAL
+    de presidente (votacao_secao_<ano>_BR.zip), que traz todas as UFs e o
+    exterior juntos: a carga e por UF, e linha de outra UF so viraria
+    "sem municipio" no casamento.
+    """
     with zipfile.ZipFile(zip_path) as zf:
         for nome in _csvs_do_zip(zf):
             with zf.open(nome) as bruto:
@@ -78,15 +99,20 @@ def linhas_do_zip(zip_path: Path, *, turno: int = 1) -> Iterator[Linha]:
                 )
                 col = {c.strip().upper(): n for n, c in enumerate(next(leitor))}
                 i_turno = col.get("NR_TURNO")
+                i_uf = col.get("SG_UF") if uf else None
+                if uf and i_uf is None:
+                    raise ValueError(f"{nome}: sem a coluna SG_UF para filtrar por UF")
                 campos = [col[c] for c in (
                     "SQ_CANDIDATO", "CD_MUNICIPIO", "NR_ZONA",
                     "NR_LOCAL_VOTACAO", "NR_SECAO", "QT_VOTOS",
                 )]
-                largura = max(campos + [i_turno or 0]) + 1
+                largura = max(campos + [i_turno or 0, i_uf or 0]) + 1
                 for row in leitor:
                     if len(row) < largura:      # linha em branco no fim do arquivo
                         continue
                     if i_turno is not None and (_inteiro(row[i_turno]) or 1) != turno:
+                        continue
+                    if i_uf is not None and row[i_uf].strip().upper() != uf:
                         continue
                     sq, mun, zona, local, secao, votos = (_inteiro(row[i]) for i in campos)
                     if not sq or sq < 0 or not mun or not zona or not local or not secao:
@@ -96,7 +122,9 @@ def linhas_do_zip(zip_path: Path, *, turno: int = 1) -> Iterator[Linha]:
                     yield sq, mun, zona, local, secao, votos
 
 
-def extrair(zip_path: Path, destino: Path, *, turno: int = 1) -> dict[str, int]:
+def extrair(
+    zip_path: Path, destino: Path, *, turno: int = 1, uf: str | None = None,
+) -> dict[str, int]:
     """Grava as linhas no formato de texto do COPY (tabulacao), comprimido.
 
     O arquivo sai pronto para `copiar_arquivo`, que so repassa os bytes.
@@ -104,12 +132,60 @@ def extrair(zip_path: Path, destino: Path, *, turno: int = 1) -> dict[str, int]:
     linhas = votos = 0
     candidatos: set[int] = set()
     with gzip.open(destino, "wt", encoding="ascii", newline="") as saida:
-        for linha in linhas_do_zip(zip_path, turno=turno):
+        for linha in linhas_do_zip(zip_path, turno=turno, uf=uf):
             saida.write("%d\t%d\t%d\t%d\t%d\t%d\n" % linha)
             linhas += 1
             votos += linha[5]
             candidatos.add(linha[0])
     return {"linhas": linhas, "votos": votos, "candidatos": len(candidatos)}
+
+
+def locais_do_zip(
+    zip_path: Path, *, uf: str | None = None,
+) -> dict[tuple[int, int, int], tuple[str, str]]:
+    """(municipio, zona, local) -> (nome, endereco), como o RESULTADO os chama.
+
+    E o nome do predio onde a secao de fato votou — que nem sempre e o do
+    cadastro de locais (ver o topo do modulo).
+    """
+    achados: dict[tuple[int, int, int], tuple[str, str]] = {}
+    with zipfile.ZipFile(zip_path) as zf:
+        for nome in _csvs_do_zip(zf):
+            with zf.open(nome) as bruto:
+                leitor = csv.reader(
+                    io.TextIOWrapper(bruto, encoding="latin-1", newline=""),
+                    delimiter=";", quotechar='"',
+                )
+                col = {c.strip().upper(): n for n, c in enumerate(next(leitor))}
+                i_uf = col.get("SG_UF") if uf else None
+                chave = [col[c] for c in ("CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO")]
+                i_nome = col["NM_LOCAL_VOTACAO"]
+                i_end = col.get("DS_LOCAL_VOTACAO_ENDERECO")
+                largura = max(chave + [i_nome, i_end or 0, i_uf or 0]) + 1
+                for row in leitor:
+                    if len(row) < largura:
+                        continue
+                    if i_uf is not None and row[i_uf].strip().upper() != uf:
+                        continue
+                    mun, zona, local = (_inteiro(row[i]) for i in chave)
+                    if not mun or not zona or not local or (mun, zona, local) in achados:
+                        continue
+                    achados[(mun, zona, local)] = (
+                        row[i_nome].strip(),
+                        row[i_end].strip() if i_end is not None else "",
+                    )
+    return achados
+
+
+def extrair_locais(zip_path: Path, destino: Path, *, uf: str | None = None) -> int:
+    """Grava os locais do resultado em CSV comprimido, pronto para o COPY."""
+    locais = locais_do_zip(zip_path, uf=uf)
+    with gzip.open(destino, "wt", encoding="utf-8", newline="") as saida:
+        escritor = csv.writer(saida)
+        for (mun, zona, local), (nome, endereco) in sorted(locais.items()):
+            # Mesmos limites das colunas de tse_voting_places.
+            escritor.writerow((mun, zona, local, nome[:200], endereco[:300]))
+    return len(locais)
 
 
 # ------------------------------------------------------------------ Postgres
@@ -148,6 +224,50 @@ def preparar(cur) -> None:
 
 def descartar(cur) -> None:
     cur.execute(f"DROP TABLE IF EXISTS {PREPARO}")
+    cur.execute(f"DROP TABLE IF EXISTS {PREPARO_LOCAIS}")
+
+
+def copiar_locais(cur, arquivo: Path) -> int:
+    """Sobe o CSV de `extrair_locais` para a tabela de preparo dos locais."""
+    cur.execute(f"DROP TABLE IF EXISTS {PREPARO_LOCAIS}")
+    cur.execute(
+        f"CREATE UNLOGGED TABLE {PREPARO_LOCAIS} ("
+        " cd_mun integer NOT NULL, zona integer NOT NULL, local_code integer NOT NULL,"
+        " nome text NOT NULL, endereco text)"
+    )
+    with gzip.open(arquivo, "rb") as f, cur.copy(
+        f"COPY {PREPARO_LOCAIS} ({_COLUNAS_LOCAIS}) FROM STDIN WITH (FORMAT csv)"
+    ) as cp:
+        while bloco := f.read(1 << 20):
+            cp.write(bloco)
+    cur.execute(f"SELECT count(*) FROM {PREPARO_LOCAIS}")
+    return cur.fetchone()[0]
+
+
+def inserir_locais(cur, *, uf: str, ano: int) -> int:
+    """Cadastra os locais que o resultado usa e o banco nao tem. So INSERT.
+
+    Sem bairro e sem eleitores aptos; coordenada do centro do municipio
+    (geo_source 'centroid', o mesmo de local do TSE sem coordenada) — ou
+    'unmapped' quando o municipio nao tem centro (exterior).
+    """
+    cur.execute(
+        f"""
+        INSERT INTO tse_voting_places
+            (id, year, zone, local_code, municipality_id, name, address,
+             neighborhood, latitude, longitude, geo_source, electors_total,
+             created_at, updated_at)
+        SELECT gen_random_uuid(), %(ano)s, l.zona, l.local_code, m.id,
+               l.nome, nullif(l.endereco, ''), NULL, m.latitude, m.longitude,
+               CASE WHEN m.latitude IS NULL THEN 'unmapped' ELSE 'centroid' END,
+               0, now(), now()
+        FROM {PREPARO_LOCAIS} l
+        JOIN tse_municipalities m ON m.tse_code = l.cd_mun AND m.state = %(uf)s
+        ON CONFLICT (year, municipality_id, zone, local_code) DO NOTHING
+        """,
+        {"uf": uf, "ano": ano},
+    )
+    return cur.rowcount
 
 
 def copiar_linhas(
@@ -211,10 +331,21 @@ def casamento(cur, *, uf: str, ano: int) -> dict[str, int]:
     return dict(zip(nomes, (int(v) for v in cur.fetchone())))
 
 
+# id ORDENADO NO TEMPO (formato UUIDv7: 48 bits de milissegundo + aleatorio).
+# Com gen_random_uuid() cada linha nova cai num ponto qualquer do indice da
+# chave primaria, e com a tabela maior que a memoria isso e uma leitura de
+# disco por linha: a carga nacional de 2026 andava a ~500 linhas/s, presa em
+# DataFileRead. Ordenado, o indice so cresce pela ponta, que fica em cache.
+# (O Postgres 16 ainda nao tem uuidv7(); entra no 18.)
+_ID_NO_TEMPO = """encode(set_bit(set_bit(overlay(uuid_send(gen_random_uuid())
+    placing substring(int8send(floor(extract(epoch from clock_timestamp()) * 1000)::bigint) from 3)
+    from 1 for 6), 52, 1), 53, 1), 'hex')::uuid"""
+
+
 _SQL_GRAVAR = f"""
 INSERT INTO tse_section_votes AS sv
     (id, candidate_id, voting_place_id, votes, sections, created_at, updated_at)
-SELECT gen_random_uuid(), a.candidate_id, a.voting_place_id,
+SELECT {_ID_NO_TEMPO}, a.candidate_id, a.voting_place_id,
        a.votos, a.secoes, now(), now()
 FROM (
     SELECT c.id AS candidate_id, vp.id AS voting_place_id,

@@ -18,6 +18,10 @@ e ainda nao tem carga por este caminho).
     python backend/scripts/carregar_votacao_secao.py extrair \\
         --zip votacao_secao_2026_RJ.zip --saida secoes_2026_RJ.tsv.gz
 
+   Presidente vem num arquivo NACIONAL (votacao_secao_<ano>_BR.zip, todas as
+   UFs e o exterior): extrair uma vez por UF com `--uf RJ` etc. e carregar
+   cada arquivo com a sua UF.
+
    ANTES: conferir que o zip e o certo. A CDN do TSE ja serviu duas versoes do
    mesmo arquivo no mesmo dia (RJ 2026: 130 MB e 290 MB).
 
@@ -116,9 +120,12 @@ def _mostrar_prova(prova: dict[str, int]) -> bool:
 
 def _extrair(args) -> int:
     t = time.perf_counter()
-    r = vs.extrair(args.zip, args.saida)
+    r = vs.extrair(args.zip, args.saida, uf=args.uf)
     print(f"{args.saida}: {_n(r['linhas'])} linhas, {_n(r['votos'])} votos, "
           f"{_n(r['candidatos'])} candidatos ({time.perf_counter() - t:.0f}s)")
+    if args.locais:
+        n = vs.extrair_locais(args.zip, args.locais, uf=args.uf)
+        print(f"{args.locais}: {_n(n)} locais")
     return 0
 
 
@@ -145,6 +152,14 @@ def _carregar(args) -> int:
                 )
             conexao.commit()
             print(f"preparo: {_n(copiadas)} linhas ({time.perf_counter() - t:.0f}s)", flush=True)
+
+            if args.locais:
+                # Dentro da transacao: no ensaio o rollback desfaz o cadastro,
+                # e o casamento abaixo ja mostra o numero de DEPOIS dele.
+                lidos = vs.copiar_locais(cur, args.locais)
+                novos = vs.inserir_locais(cur, uf=args.uf, ano=args.ano)
+                print(f"  locais do resultado: {_n(lidos)} | cadastrados agora "
+                      f"(nao existiam): {_n(novos)}", flush=True)
 
             c = vs.casamento(cur, uf=args.uf, ano=args.ano)
             print(f"  casam {_n(c['casam'])} de {_n(c['linhas'])} linhas "
@@ -224,6 +239,10 @@ def main() -> int:
     e = sub.add_parser("extrair", help="zip do TSE -> .tsv.gz (nao usa o banco)")
     e.add_argument("--zip", type=Path, required=True)
     e.add_argument("--saida", type=Path, required=True)
+    e.add_argument("--uf", type=str.upper, default=None,
+                   help="so as linhas desta UF (para o arquivo nacional de presidente, _BR.zip)")
+    e.add_argument("--locais", type=Path, default=None,
+                   help="grava tambem os locais do resultado (nome e endereco) neste .csv.gz")
     e.set_defaults(rodar=_extrair)
 
     c = sub.add_parser("carregar", help="arquivo -> tse_section_votes (ensaio sem --aplicar)")
@@ -232,6 +251,9 @@ def main() -> int:
     origem = c.add_mutually_exclusive_group(required=True)
     origem.add_argument("--arquivo", type=Path, help=".tsv.gz gerado por `extrair`")
     origem.add_argument("--zip", type=Path, help="zip do TSE (le aqui mesmo, mais lento)")
+    c.add_argument("--locais", type=Path, default=None,
+                   help="cadastra antes os locais deste .csv.gz (de `extrair --locais`) "
+                        "que o banco nao tem")
     c.add_argument("--aplicar", action="store_true", help="grava (sem isto, so ensaia)")
     c.add_argument("--mesmo-assim", action="store_true",
                    help="grava o que casa mesmo havendo linha sem par no banco")

@@ -265,9 +265,9 @@ _CABECALHO = (
 
 
 def _linha(*, turno=1, mun=58033, zona=92, secao=316, votos=1, local=1902,
-           sq=190002541678, nome="JOÃO; DA SILVA"):
+           sq=190002541678, nome="JOÃO; DA SILVA", uf="RJ"):
     # O nome leva acento (latin-1) e um ';' dentro das aspas, como no arquivo real.
-    return (f'"05/10/2026";"{turno}";"RJ";"{mun}";"{zona}";"{secao}";"7";"11111";'
+    return (f'"05/10/2026";"{turno}";"{uf}";"{mun}";"{zona}";"{secao}";"7";"11111";'
             f'"{nome}";"{votos}";"{local}";"{sq}";"ESCOLA MUNICIPAL"')
 
 
@@ -322,6 +322,18 @@ def test_nacional_mais_estaduais_nao_conta_em_dobro(tmp_path):
     assert [l[5] for l in vs.linhas_do_zip(z)] == [5]
 
 
+def test_arquivo_nacional_de_presidente_e_lido_uma_uf_por_vez(tmp_path):
+    """O _BR.zip traz todas as UFs e o exterior (ZZ); a carga e por UF."""
+    z = _zip(tmp_path / "v.zip", {"votacao_secao_2026_BR.csv": [
+        _linha(uf="RJ", votos=10), _linha(uf="SP", mun=71072, votos=20),
+        _linha(uf="ZZ", mun=29912, votos=3), _linha(uf="rj", votos=1),
+    ]})
+
+    assert [l[5] for l in vs.linhas_do_zip(z, uf="RJ")] == [10, 1]
+    assert [l[5] for l in vs.linhas_do_zip(z, uf="ZZ")] == [3]
+    assert [l[5] for l in vs.linhas_do_zip(z)] == [10, 20, 3, 1]   # sem filtro: tudo
+
+
 def test_linha_sem_zona_local_ou_secao_nao_entra(tmp_path):
     z = _zip(tmp_path / "v.zip", {"votacao_secao_2026_RJ.csv": [
         _linha(zona=0), _linha(local=0), _linha(secao=0), _linha(votos=7),
@@ -346,3 +358,50 @@ def test_extrair_grava_no_formato_do_copy(tmp_path):
             "190002541678\t58033\t92\t1902\t316\t1\n"
             "190002541068\t58033\t92\t1902\t317\t28\n"
         )
+
+
+# ------------------------------------------- locais que o cadastro nao tem
+
+
+def test_locais_do_resultado_tem_o_nome_onde_a_secao_votou(tmp_path):
+    """Secao remanejada: o resultado diz em que predio ela votou, e e esse
+    nome (e nao o do cadastro) que o local novo leva."""
+    z = _zip(tmp_path / "v.zip", {"votacao_secao_2026_RJ.csv": [
+        _linha(local=1902, secao=316),
+        _linha(local=1902, secao=317),               # mesmo local: uma entrada so
+        _linha(local=2283, zona=6, secao=146),
+    ]})
+
+    locais = vs.locais_do_zip(z)
+
+    assert set(locais) == {(58033, 92, 1902), (58033, 6, 2283)}
+    assert locais[(58033, 92, 1902)][0] == "ESCOLA MUNICIPAL"
+
+
+def test_locais_do_arquivo_de_presidente_saem_por_uf(tmp_path):
+    z = _zip(tmp_path / "v.zip", {"votacao_secao_2026_BR.csv": [
+        _linha(uf="RJ", local=10), _linha(uf="ZZ", mun=29912, local=1015),
+    ]})
+
+    assert set(vs.locais_do_zip(z, uf="ZZ")) == {(29912, 92, 1015)}
+
+
+def test_extrair_locais_grava_csv_que_o_copy_le(tmp_path):
+    """Nome de local tem virgula, aspas e acento; o CSV precisa sobreviver."""
+    import csv as _csv
+
+    cab = _CABECALHO + ';"DS_LOCAL_VOTACAO_ENDERECO"'
+    nome = 'E.M. "PROF. JOÃO", ANEXO' + "X" * 300
+    linha = _linha(nome="ALGUEM").replace('"ESCOLA MUNICIPAL"', '"' + nome.replace('"', '""') + '"')
+    caminho = tmp_path / "v.zip"
+    with zipfile.ZipFile(caminho, "w") as zz:
+        zz.writestr("votacao_secao_2026_RJ.csv",
+                    (cab + "\r\n" + linha + ';"RUA A, 10"\r\n').encode("latin-1"))
+    destino = tmp_path / "locais.csv.gz"
+
+    assert vs.extrair_locais(caminho, destino) == 1
+    with gzip.open(destino, "rt", encoding="utf-8", newline="") as f:
+        [mun, zona, local, lido, endereco] = next(_csv.reader(f))
+    assert (mun, zona, local) == ("58033", "92", "1902")
+    assert lido == nome[:200]                         # limite da coluna name
+    assert endereco == "RUA A, 10"
