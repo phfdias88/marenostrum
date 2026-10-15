@@ -133,7 +133,11 @@ export function CandidateMapModal({ results, onClose }: Props) {
   // já temos 2024 (Brasil, prefeito/vereador) e 2018/2020/2022 (RJ, todos os
   // cargos). Como a disponibilidade depende de (ano × UF × cargo), SEMPRE
   // oferecemos o modo e deixamos o backend responder; vazio → aviso + fallback.
-  const bairroAvailable = true;
+  //
+  // Menos para PRESIDENTE: o país inteiro são 52 mil bairros — bolha demais
+  // para um mapa e uma resposta pesada para a API. Por bairro, o presidente
+  // se vê município a município na Análise por Bairro.
+  const bairroAvailable = c.office_code !== 1;
 
   // Padrão BAIRRO pra candidatos municipais (prefeito=11, vereador=13):
   // é a granularidade que importa pra eles. Demais começam em município.
@@ -698,12 +702,14 @@ export function CandidateMapModal({ results, onClose }: Props) {
                 icon={<MapPin className="w-3.5 h-3.5" />}
                 label="Município"
               />
-              <ModeBtn
-                active={mode === "bairro"}
-                onClick={() => pick("bairro")}
-                icon={<Building2 className="w-3.5 h-3.5" />}
-                label="Bairro"
-              />
+              {bairroAvailable && (
+                <ModeBtn
+                  active={mode === "bairro"}
+                  onClick={() => pick("bairro")}
+                  icon={<Building2 className="w-3.5 h-3.5" />}
+                  label="Bairro"
+                />
+              )}
               <ModeBtn
                 active={mode === "locais"}
                 onClick={() => pick("locais")}

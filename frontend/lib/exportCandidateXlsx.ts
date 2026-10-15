@@ -67,6 +67,10 @@ export async function exportCandidateXlsx(
 ): Promise<void> {
   const c = results.candidate;
 
+  // Presidente: o detalhe por seção do país são ~500 mil linhas — pesado
+  // demais para a planilha (e para o navegador montá-la). A aba sai com aviso.
+  const secaoPulada = c.office_code === 1;
+
   // Dados de bairro (SEM limit → todos), de local e de seção, em paralelo.
   // Falha em um deles não aborta o export: fica `null`, e a aba sai com o
   // aviso de que a consulta falhou (diferente de "não há dado").
@@ -75,9 +79,11 @@ export async function exportCandidateXlsx(
       `/v1/tse/candidates/${c.id}/by-neighborhood`,
     ).catch(() => null),
     api<PlaceRow[]>(`/v1/tse/candidates/${c.id}/by-place`).catch(() => null),
-    api<BySectionResponse>(`/v1/tse/candidates/${c.id}/by-section`).catch(
-      () => null,
-    ),
+    secaoPulada
+      ? Promise.resolve(null)
+      : api<BySectionResponse>(`/v1/tse/candidates/${c.id}/by-section`).catch(
+          () => null,
+        ),
   ]);
 
   const XLSX = await import("xlsx");
@@ -103,7 +109,9 @@ export async function exportCandidateXlsx(
     ["Locais de votação com votos", places ? places.length : failedCell],
     [
       "Seções eleitorais com votos",
-      !bySection
+      secaoPulada
+        ? "não exportado (presidente)"
+        : !bySection
         ? failedCell
         : sectionPlaces.length > 0
           ? bySection.sections_total
@@ -204,7 +212,9 @@ export async function exportCandidateXlsx(
         ])
       : XLSX.utils.aoa_to_sheet([
           [
-            !bySection
+            secaoPulada
+              ? "Presidente: o detalhe por seção do país inteiro (cerca de 500 mil seções) não cabe nesta planilha. O total de cada local está na aba anterior; para um município, use a Análise por Bairro."
+              : !bySection
               ? fetchFailed
               : bySection.places_total > 0
                 ? "O detalhe por seção eleitoral ainda não foi carregado para esta eleição (o total de cada local está na aba anterior)."

@@ -372,11 +372,24 @@ def main() -> int:
     if locais is not None:
         confere(len(locais) > 1000, f"bairros: {len(locais)} locais de votacao do Rio em 2024",
                 f"bairros: so {len(locais)} locais de votacao do Rio em 2024")
+    # 2026: voto por secao do pais inteiro desde 15/10/2026 (bairro e local).
+    bairros = pega(f"/tse/candidates/{lider.id}/by-neighborhood?municipality_id={rio}",
+                   f"Bairros ({ANO}, presidente no Rio)")
+    if bairros is not None:
+        no_rio = int(um(
+            "SELECT coalesce(sum(votes), 0) FROM tse_vote_results "
+            "WHERE candidate_id = :c AND municipality_id = :m", c=lider.id, m=rio)[0])
+        confere(bairros["total_votes"] == no_rio and bairros["total_neighborhoods"] > 100,
+                f"bairros de {ANO}: {bairros['total_neighborhoods']} bairros do Rio somam o voto "
+                f"do municipio ({no_rio:,})".replace(",", "."),
+                f"bairros de {ANO} no Rio: {bairros['total_votes']} x {no_rio} por municipio")
+    # Zona de 2026 fica de fora de proposito: zona_votos_2026 sao ~6,7 mi de
+    # linhas (~2,5 GB) e o disco nao comporta junto com o voto por secao.
     zonas_2026 = pega(
         f"/tse/municipalities/{rio}/zones?year={ANO}&office_code=3", f"Zona ({ANO})")
     if zonas_2026 is not None and not zonas_2026.get("zones"):
-        aviso(f"voto por secao de {ANO} ainda nao existe: as telas de BAIRRO e ZONA "
-              f"continuam em 2024 ate o TSE publicar o arquivo (votacao_secao_{ANO})")
+        aviso(f"zona eleitoral de {ANO} nao carregada (zona_votos_{ANO} fica de fora por "
+              f"espaco em disco): a tela de ZONA continua em 2024")
 
     # ================================================== 5. PARTIDO POR EPOCA
     print("\n5. SIGLA DA EPOCA NOS ANOS ANTIGOS")

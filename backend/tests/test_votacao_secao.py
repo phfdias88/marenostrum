@@ -405,3 +405,57 @@ def test_extrair_locais_grava_csv_que_o_copy_le(tmp_path):
     assert (mun, zona, local) == ("58033", "92", "1902")
     assert lido == nome[:200]                         # limite da coluna name
     assert endereco == "RUA A, 10"
+
+
+# ------------------------------------------- exportacao em fluxo e sem cache
+
+
+def test_por_local_vazio_e_uma_lista_json_valida(client, tenant_a, db_session):
+    """As rotas de exportacao saem em fluxo; sem linha nenhuma o corpo ainda
+    tem de ser JSON valido (a planilha faz r.json())."""
+    _, _, token = tenant_a
+    cand, _, _ = _seed(db_session)
+    db_session.query(TseSectionVote).delete()
+    db_session.commit()
+
+    r = client.get(f"/api/v1/tse/candidates/{cand.id}/by-place", headers=_auth(token))
+
+    assert r.status_code == 200 and r.json() == []
+
+
+def test_bairros_de_candidato_do_pais_inteiro_nao_vao_para_o_cache(
+    client, tenant_a, db_session, monkeypatch,
+):
+    """Presidente: 52 mil bairros. Ficar no cache em memoria prenderia dezenas
+    de MB por horas numa API de 768 MB; a resposta continua a mesma."""
+    from app.controllers import tse as rotas
+    from app.utils import agg_cache
+
+    _, _, token = tenant_a
+    cand, _, _ = _seed(db_session)
+    url = f"/api/v1/tse/candidates/{cand.id}/by-neighborhood"
+
+    pequeno = client.get(url, headers=_auth(token)).json()
+    assert any(k.startswith("by_nb:") for k in agg_cache._store)   # 3 bairros: cacheia
+
+    agg_cache.clear_agg_cache()
+    monkeypatch.setattr(rotas, "_BAIRROS_SEM_CACHE", 2)
+    grande = client.get(url, headers=_auth(token)).json()
+
+    assert not any(k.startswith("by_nb:") for k in agg_cache._store)
+    assert grande == pequeno
+    assert {i["neighborhood"] for i in grande["items"]} == {"CENTRO", "PRAIA", "VILA"}
+
+
+def test_lista_em_lotes_tem_virgula_so_entre_itens(monkeypatch):
+    """A saida em lotes junta itens com virgula, inclusive na emenda entre um
+    lote e o outro — e nada sobra no comeco ou no fim."""
+    import json
+
+    from app.controllers import tse as rotas
+
+    monkeypatch.setattr(rotas, "_LOTE_DO_FLUXO", 2)
+    for n in (0, 1, 2, 3, 5):
+        itens = (json.dumps({"i": i}).encode() for i in range(n))
+        corpo = b"[" + b"".join(rotas._lista_json_em_lotes(itens)) + b"]"
+        assert json.loads(corpo) == [{"i": i} for i in range(n)]

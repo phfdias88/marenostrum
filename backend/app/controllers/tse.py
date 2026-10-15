@@ -5,8 +5,10 @@ Endpoints autenticados (qualquer usuário com JWT vê os mesmos dados —
 não há filtro de tenant porque dados TSE são públicos).
 """
 import unicodedata
-from typing import Annotated
+from typing import Annotated, Iterator
 from uuid import UUID
+
+import orjson
 
 from fastapi import (
     APIRouter,
@@ -19,7 +21,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, StreamingResponse
 
 from app.models.user import User
 from sqlalchemy import and_, case, false, func, or_, select, text, union
@@ -2816,52 +2818,110 @@ def candidate_by_neighborhood(
             if unicodedata.category(c) != "Mn"
         ).strip()
 
+    # Dicionarios simples, e nao o modelo pydantic, item a item: no presidente
+    # (52 mil bairros) os objetos de validacao custavam ~150 MB de pico numa
+    # API de 768 MB. O modelo so e montado na resposta pequena, que vai para o
+    # cache.
     items = []
     for r in rows:
         pop_dom = census_by_nb.get(_norm_nb(r.neighborhood)) if census_by_nb else None
         pop = pop_dom[0] if pop_dom else None
-        items.append(CandidateByNeighborhoodItem(
-            neighborhood=r.neighborhood,
-            municipality_id=r.municipality_id,
-            municipality_name=r.municipality_name,
-            municipality_state=r.municipality_state,
-            votes=int(r.votes),
-            places_count=int(r.places_count),
-            electors_total=int(r.electors_total),
-            avg_lat=float(r.avg_lat) if r.avg_lat is not None else None,
-            avg_lng=float(r.avg_lng) if r.avg_lng is not None else None,
-            census_population=pop,
-            census_households=pop_dom[1] if pop_dom else None,
+        items.append({
+            "neighborhood": r.neighborhood,
+            "municipality_id": r.municipality_id,
+            "municipality_name": r.municipality_name,
+            "municipality_state": r.municipality_state,
+            "votes": int(r.votes),
+            "places_count": int(r.places_count),
+            "electors_total": int(r.electors_total),
+            "avg_lat": float(r.avg_lat) if r.avg_lat is not None else None,
+            "avg_lng": float(r.avg_lng) if r.avg_lng is not None else None,
+            "census_population": pop,
+            "census_households": pop_dom[1] if pop_dom else None,
             # votos ÷ eleitores aptos DOS LOCAIS do bairro (mesma base; votos
             # por local ≠ residência, então dividir por moradores engana —
             # bairros-polo passariam de 100%).
-            penetration_pct=(
+            "penetration_pct": (
                 round(int(r.votes) / int(r.electors_total) * 100, 1)
                 if r.electors_total and int(r.electors_total) > 0 else None
             ),
-        ))
+        })
+    del rows
 
+    candidato = CandidateRead(
+        id=candidate.id,
+        number=candidate.number,
+        name=candidate.name,
+        urn_name=candidate.urn_name,
+        office_code=candidate.office_code,
+        office_name=candidate.office_name,
+        state=candidate.state,
+        situation=candidate.situation,
+        result_status=candidate.result_status,
+        party=PartyRead.model_validate(party),
+        election=ElectionRead.model_validate(election),
+    )
+    municipio = MunicipalityRead.model_validate(municipality) if municipality else None
+    if len(items) > _BAIRROS_SEM_CACHE:
+        # Exportacao de candidato do pais inteiro (presidente: 52 mil bairros).
+        # Fora do cache em memoria (prenderia dezenas de MB por 4 h) e
+        # serializada direto, sem passar pela validacao do response_model.
+        return ORJSONResponse(content={
+            "candidate": candidato.model_dump(mode="json", by_alias=True),
+            "municipality": municipio.model_dump(mode="json", by_alias=True) if municipio else None,
+            "items": items,
+            "total_votes": total_votes_all,
+            "total_neighborhoods": total_neighborhoods_all,
+        })
     resp = CandidateByNeighborhoodResponse(
-        candidate=CandidateRead(
-            id=candidate.id,
-            number=candidate.number,
-            name=candidate.name,
-            urn_name=candidate.urn_name,
-            office_code=candidate.office_code,
-            office_name=candidate.office_name,
-            state=candidate.state,
-            situation=candidate.situation,
-            result_status=candidate.result_status,
-            party=PartyRead.model_validate(party),
-            election=ElectionRead.model_validate(election),
-        ),
-        municipality=MunicipalityRead.model_validate(municipality) if municipality else None,
-        items=items,
+        candidate=candidato,
+        municipality=municipio,
+        items=[CandidateByNeighborhoodItem(**i) for i in items],
         total_votes=total_votes_all,
         total_neighborhoods=total_neighborhoods_all,
     )
     agg_set(_key, resp)
     return resp
+
+
+# Acima disto o by-neighborhood nao vai para o cache em memoria (ver la).
+_BAIRROS_SEM_CACHE = 5_000
+_LOTE_DO_FLUXO = 2_000
+
+
+def _linhas_em_fluxo(bind, stmt) -> Iterator:
+    """Linhas da consulta em lotes, por cursor do lado do servidor.
+
+    As rotas de exportacao devolvem tudo de um candidato: presidente de 2026 sao
+    95 mil locais e 499 mil secoes. Montar a lista inteira custava ~250 MB de
+    pico numa API de 768 MB que ja anda acima de 600 MB depois de dias de pe —
+    a mesma morte por memoria de 06/10/2026. Em fluxo, a memoria e a de um lote.
+
+    Sessao PROPRIA no mesmo engine do pedido: a resposta e gerada depois que a
+    rota retorna, quando a sessao do pedido (get_db) ja pode ter sido fechada.
+    """
+    with Session(bind=bind) as sessao:
+        yield from sessao.execute(stmt.execution_options(yield_per=_LOTE_DO_FLUXO))
+
+
+def _lista_json_em_lotes(itens: Iterator[bytes]) -> Iterator[bytes]:
+    """Itens JSON ja serializados -> pedacos de UMA lista, um por lote.
+
+    O StreamingResponse do Starlette chama o gerador sincrono numa thread a
+    cada pedaco: um pedaco por linha eram 94 mil trocas de thread no
+    presidente, e a resposta levava 130-160 s (14 s antes do fluxo). Em lotes,
+    algumas dezenas.
+    """
+    lote: list[bytes] = []
+    algum = False
+    for item in itens:
+        lote.append(item)
+        if len(lote) >= _LOTE_DO_FLUXO:
+            yield (b"," if algum else b"") + b",".join(lote)
+            algum = True
+            lote = []
+    if lote:
+        yield (b"," if algum else b"") + b",".join(lote)
 
 
 @router.get(
@@ -2913,10 +2973,12 @@ def candidate_by_place(
         func.sum(TseSectionVote.votes).desc(), TseVotingPlace.name, TseVotingPlace.id
     )
 
-    rows = db.execute(stmt).all()
-    return ORJSONResponse(
-        content=[
-            {
+    bind = db.get_bind()
+
+    def corpo() -> Iterator[bytes]:
+        yield b"["
+        yield from _lista_json_em_lotes(
+            orjson.dumps({
                 "place": r.name,
                 "address": r.address,
                 "neighborhood": r.neighborhood,
@@ -2924,10 +2986,12 @@ def candidate_by_place(
                 "municipality_name": r.municipality_name,
                 "municipality_state": r.municipality_state,
                 "votes": int(r.votes),
-            }
-            for r in rows
-        ],
-    )
+            })
+            for r in _linhas_em_fluxo(bind, stmt)
+        )
+        yield b"]"
+
+    return StreamingResponse(corpo(), media_type="application/json")
 
 
 @router.get(
@@ -2982,37 +3046,45 @@ def candidate_by_section(
         TseSectionVote.votes.desc(), TseVotingPlace.name, TseVotingPlace.id
     )
 
-    items = []
-    sem_detalhe = 0
-    total_secoes = 0
-    for r in db.execute(stmt):
-        if not r.sections:
-            sem_detalhe += 1
-            continue
-        # As chaves do JSON são texto: ordenar como número ("9" antes de "10").
-        secoes = sorted(
-            (int(secao), int(votos))
-            for secao, votos in r.sections.items()
-            if int(votos) > 0
-        )
-        total_secoes += len(secoes)
-        items.append({
-            "zone": r.zone,
-            "place": r.name,
-            "address": r.address,
-            "neighborhood": r.neighborhood,
-            "municipality_name": r.municipality_name,
-            "municipality_state": r.municipality_state,
-            "votes": int(r.votes),
-            "sections": secoes,
-        })
-    return ORJSONResponse(
-        content={
-            "places_total": len(items) + sem_detalhe,
-            "places_without_detail": sem_detalhe,
-            "sections_total": total_secoes,
-            "items": items,
-        },
+    bind = db.get_bind()
+
+    def corpo() -> Iterator[bytes]:
+        # Em fluxo (ver _linhas_em_fluxo): os itens saem primeiro e os totais,
+        # que so se sabem no fim, fecham o objeto.
+        conta = {"locais": 0, "sem_detalhe": 0, "secoes": 0}
+
+        def itens() -> Iterator[bytes]:
+            for r in _linhas_em_fluxo(bind, stmt):
+                conta["locais"] += 1
+                if not r.sections:
+                    conta["sem_detalhe"] += 1
+                    continue
+                # As chaves do JSON são texto: ordenar como número ("9" antes de "10").
+                secoes = sorted(
+                    (int(secao), int(votos))
+                    for secao, votos in r.sections.items()
+                    if int(votos) > 0
+                )
+                conta["secoes"] += len(secoes)
+                yield orjson.dumps({
+                    "zone": r.zone,
+                    "place": r.name,
+                    "address": r.address,
+                    "neighborhood": r.neighborhood,
+                    "municipality_name": r.municipality_name,
+                    "municipality_state": r.municipality_state,
+                    "votes": int(r.votes),
+                    "sections": secoes,
+                })
+
+        yield b'{"items":['
+        yield from _lista_json_em_lotes(itens())
+        yield b'],"places_total":%d,"places_without_detail":%d,"sections_total":%d}' % (
+            conta["locais"], conta["sem_detalhe"], conta["secoes"])
+
+    return StreamingResponse(
+        corpo(),
+        media_type="application/json",
         # O nginx guarda as rotas /tse pela URL, sem olhar quem pede: num
         # acerto de cache a API nem é consultada. Esta fica de fora.
         headers={"Cache-Control": "private, no-store"},
