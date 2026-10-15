@@ -20,10 +20,10 @@
 # ----------------------------------------------------------------------------
 set -euo pipefail
 
-COMPOSE_DIR=/home/deploy/marenostrum
-BACKUP_DIR=/home/deploy/backups
+COMPOSE_DIR="${COMPOSE_DIR:-/home/deploy/marenostrum}"
+BACKUP_DIR="${BACKUP_DIR:-/home/deploy/backups}"
 KEEP=3              # quantos dumps LOCAIS manter (ver tamanho × disco livre)
-MIN_FREE_GB=3       # não roda com menos que isso livre
+MIN_FREE_GB=3       # sobra mínima no disco DEPOIS do dump do dia
 MIN_DUMP_MB=200     # dump menor que isso = algo errado, não rotaciona
 
 # --- Config OPCIONAL de off-site + alerta (env-gated) -----------------------
@@ -66,9 +66,34 @@ fail() {  # $1 = mensagem -> loga, notifica, sinaliza heartbeat/fail, sai 1
 mkdir -p "$BACKUP_DIR"
 cd "$COMPOSE_DIR"
 
-free_kb=$(df --output=avail / | tail -1 | tr -d ' ')
-if [ "$free_kb" -lt $((MIN_FREE_GB * 1024 * 1024)) ]; then
-  fail "disco insuficiente ($((free_kb / 1024 / 1024))GB livres, mínimo ${MIN_FREE_GB}GB)"
+# Espaço para o dump de HOJE, conferido antes de começar: o tamanho do último
+# dump com 25% de folga MAIS a sobra mínima. O dump novo é gravado com os KEEP
+# antigos ainda no disco, e o banco cresce (a carga do voto por seção de 2026
+# somou ~4 GB): sem esta conta, o dump enchia o disco no meio — e o Postgres
+# para junto. Se não couber, apaga o dump mais ANTIGO antes de começar, um por
+# vez; o mais recente nunca (sempre sobra um backup bom no disco). E só apaga
+# se, apagando, couber: dump que não vai caber de jeito nenhum falha ANTES,
+# sem levar os antigos junto.
+livre_kb() { df --output=avail / | tail -1 | tr -d ' '; }
+precisa_kb=$((MIN_FREE_GB * 1024 * 1024))
+ultimo=$(ls -1t "$BACKUP_DIR"/marenostrum_*.dump 2>/dev/null | head -n 1 || true)
+if [ -n "$ultimo" ]; then
+  precisa_kb=$((precisa_kb + $(stat -c %s "$ultimo") / 1024 * 5 / 4))
+fi
+if [ "$(livre_kb)" -lt "$precisa_kb" ]; then
+  liberavel_kb=0
+  for f in $(ls -1t "$BACKUP_DIR"/marenostrum_*.dump 2>/dev/null | tail -n +2 || true); do
+    liberavel_kb=$((liberavel_kb + $(stat -c %s "$f") / 1024))
+  done
+  if [ $(($(livre_kb) + liberavel_kb)) -lt "$precisa_kb" ]; then
+    fail "disco insuficiente ($(($(livre_kb) / 1024 / 1024))GB livres; o dump do dia precisa de $((precisa_kb / 1024 / 1024))GB, e nem apagando os antigos cabe)"
+  fi
+  while [ "$(livre_kb)" -lt "$precisa_kb" ]; do
+    mais_antigo=$(ls -1t "$BACKUP_DIR"/marenostrum_*.dump 2>/dev/null | tail -n +2 | tail -n 1 || true)
+    [ -n "$mais_antigo" ] || break
+    log "espaço: apagando $(basename "$mais_antigo") antes do dump (precisa de $((precisa_kb / 1024 / 1024))GB livres)"
+    rm -f "$mais_antigo"
+  done
 fi
 
 stamp=$(date +%F)
